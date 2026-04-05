@@ -15,6 +15,7 @@ strategy/execution misalignment and surfaces early risk signals with bounded cor
 |------|------|
 | Frontend work (AG-UI, CopilotKit, React Flow) | `context/frontend-integration.md` + `../../ag-ui-docs.txt` (grep only) |
 | Backend / ADK agent work | `context/agent-architecture.md` + `/adk-cheatsheet` skill |
+| Jules CLI — Code Execution | `jules --help` + `jules remote list --help` |
 | Product decisions / UX copy | `context/product-principles.md` |
 | Full product spec / feature scope | `context/DESIGN_SPEC.md` |
 | Storage / AlloyDB / Vertex Memory | `context/tech-stack.md` §Storage |
@@ -47,6 +48,7 @@ When an AG-UI task comes up, read only the relevant section using grep/search ra
   ADK evals (not pytest) for agent behavior.
 - **Gemini 3 series only** for new agents: `gemini-3-flash-preview` or `gemini-3-pro-preview`.
 - **No chatbot UI.** Structured AG-UI surfaces and CopilotKit approvals only.
+- **Continuous AI via Jules.** Use `jules remote new` for code implementation tasks (with approval).
 
 ## Current phase
-Research ✅ → Concept ✅ → **Schema designed ✅** → Scaffold → Build → Eval → Deploy
+Research ✅ → Concept ✅ → Schema designed ✅ → **Scaffold in progress 🚧** → Build → Eval → Deploy

@@ -17,18 +17,27 @@
 // ─────────────────────────────────────────────
 
 export type RiskType =
-  | "strategy_unclear"   // missing hypothesis, no metric, vague problem
-  | "alignment_issue"    // work doesn't map to stated bet, cross-team thrash
-  | "execution_issue"    // chronic rollovers, scope creep, blocked count rising
+  | "strategy_unclear"      // missing hypothesis, no metric, vague problem
+  | "alignment_issue"       // work doesn't map to stated bet, cross-team thrash
+  | "execution_issue"       // chronic rollovers, scope creep, blocked count rising
+  | "placebo_productivity"  // high ticket velocity but none mapped to active bets (L/N/O signal)
 
 export type Severity = "low" | "medium" | "high" | "critical"
 
 export type BetStatus =
-  | "detecting"   // agent has drafted, awaiting founder confirmation
-  | "active"      // confirmed, being monitored
-  | "paused"      // monitoring paused by founder
-  | "validated"   // bet succeeded, hypothesis confirmed
-  | "killed"      // bet killed by founder or agent suggestion
+  | "detecting"      // agent has drafted, awaiting founder confirmation
+  | "active"         // confirmed, being monitored
+  | "paused"         // monitoring paused by founder
+  | "validated"      // bet succeeded, hypothesis confirmed
+  | "killed"         // bet killed by founder or agent suggestion
+
+export type ScanStatus = "ok" | "error"
+
+export type ScanErrorCode =
+  | "rate_limit"        // Linear API rate limit hit
+  | "auth_expired"      // Linear auth token expired
+  | "api_timeout"       // Linear API timeout
+  | "empty_workspace"   // No issues found in bounded window
 
 export type DeclarationSourceType =
   | "linear_project"    // imported from a Linear project
@@ -44,6 +53,11 @@ export type ActionType =
   | "redesign_experiment"
   | "pre_mortem_session"
   | "align_team"
+  | "no_intervention"            // governor suppressed or confidence below floor
+  | "jules_instrument_experiment"
+  | "jules_add_guardrails"
+  | "jules_refactor_blocker"
+  | "jules_scaffold_experiment"
 
 export type InterventionStatus = "pending" | "accepted" | "rejected" | "dismissed"
 
@@ -52,10 +66,11 @@ export type EvidenceType =
   | "chronic_rollover"       // issues rolled over 2+ cycles
   | "missing_hypothesis"     // no hypothesis on any linked issue
   | "missing_metric"         // no success metric referenced
-  | "cross_team_thrash"      // blocked/waiting signals suggesting misalignment
+  | "cross_team_thrash"      // blocked_by/blocks relations crossing team boundaries
   | "scope_creep"            // scope_change_count above threshold
   | "bet_fragmentation"      // work spread too thin across unrelated areas
   | "strategy_doc_mismatch"  // Linear work doesn't match strategy doc contents
+  | "placebo_productivity"   // high ticket close rate but few/none are bet-mapped
 
 export type TraceType =
   | "bet_clustering"
@@ -99,15 +114,18 @@ export interface AcknowledgedRisk {
 export interface LinearSignals {
   total_issues_analyzed: number
   bet_mapped_issues: number
-  bet_coverage_pct: number            // key metric: are people actually working on this bet?
+  bet_coverage_pct: number             // key metric: are people actually working on this bet?
   rollover_count: number
-  chronic_rollover_count: number      // rolled over 2+ cycles
+  chronic_rollover_count: number       // rolled over 2+ cycles
   blocked_count: number
-  misc_ticket_pct: number             // tickets with no clear problem/bet link
+  misc_ticket_pct: number              // tickets with no clear problem/bet link
   hypothesis_present: boolean
-  metric_linked: boolean
-  cross_team_thrash_signals: number   // "waiting for X" comments, reassignments
+  metric_linked: boolean               // true if regex finds numeric target or metric pattern in any issue description
+  metric_linked_source?: string        // which issue ID contained the metric pattern (for evidence citation)
+  cross_team_thrash_signals: number    // count of blocked_by/blocks relations crossing team boundaries (from Linear relations graph, NOT comments)
   scope_change_count: number
+  read_window_days: number             // always 14 for bounded Signal Engine reads
+  placebo_productivity_score?: number  // pct of closed issues in window that are NOT bet-mapped (L/N/O signal)
 }
 
 export interface Evidence {
@@ -131,6 +149,13 @@ export interface LinearAction {
   }
   update_status?: string
   update_assignee?: string
+  draft_document?: {
+    // Creates a Linear Document (not a direct edit) for founder review
+    // Used for high-visibility actions: kill_bet draft, pre-mortem template, redesign_experiment
+    title: string
+    content: string      // Markdown, pre-filled by agent
+    issue_id?: string    // linked issue if applicable
+  }
 }
 
 // ─────────────────────────────────────────────
@@ -182,8 +207,25 @@ export interface BetSnapshot {
   period_start: string
   period_end: string
   linear_signals: LinearSignals
-  health_score: number                // 0–100, derived from signals vs BetHealthBaseline
+  health_score: number                // 0–100, derived from signals vs BetHealthBaseline; null on error
   risk_types_present: RiskType[]
+  status: ScanStatus                  // "ok" | "error" — always set; UI shows scan freshness
+  error_code?: ScanErrorCode          // set if status === "error"
+}
+
+// Persisted when Governor denies an intervention — audit trail for AutoResearch
+export interface PolicyDeniedEvent {
+  id: string
+  bet_id: string
+  intervention_id: string             // the denied Intervention record
+  denial_reason:
+    | "confidence_below_floor"
+    | "duplicate_suppression"
+    | "rate_cap"
+    | "jules_gate"
+    | "reversibility_check"
+    | "acknowledged_risk"
+  created_at: string
 }
 
 export interface RiskSignal {
@@ -273,10 +315,13 @@ export interface HeuristicVersion {
   status: HeuristicVersionStatus
 
   risk_thresholds: {
-    low_bet_coverage_threshold: number      // default: 0.5
-    chronic_rollover_threshold: number      // default: 2
-    misc_ticket_threshold: number           // default: 0.3
-    cross_team_thrash_threshold: number     // default: 3
+    low_bet_coverage_threshold: number        // default: 0.5
+    chronic_rollover_threshold: number        // default: 2
+    misc_ticket_threshold: number             // default: 0.3
+    cross_team_thrash_threshold: number       // default: 3 (relation count, not comment count)
+    min_confidence_to_surface: number         // default: 0.65 (Governor floor)
+    intervention_rate_cap_days: number        // default: 7 (max 1 intervention per bet per N days)
+    placebo_productivity_threshold: number    // default: 0.7 (if 70%+ of closed tickets unmapped → flag)
   }
   classification_prompt_fragment: string
   intervention_ranking_weights: Array<{
