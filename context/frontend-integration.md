@@ -306,6 +306,206 @@ export function useJulesPlanApproval() {
 
 ---
 
+## Intervention Inbox
+
+The Intervention Inbox is the operational center of Aegis — a persistent side panel listing
+all pending interventions across bets, ordered by severity + recency. It replaces the pattern
+of surfacing one card at a time, giving founders a queue they can work through on their terms.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Intervention Inbox                          [2 pending] │
+│─────────────────────────────────────────────────────────│
+│  ● Execution Risk — Mobile Onboarding Bet               │
+│    Add hypothesis to 3 rolled-over issues      [Accept] │
+│    Confidence: 78%              [Edit]  [Reject] [Snooze]│
+│─────────────────────────────────────────────────────────│
+│  ● Strategy Unclear — Retention Experiment              │
+│    Draft success metric definition             [Accept] │
+│    Confidence: 71%              [Edit]  [Reject] [Snooze]│
+│─────────────────────────────────────────────────────────│
+│  ▸ Suppressed (3)  — click to expand                    │
+└─────────────────────────────────────────────────────────┘
+```
+
+```typescript
+// useInterventionInbox.ts — fetches all pending interventions across bets
+import { useQuery } from "@tanstack/react-query"
+
+export function useInterventionInbox(workspaceId: string) {
+  const pendingQuery = useQuery({
+    queryKey: ["interventions", workspaceId, "pending"],
+    queryFn: () => fetchInterventions(workspaceId, { status: "pending" }),
+    staleTime: 10_000,
+  })
+
+  const suppressedQuery = useQuery({
+    queryKey: ["policy-denied", workspaceId],
+    queryFn: () => fetchPolicyDeniedEvents(workspaceId, { limit: 10 }),
+    staleTime: 30_000,
+  })
+
+  return {
+    pending: pendingQuery.data ?? [],
+    suppressed: suppressedQuery.data ?? [],
+    isLoading: pendingQuery.isLoading,
+    pendingCount: pendingQuery.data?.length ?? 0,
+  }
+}
+```
+
+```tsx
+// InterventionInbox.tsx
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+
+export function InterventionInbox({
+  workspaceId,
+  open,
+  onOpenChange,
+}: {
+  workspaceId: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const { pending, suppressed, pendingCount } = useInterventionInbox(workspaceId)
+  const { acceptIntervention, rejectIntervention } = useCoordinatorAgent()
+  const [snoozed, setSnoozed] = useState<Set<string>>(new Set())
+
+  const visible = pending.filter(i => !snoozed.has(i.id))
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-[420px] overflow-y-auto">
+        <SheetHeader>
+          <SheetTitle className="flex items-center gap-2">
+            Intervention Inbox
+            {pendingCount > 0 && (
+              <Badge variant="destructive">{pendingCount}</Badge>
+            )}
+          </SheetTitle>
+        </SheetHeader>
+
+        <div className="mt-4 space-y-3">
+          {visible.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-8">
+              No pending interventions — all bets healthy.
+            </p>
+          )}
+
+          {visible.map(intervention => (
+            <InboxInterventionCard
+              key={intervention.id}
+              intervention={intervention}
+              onAccept={(note) => acceptIntervention(intervention.id, note)}
+              onReject={(note) => rejectIntervention(intervention.id, note)}
+              onSnooze={() => setSnoozed(s => new Set([...s, intervention.id]))}
+            />
+          ))}
+
+          {/* Suppression Log — visible governance, builds trust */}
+          {suppressed.length > 0 && (
+            <SuppressionLog events={suppressed} />
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  )
+}
+```
+
+```tsx
+// InboxInterventionCard.tsx — compact approval card for queue context
+export function InboxInterventionCard({
+  intervention, onAccept, onReject, onSnooze,
+}: InboxInterventionCardProps) {
+  const [expanded, setExpanded] = useState(false)
+  const [note, setNote] = useState("")
+
+  return (
+    <Card className="border-l-4" style={{ borderLeftColor: riskTypeToColor(intervention.risk_type) }}>
+      <CardHeader className="pb-2 cursor-pointer" onClick={() => setExpanded(e => !e)}>
+        <div className="flex items-center gap-2">
+          <ActionTypeBadge type={intervention.action_type} />
+          <ConfidencePill confidence={intervention.confidence} />
+        </div>
+        <CardTitle className="text-sm font-medium mt-1">{intervention.title}</CardTitle>
+      </CardHeader>
+
+      {expanded && (
+        <CardContent className="pt-0 pb-2 text-xs text-muted-foreground">
+          {intervention.rationale}
+          {intervention.proposed_linear_action && (
+            <LinearActionPreview action={intervention.proposed_linear_action} className="mt-2" />
+          )}
+          <Textarea
+            placeholder="Optional note..."
+            value={note}
+            onChange={e => setNote(e.target.value)}
+            className="mt-2 text-xs h-16"
+          />
+        </CardContent>
+      )}
+
+      <CardFooter className="pt-2 gap-2">
+        <Button size="sm" className="flex-1" onClick={() => onAccept(note)}>Accept</Button>
+        <Button size="sm" variant="outline" onClick={() => onReject(note)}>Reject</Button>
+        <Button size="sm" variant="ghost" onClick={onSnooze}>Snooze</Button>
+      </CardFooter>
+    </Card>
+  )
+}
+```
+
+### Suppression Log — visible governance
+
+Shows founders what the Governor quietly suppressed and why. This builds trust by demonstrating
+restraint: the system isn't just alerting on everything.
+
+```tsx
+// SuppressionLog.tsx
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
+import { ChevronDown } from "lucide-react"
+
+const DENIAL_REASON_LABELS: Record<PolicyDeniedEvent["denial_reason"], string> = {
+  confidence_below_floor: "Evidence too weak",
+  duplicate_suppression:  "Similar action rejected recently",
+  rate_cap:               "Too many interventions this week",
+  jules_gate:             "GitHub not connected",
+  reversibility_check:    "Flagged for extra review",
+  acknowledged_risk:      "Already acknowledged by you",
+}
+
+export function SuppressionLog({ events }: { events: PolicyDeniedEvent[] }) {
+  return (
+    <Collapsible>
+      <CollapsibleTrigger className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground w-full py-2">
+        <ChevronDown className="h-3 w-3" />
+        Suppressed ({events.length}) — Aegis held back these interventions
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="space-y-2 pt-1">
+          {events.map(event => (
+            <div
+              key={event.id}
+              className="text-xs bg-muted/40 rounded px-3 py-2 text-muted-foreground"
+            >
+              <span className="font-medium text-foreground">
+                {DENIAL_REASON_LABELS[event.denial_reason]}
+              </span>
+              <span className="mx-1">·</span>
+              {formatRelativeTime(event.created_at)}
+            </div>
+          ))}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  )
+}
+```
+
+---
+
 ## AG-UI: Streaming Agent Events
 
 ### Event → UI mapping
@@ -405,25 +605,29 @@ export function RiskSignalCard({ riskSignal }: { riskSignal: RiskSignal }) {
 | Product concept | shadcn component | Notes |
 |----------------|-----------------|-------|
 | Bet card (Detect/Draft/Confirm) | `Card` + `CardHeader` + `CardContent` | Three visual states per BetStatus |
-| Risk type label | `Badge` variant by risk type | `destructive`=strategy, `warning`=alignment, `secondary`=execution |
+| Risk type label | `Badge` variant by risk type | `destructive`=strategy, `warning`=alignment, `secondary`=execution, `outline`=placebo |
 | Health score bar | `Progress` | Color via className based on score range |
 | Confidence indicator | Custom `ConfidencePill` built on `Badge` | Shows % + muted if < 0.6 |
-| Intervention approval | `Sheet` (side panel) | Not modal — keeps canvas visible |
+| Intervention Inbox | `Sheet` (side panel, persistent) | Named feature — approval queue for all pending interventions |
+| Intervention approval card | `Card` inside Sheet | Not modal — keeps canvas visible |
 | Jules plan approval | `Dialog` | Full focus — blocking decision |
 | Agent activity feedback | `Sonner` toast | Non-blocking, with action buttons |
 | Inline risk alert | `Alert` + `AlertDescription` | Within bet detail view |
 | Quick action (accept/reject all) | `Command` inside `Dialog` | Power user flow |
 | Bet declaration confirm step | `Card` + `AlertDialog` for "Not a bet" | Confirm requires AlertDialog |
 | Agent evolution log | `Table` + `Badge` + `Accordion` | Each HeuristicVersion as accordion row |
+| Suppression Log | `Collapsible` + `Table` | Shows PolicyDeniedEvents — builds trust by showing restraint |
+| Replay / Simulation preview | `Card` + `Timeline` + `Badge` | Shown in bet declaration ConfirmStep |
 
 ### Core shared components
 
 ```tsx
 // RiskTypeBadge.tsx
 const RISK_TYPE_CONFIG = {
-  strategy_unclear: { label: "Strategy unclear", variant: "destructive" },
-  alignment_issue:  { label: "Alignment issue",  variant: "warning" },
-  execution_issue:  { label: "Execution issue",  variant: "secondary" },
+  strategy_unclear:     { label: "Strategy unclear",     variant: "destructive" },
+  alignment_issue:      { label: "Alignment issue",      variant: "warning" },
+  execution_issue:      { label: "Execution issue",      variant: "secondary" },
+  placebo_productivity: { label: "Placebo productivity", variant: "outline" },
 } as const
 
 export function RiskTypeBadge({ type }: { type: RiskType }) {
@@ -634,15 +838,20 @@ frontend/
 │   │   ├── RiskEdge.tsx
 │   │   └── AgentActivityNode.tsx
 │   ├── risk-signal/
-│   │   ├── RiskSignalPanel.tsx # shadcn Sheet
+│   │   ├── RiskSignalPanel.tsx # shadcn Sheet — per-bet risk detail
 │   │   └── RiskSignalCard.tsx
 │   ├── intervention/
-│   │   ├── InterventionApprovalCard.tsx
+│   │   ├── InterventionInbox.tsx          # persistent side panel (approval queue)
+│   │   ├── InboxInterventionCard.tsx      # compact card within Inbox
+│   │   ├── InterventionApprovalCard.tsx   # full-detail card (opened from Inbox)
+│   │   ├── SuppressionLog.tsx             # PolicyDeniedEvents — visible governance
 │   │   └── JulesPlanApprovalDialog.tsx
 │   ├── bet-declaration/
 │   │   ├── DetectStep.tsx
 │   │   ├── DraftStep.tsx
-│   │   └── ConfirmStep.tsx
+│   │   ├── ConfirmStep.tsx                # includes Day1HealthReport + ReplayPreview
+│   │   ├── Day1HealthReport.tsx           # instant health snapshot at confirmation
+│   │   └── ReplayPreview.tsx              # simulation over last 14 days
 │   └── shared/
 │       ├── RiskTypeBadge.tsx
 │       ├── ConfidencePill.tsx
@@ -652,6 +861,7 @@ frontend/
 │   ├── useCoordinatorAgent.ts
 │   ├── useMissionControlSync.ts
 │   ├── useInterventionApproval.ts
+│   ├── useInterventionInbox.ts            # pending + suppressed interventions
 │   ├── useJulesPlanApproval.ts
 │   ├── useAgentToolCallEvents.ts
 │   └── useWorkspaceState.ts

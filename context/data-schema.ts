@@ -61,6 +61,29 @@ export type ActionType =
 
 export type InterventionStatus = "pending" | "accepted" | "rejected" | "dismissed"
 
+export type EscalationLevel = 1 | 2 | 3 | 4
+// Level 1: clarify_bet, add_hypothesis, add_metric
+// Level 2: rescope, align_team, redesign_experiment
+// Level 3: pre_mortem_session, jules_* actions
+// Level 4: kill_bet
+
+export type RejectionReasonCategory =
+  | "evidence_too_weak"    // signals not convincing enough
+  | "already_handled"      // founder already addressed this outside Aegis
+  | "not_a_priority"       // real risk, but wrong time
+  | "wrong_risk_type"      // misclassified by Product Brain
+  | "other"
+
+// Workspace-level autonomy gradient — Governor checks this before every Executor call
+// L1: founder earns trust first. L2: default. L3: low-risk auto-actions permitted.
+export type ControlLevel = "draft_only" | "require_approval" | "autonomous_low_risk"
+
+export type ExperimentType =
+  | "interview" | "ab_test" | "fake_door" | "prototype" | "analytics" | "survey"
+
+export type ExperimentOutcome =
+  | "confirmed" | "refuted" | "inconclusive" | "abandoned"
+
 export type EvidenceType =
   | "low_bet_coverage"       // < threshold % of work maps to this bet
   | "chronic_rollover"       // issues rolled over 2+ cycles
@@ -137,6 +160,14 @@ export interface Evidence {
   period_days: number                 // measurement window
 }
 
+export interface BlastRadiusPreview {
+  affected_issue_count: number
+  affected_assignee_ids: string[]
+  affected_project_ids: string[]
+  estimated_notification_count: number
+  reversible: boolean                  // false for kill_bet; shown as extra AlertDialog warning
+}
+
 export interface LinearAction {
   // Bounded write operations — only these are permitted. Nothing else.
   add_label?: string
@@ -167,6 +198,7 @@ export interface Workspace {
   linear_team_id: string
   strategy_doc_refs: string[]         // Notion/doc URLs for Product Brain agent
   active_bet_ids: string[]
+  control_level: ControlLevel         // autonomy setting — Governor enforces this (7th policy check)
   created_at: string
 }
 
@@ -211,6 +243,18 @@ export interface BetSnapshot {
   risk_types_present: RiskType[]
   status: ScanStatus                  // "ok" | "error" — always set; UI shows scan freshness
   error_code?: ScanErrorCode          // set if status === "error"
+
+  // Hypothesis lifecycle signals (Phase 2 — requires HypothesisExperiment table)
+  hypothesis_staleness_days: number           // days since last experiment on this bet
+  hypothesis_experiment_count: number         // total experiments run
+  last_experiment_outcome: ExperimentOutcome | null
+
+  // Cross-workspace outcome signals (Phase 3 — requires BetOutcomeRecord corpus)
+  similar_bet_outcome_pct: number | null      // % of similar bets that ended validated vs killed
+  outcome_pattern_source_count: number        // how many BetOutcomeRecords matched
+
+  // Between-cycle cache control (Phase 2 — Signal Engine skips recompute if valid)
+  cache_valid_until?: string                  // ISO 8601; set by Signal Engine after webhook check
 }
 
 // Persisted when Governor denies an intervention — audit trail for AutoResearch
@@ -225,6 +269,8 @@ export interface PolicyDeniedEvent {
     | "jules_gate"
     | "reversibility_check"
     | "acknowledged_risk"
+    | "override_teach_suppression"    // founder rejected same (risk_type, action_type) twice in auto_suppress_days window
+    | "escalation_ladder"             // lighter intervention not yet attempted
   created_at: string
 }
 
@@ -257,17 +303,20 @@ export interface Intervention {
   bet_id: string
 
   action_type: ActionType
+  escalation_level: EscalationLevel   // 1–4; enforced by Coordinator escalation ladder
   title: string
   rationale: string                   // grounded in cited product principle
   product_principle_refs: string[]
 
   proposed_linear_action?: LinearAction
+  blast_radius?: BlastRadiusPreview   // set by Governor for Level 3–4 or Jules actions
 
   confidence: number
 
   status: InterventionStatus
   decided_at?: string
   founder_note?: string
+  rejection_reason?: RejectionReasonCategory  // set on rejection; feeds Governor suppress loop
 
   created_at: string
 }
@@ -300,6 +349,9 @@ export interface AgentTrace {
   output_summary: string
   output_ids: string[]                // IDs of created entities
 
+  // Phase 3: chain-of-thought before Pydantic output; enables post-hoc debugging + RejectionReasonCluster NLP
+  classification_rationale?: string
+
   heuristic_version_id: string
   eval_score?: number                 // LLM-as-judge score 0–1
   eval_rubric?: string
@@ -322,6 +374,7 @@ export interface HeuristicVersion {
     min_confidence_to_surface: number         // default: 0.65 (Governor floor)
     intervention_rate_cap_days: number        // default: 7 (max 1 intervention per bet per N days)
     placebo_productivity_threshold: number    // default: 0.7 (if 70%+ of closed tickets unmapped → flag)
+    auto_suppress_days: number                // default: 14 (Override & Teach suppression window)
   }
   classification_prompt_fragment: string
   intervention_ranking_weights: Array<{
@@ -333,6 +386,13 @@ export interface HeuristicVersion {
   acceptance_rate: number
   resolution_rate: number
   false_positive_rate: number
+
+  // Versioned Constitution governance (MAJOR = safety change, MINOR = addition, PATCH = tweak)
+  // MAJOR changes (e.g., raising min_confidence_to_surface > 0.8, removing a risk type)
+  // require manual review — AutoResearch can NEVER auto-promote a MAJOR version.
+  version_type: "MAJOR" | "MINOR" | "PATCH"
+  requires_manual_review: boolean
+  git_commit_sha?: string                  // link to versioned artifact in git
 
   parent_version_id?: string
   change_summary: string
@@ -359,6 +419,64 @@ export interface ProductHeuristic {
   example_pattern: string
   suggested_action: ActionType
   confidence_weight: number           // tuned by AutoResearch per workspace
+}
+
+// ─────────────────────────────────────────────
+// PHASE 2 ENTITIES
+// ─────────────────────────────────────────────
+
+// Tracks whether a bet's hypothesis has been experimentally tested
+// Enables Signal Engine to detect hypothesis_staleness_days
+export interface HypothesisExperiment {
+  id: string
+  bet_id: string
+  hypothesis_text: string
+  experiment_type: ExperimentType
+  outcome: ExperimentOutcome
+  confidence_before: number           // 0–1
+  confidence_after: number            // 0–1
+  started_at: string
+  completed_at: string | null
+  created_by: "founder" | "agent_draft"
+}
+
+// Groups rejection patterns for AutoResearch to learn new failure modes
+// NLP extraction from Intervention.founder_note → cluster → tune HeuristicVersion
+export interface RejectionReasonCluster {
+  id: string
+  cluster_label: string               // e.g. "already_handled", "wrong_risk_type", "bad_timing"
+  intervention_types_affected: ActionType[]
+  risk_types_affected: RiskType[]
+  frequency: number                   // when >= 5 → candidate for Incident-to-Eval synthesis
+  heuristic_change_candidates: string[] // suggested HeuristicVersion.change_summary diffs
+}
+
+// Startup failure pattern corpus from IdeaProof DB + internal data (Phase 2 one-time ingest)
+export interface StartupFailurePattern {
+  id: string
+  failure_category: "no_market_need" | "cash" | "team" | "competition" | "timing" | "execution"
+  signal_fingerprint: string[]        // matches EvidenceType values
+  frequency_pct: number
+  avg_time_to_failure_days: number | null
+  source: "cb_insights" | "failory" | "ideaproof" | "internal_corpus"
+  embedding: number[]                 // vector(768) for pgvector similarity search
+}
+
+// ─────────────────────────────────────────────
+// PHASE 3 ENTITIES
+// ─────────────────────────────────────────────
+
+// Anonymized cross-workspace outcome corpus — opt-in only
+// workspace_hash is SHA256(workspace_id), never reversible
+export interface BetOutcomeRecord {
+  id: string
+  workspace_hash: string              // SHA256(workspace_id) — privacy-safe
+  bet_archetype: string               // embedding cluster label, not raw bet name
+  signal_sequence: Array<{ type: EvidenceType; severity: Severity; week: number }>
+  intervention_sequence: Array<{ action_type: ActionType; accepted: boolean }>
+  outcome: "validated" | "killed" | "paused_long_term" | "active"
+  risk_type_at_kill: RiskType | null
+  embedding: number[]                 // vector(768) for pgvector similarity search
 }
 
 // ─────────────────────────────────────────────

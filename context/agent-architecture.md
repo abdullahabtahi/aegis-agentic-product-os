@@ -214,6 +214,29 @@ Every intervention must be one of these. No improvisation outside this list.
 # 5. If confidence < 0.7 → only no_intervention eligible
 ```
 
+### Escalation Ladder
+
+Coordinator enforces stepwise escalation. It **cannot propose a heavy intervention
+if no lighter one has been tried and resolved on this bet first.**
+
+```
+Level 1 (Clarify):  clarify_bet, add_hypothesis, add_metric
+Level 2 (Adjust):   rescope, align_team, redesign_experiment
+Level 3 (Escalate): pre_mortem_session, jules_* actions
+Level 4 (Terminal): kill_bet
+```
+
+**Hard rules:**
+- Cannot propose Level 2 unless a Level 1 intervention was accepted + outcome checked (14-day window)
+- Cannot propose Level 3 unless a Level 2 intervention was accepted + failed to resolve
+- Cannot propose Level 4 (`kill_bet`) unless Level 3 was attempted
+- Exception: `severity == "critical"` AND `chronic_rollover_count >= 3` allows skipping to Level 3
+
+**Why this matters:** Prevents Aegis from recommending "kill the bet" as a first move.
+Builds founder trust by demonstrating measured, graduated judgment.
+
+**Coordinator reads:** `prior_interventions` with outcomes to determine current escalation level for the bet.
+
 ---
 
 ## Component 4: Governor / Policy Engine
@@ -234,6 +257,57 @@ Every intervention must be one of these. No improvisation outside this list.
 | Acknowledged risk | If `risk_type` matches an `AcknowledgedRisk` on the bet | Auto-deny, no UI surface |
 
 **On PolicyDenied:** writes a `PolicyDeniedEvent` to AlloyDB (audit trail, not surfaced to founder). AutoResearch uses denied events to detect over-triggering heuristics.
+
+### Blast Radius Preview
+
+Before surfacing any Level 3–4 intervention (or any Jules action) to the founder,
+the Governor computes a `BlastRadiusPreview` — a deterministic count of what will
+change if the action is executed.
+
+```python
+# Deterministic — reads Linear, no LLM
+def compute_blast_radius(intervention: Intervention, workspace: Workspace) -> BlastRadiusPreview:
+    if intervention.action_type in {"kill_bet", "rescope", "jules_refactor_blocker"}:
+        affected_issues = linear_mcp.list_issues(project_ids=bet.linear_project_ids)
+        return BlastRadiusPreview(
+            affected_issue_count=len(affected_issues),
+            affected_assignee_ids=list({i.assignee_id for i in affected_issues if i.assignee_id}),
+            affected_project_ids=bet.linear_project_ids,
+            estimated_notification_count=len(affected_issues),  # Linear notifies on status change
+            reversible=intervention.action_type != "kill_bet",
+        )
+    return BlastRadiusPreview(affected_issue_count=0, ..., reversible=True)  # lightweight actions
+```
+
+The `BlastRadiusPreview` is attached to the `Intervention` before it's surfaced.
+The UI (`InterventionApprovalCard`) renders it as a warning badge:
+
+> "This will affect 23 issues, 4 assignees, 2 projects."
+
+Heavy, irreversible interventions (`kill_bet`, `reversible=False`) require an additional
+explicit confirmation step in the UI (shadcn `AlertDialog`).
+
+### Override & Teach
+
+When a founder rejects an intervention, the UI prompts a single-tap reason:
+
+```
+Why reject?  [ Evidence too weak ]  [ Already handled ]
+             [ Not a priority   ]  [ Wrong risk type  ]
+```
+
+The selected `RejectionReasonCategory` is stored on the `Intervention` record and fed
+into a **Governor suppression rule**: if the same `(risk_type, action_type, rejection_reason)`
+combination is rejected twice within 30 days, the Governor automatically suppresses
+that combination for this workspace for `policy.auto_suppress_days` (default: 14).
+
+This creates a lightweight learning loop without requiring AutoResearch or LLM tuning:
+```
+Reject(reason) → store on Intervention → Governor reads rejection history
+→ auto-suppress matching pattern → surfaced in Suppression Log as "Suppressed: you said this wasn't relevant"
+```
+
+The suppression is surfaced in the Suppression Log UI, so founders can see and undo it.
 
 ---
 
@@ -328,6 +402,52 @@ This surfaces immediate value. The founder decides whether to confirm, edit, or 
 [Edit] → founder edits fields → confirm again
 [Not a bet] → persists as BetRejection (training data for Detect tuning)
 ```
+
+### Step 5: Replay / Simulation Mode (runs automatically at Confirm)
+
+Immediately after a bet is confirmed, the system runs the full Signal Engine →
+Product Brain → Coordinator pipeline in **dry-run mode** against the past 14 days
+of Linear data for that bet's `linear_project_ids`. No writes. No interventions executed.
+
+The founder sees a timeline on the Confirm screen before hitting final confirm:
+
+```
+Past 14 days — what Aegis would have flagged:
+
+  Day 2  ──  Execution risk detected: 2 issues rolled over
+             → Would have proposed: add_hypothesis label
+             → Confidence: 72%
+
+  Day 9  ──  Alignment issue detected: cross-team block on AUTH-234
+             → Would have proposed: align_team comment
+             → Confidence: 81%
+
+  Day 13 ──  Strategy unclear: no success metric in any linked issue
+             → Would have proposed: add_metric issue
+             → Confidence: 76%
+```
+
+**Why this works without new infrastructure:**
+Signal Engine already accepts `monitoring_period_days` + a bounded time window.
+Replay mode passes `period_end = now - N_days` instead of `now`. Same code, same
+deterministic service — just a different time window. Product Brain and Coordinator
+run identically; results are tagged `is_replay: true` so they are never persisted
+as real `RiskSignal` or `Intervention` records.
+
+**Backend entry point:**
+```python
+async def run_bet_simulation(
+    bet: Bet,
+    replay_days: int = 14,
+) -> list[SimulatedRiskEvent]:
+    """
+    Returns sorted list of {day_offset, risk_signal, proposed_intervention}
+    for display in ReplayPreview.tsx. Nothing is written to AlloyDB.
+    """
+```
+
+**Demo value:** Shows founders that Aegis would have caught real problems earlier
+than they were noticed manually. This is the clearest proof of "earlier-than-human" value.
 
 ---
 
