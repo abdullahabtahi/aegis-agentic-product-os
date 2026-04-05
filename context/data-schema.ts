@@ -245,7 +245,8 @@ export interface BetSnapshot {
   error_code?: ScanErrorCode          // set if status === "error"
 
   // Hypothesis lifecycle signals (Phase 2 — requires HypothesisExperiment table)
-  hypothesis_staleness_days: number           // days since last experiment on this bet
+  // null = not yet computed (Phase 2 not active). 0 = tested today. Never use 0 as default.
+  hypothesis_staleness_days: number | null    // days since last experiment on this bet
   hypothesis_experiment_count: number         // total experiments run
   last_experiment_outcome: ExperimentOutcome | null
 
@@ -345,6 +346,9 @@ export interface AgentTrace {
   trace_type: TraceType
   agent_name: string
 
+  // Hash enables AutoResearch to group traces with identical inputs across HeuristicVersions.
+  // Computation: sha256(json.dumps({"bet_id": bet.id, "signals": linear_signals (exclude read_window_days), "heuristic_version": heuristic_version_id}, sort_keys=True))
+  // MUST exclude: timestamps, workspace_id, session metadata — any timestamp would make every trace unique.
   input_context_hash: string          // hash of context object (full stored separately)
   output_summary: string
   output_ids: string[]                // IDs of created entities
@@ -375,6 +379,7 @@ export interface HeuristicVersion {
     intervention_rate_cap_days: number        // default: 7 (max 1 intervention per bet per N days)
     placebo_productivity_threshold: number    // default: 0.7 (if 70%+ of closed tickets unmapped → flag)
     auto_suppress_days: number                // default: 14 (Override & Teach suppression window)
+    max_suppress_count: number                // default: 3; after N suppressions for same (risk_type, action_type, reason) combo → escalate to AutoResearch instead of suppressing indefinitely
   }
   classification_prompt_fragment: string
   intervention_ranking_weights: Array<{
@@ -500,13 +505,23 @@ export interface ProductBrainAgentContext {
     | "hypothesis" | "success_metrics" | "time_horizon"
   >
   detected_signals: LinearSignals
-  risk_type_hypothesis: RiskType      // Execution Agent's preliminary classification
+  // Historical context from prior BetSnapshots — explicitly labeled as past, NOT current hypothesis.
+  // Product Brain must reason independently over detected_signals to classify risk_type.
+  // Do NOT pass a current-cycle classification hint here — that would anchor LLM reasoning (confirmation bias).
+  prior_risk_types: RiskType[]        // risk_types_present from last 2 BetSnapshots; empty on first run
   relevant_heuristics: ProductHeuristic[]
   strategy_doc_excerpts: string[]     // relevant excerpts from workspace strategy docs
 }
 
 export interface CoordinatorAgentContext {
-  bet: Bet
+  // Narrowed to intervention-relevant fields only.
+  // Excludes: declaration_source, linear_issue_ids (can be hundreds), doc_refs — not needed for intervention selection.
+  // acknowledged_risks included for Governor duplicate-check context.
+  bet: Pick<Bet,
+    | "id" | "name" | "status" | "hypothesis"
+    | "success_metrics" | "time_horizon"
+    | "acknowledged_risks"
+  >
   risk_signal: RiskSignal
   prior_interventions: Array<{
     intervention: Intervention

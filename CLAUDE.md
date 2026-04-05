@@ -10,7 +10,7 @@
 - **TDD for deterministic code** (Signal Engine, parsers, validators). ADK evals (not pytest) for agent behavior.
 - **No chatbot UI.** AG-UI structured surfaces + CopilotKit approvals only.
 - **MockLinearMCP required** before any agent code that touches Linear. No live writes during eval.
-- **Governor = 7 policy checks.** confidence_floor · duplicate_suppression · rate_cap · jules_gate · reversibility · acknowledged_risk · control_level.
+- **Governor = 8 policy checks.** confidence_floor · duplicate_suppression · rate_cap · jules_gate · reversibility · acknowledged_risk · control_level · escalation_ladder. All 8 are deterministic — no LLM in Governor.
 - **Product Brain prompts** may evolve via HeuristicVersion (MAJOR + manual review). **Governor policy prompts are immutable.**
 
 ---
@@ -30,10 +30,19 @@ Research ✅ → Concept ✅ → Schema v3.0 ✅ → Architecture v2.0 ✅ → S
 **Immediate next: Phase 1 — Foundation**
 1. Wire `InMemoryArtifactService` into runner config (one line, preps Phase 4)
 2. Build `MockLinearMCP` stub (`backend/tools/linear_tools.py`) — gate before any agent code
-3. Write 5 golden traces as YAML in `backend/evals/traces/`
+   - Ship with 3 workspace fixtures in `backend/evals/fixtures/`: healthy · messy (execution_issue/strategy_unclear) · cross-team (alignment_issue)
+3. Write 5 golden traces as **JSON evalsets** in `backend/evals/` (`.evalset.json` format — `adk eval` requires JSON, NOT YAML)
+   **Required coverage (all 4 risk types + 1 Governor deny):**
+   - Trace 1: `strategy_unclear` → `clarify_bet` (escalation L1)
+   - Trace 2: `alignment_issue` → `align_team` (escalation L2)
+   - Trace 3: `execution_issue` (chronic rollover) → `rescope` (escalation L2)
+   - Trace 4: Low confidence (< 0.6) → null RiskSignal → `no_intervention` (no tool call)
+   - Trace 5: Acknowledged risk → Governor PolicyDenied (auto-deny, escalation_ladder or acknowledged_risk reason)
 4. Write Pydantic models mirroring schema (`backend/models/schema.py`, `contexts.py`, `responses.py`)
+   - `hypothesis_staleness_days: int | None = None` (null = Phase 2 not active)
 5. AlloyDB + Alembic `01_initial_schema.py` (13 tables including Phase 2 new tables)
 6. Signal Engine TDD: `async def compute_signals(workspace_id, bet, monitoring_period_days=14) → BetSnapshot`
+7. Pipeline: compose via ADK `SequentialAgent(sub_agents=[signal_engine, product_brain, coordinator, governor])`
 
 ---
 
@@ -50,7 +59,7 @@ Research ✅ → Concept ✅ → Schema v3.0 ✅ → Architecture v2.0 ✅ → S
 | Product Brain debate pattern | Flash(Cynic) + Flash(Optimist) + Pro(synthesis) | Quality uplift; prompt cache on shared `bet_context` offsets Flash cost |
 | Governor prompts immutable | AutoResearch tunes HeuristicVersion only | Keeps Governor guarantees stable; product_brain classification_prompt_fragment may evolve via MAJOR |
 | AlloyDB = source of truth | Graphiti = temporal index (Phase 4) | If Graphiti dies, AlloyDB has everything; Graphiti is a derivable index |
-| Vertex Memory Bank → deprecated | Replaced by 4-layer memory model | Flat cosine-sim cannot answer "3rd recurrence" or bi-temporal queries |
+| VertexAiMemoryBankService not used | `VertexAiMemoryBankService` exists in ADK v1.x but we chose AlloyDB+pgvector for Phases 1–3 + Graphiti for Phase 4 | Flat cosine-sim cannot answer "3rd recurrence" or bi-temporal queries; AlloyDB is source of truth |
 | 4-layer memory model | ADK Session / Graphiti KG / AlloyDB+pgvector / HeuristicVersion | Each layer has distinct TTL and query type; no overlap |
 | Between-cycle action caching | Webhook-based invalidation on BetSnapshot | 60-70% of scans can skip full recompute if Linear state unchanged |
 | LinearSignals within-cycle caching | SKIP | Sequential pipeline already prevents duplicate reads in same cycle |
@@ -59,7 +68,16 @@ Research ✅ → Concept ✅ → Schema v3.0 ✅ → Architecture v2.0 ✅ → S
 | ADK SkillToolset for Product Brain | L1/L2/L3 progressive skill loading | ~70% token reduction on heuristic injection |
 | Versioned Constitution | `version_type: MAJOR\|MINOR\|PATCH` + `requires_manual_review` | MAJOR changes never auto-promoted by AutoResearch |
 | HeuristicVersion canary rollout | `is_canary` + `canary_metrics` (Phase 7) | Offline replay comparison; auto-revert on false-positive spike |
-| Golden traces Phase 1 | YAML in git (not ADK artifacts) | Simpler, reviewable; migrate to artifacts in Phase 4 |
+| Golden traces Phase 1 | JSON `.evalset.json` in git (not YAML, not ADK artifacts) | `adk eval` requires JSON; simpler and reviewable; migrate to artifacts in Phase 4 |
+| Pipeline composition | ADK `SequentialAgent` wrapping SignalEngineAgent + ProductBrainAgent + CoordinatorAgent + GovernorAgent | Native ADK event tracing, `output_key` propagation, eval compatibility — manual wiring loses all of these |
+| Signal Engine ADK type | `BaseAgent` subclass (`_run_async_impl`) — deterministic, no LLM | Must participate in ADK event loop for AgentTrace capture + eval compatibility; standalone Python service would be invisible to `adk eval` |
+| Governor ADK type | `CustomAgent` (BaseAgent subclass) in SequentialAgent — NOT `before_tool_callback` | Governor decisions need their own `AgentTrace` for AutoResearch to detect over-triggering. `before_tool_callback` is lighter but loses traceability. |
+| Escalation ladder enforcement | Governor check #8 (deterministic), NOT Coordinator (LLM) | LLMs cannot reliably enforce hard policy — Coordinator recommends, Governor enforces. Coordinator still reasons about escalation level as a hint. |
+| `input_context_hash` computation | `sha256(json.dumps({"bet_id", "signals" (exclude read_window_days), "heuristic_version_id"}, sort_keys=True))` — excludes all timestamps | Including any timestamp makes every trace unique, breaking AutoResearch grouping by input |
+| First monitoring scan | Runs immediately on bet confirmation; subsequent scans weekly cron | Eliminates 0-7 day onboarding gap; founder sees risk signals within minutes, not a week |
+| `risk_type_hypothesis` removed | `ProductBrainAgentContext` uses `prior_risk_types: RiskType[]` (historical, labeled as past) instead | Pre-classification by Signal Engine would anchor LLM reasoning via confirmation bias; Product Brain must classify independently |
+| `CoordinatorAgentContext.bet` narrowed | `Pick<Bet, "id" \| "name" \| "status" \| "hypothesis" \| "success_metrics" \| "time_horizon" \| "acknowledged_risks">` — not full Bet | `linear_issue_ids` (potentially hundreds), `doc_refs`, `declaration_source` irrelevant to intervention selection; context minimization |
+| Blast radius computation | Derived from `BetSnapshot.linear_signals.total_issues_analyzed` — no fresh Linear API call | Signal Engine already bounded reads to 14 days; blast radius must not make a new unbounded API call |
 | `classification_rationale` on AgentTrace | Phase 3 field addition | Enables post-hoc debugging + RejectionReasonCluster NLP extraction |
 | HypothesisExperiment table | Phase 2 | Enables staleness detection; `Bet.hypothesis` as string alone is insufficient |
 | StartupFailurePattern corpus | IdeaProof ingest Phase 2 | Very low effort, immediate signal enrichment for Product Brain |
@@ -131,7 +149,7 @@ aegis-agentic-product-os/
 
 | Phase | Focus | Gate to advance |
 |-------|-------|-----------------|
-| **1** | Foundation: MockLinearMCP · Pydantic models · 5 golden traces · AlloyDB schema · Signal Engine TDD | 5 golden traces pass eval |
+| **1** | Foundation: MockLinearMCP · Pydantic models · 5 golden traces · AlloyDB schema · Signal Engine TDD | 5 golden traces pass `adk eval` with `tool_trajectory_avg_score > 0.8` |
 | **2** | Product Brain Agent · ADK SkillToolset (L1/L2/L3) · HypothesisExperiment table · StartupFailurePattern ingest · RejectionReasonCluster NLP · between-cycle action caching | Eval ≥ 0.8 on tone + classification |
 | **3** | Coordinator · Governor (7 checks incl. `control_level`) · Escalation Ladder · Blast Radius Preview · Product Brain debate (Cynic+Optimist+Synthesis) · `classification_rationale` field · semantic pre-filter on strategy docs | E2E dry-run passes on all 5 golden traces |
 | **4** | Executor · Override & Teach · AutoResearch loop · HeuristicVersion artifacts · Graphiti temporal KG · `MemorySynthesisJob` · `WorkspaceFact` nodes · SkillLibrary decomposition into per-risk-type DetectionSkills | Founder approval flow works end-to-end |
@@ -148,4 +166,7 @@ aegis-agentic-product-os/
 - Never auto-promote a MAJOR `HeuristicVersion` — always `requires_manual_review: true`.
 - Governor prompts are immutable — only HeuristicVersion numeric thresholds and `classification_prompt_fragment` may evolve.
 - `control_level` on `Workspace` is checked as the 7th Governor policy check before every Executor call.
+- `escalation_ladder` is the 8th Governor policy check. Coordinator recommends; Governor enforces. Never let Coordinator skip rungs.
+- `SkillToolset` API name: verify exact ADK import before coding L1/L2/L3 — may need `before_model_callback` dynamic prompt assembly instead.
+- `no_intervention` records: internal audit only — never render in founder-facing UI surfaces.
 - Evals use `adk eval`, never pytest alone.

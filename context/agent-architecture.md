@@ -86,10 +86,13 @@ Action Executor runs last — deterministic write, never improvises.
 
 ## Component 1: Signal Engine
 
-**Type:** Deterministic Python service — NOT an LLM agent.
+**Type:** Deterministic ADK `BaseAgent` subclass — NOT an LLM agent.
+**ADK implementation:** `class SignalEngineAgent(BaseAgent)` with `_run_async_impl`.
+Participates in ADK event loop (emits events, session state propagation, eval compatibility).
+No LLM calls. All logic is pure Python + Linear API reads.
 **Trigger:** Once per monitoring cycle per bet.
 **Context in:** `ExecutionAgentContext` (see data-schema.ts)
-**Output:** `LinearSignals` + `BetSnapshot` persisted to AlloyDB
+**Output:** `LinearSignals` + `BetSnapshot` persisted to AlloyDB; writes `linear_signals` to `ctx.session.state["linear_signals"]` for downstream agents.
 
 **What it does:**
 - Pulls Linear issues in `linear_project_ids` bounded to **last 14 days** only
@@ -157,7 +160,20 @@ agent = LlmAgent(
     after_agent_callback=persist_agent_trace,
 )
 # Active HeuristicVersion prompt fragment prepended to every run
-# Vertex semantic caching on strategy docs (reads are expensive and stable)
+# Context objects written to ctx.session.state["product_brain_context"] for AutoResearch replay
+```
+
+**Retry on validation failure:**
+```python
+# In after_model_callback — 1 retry before silent skip
+# LLMs are stochastic; the exact same prompt succeeds on retry far more often than not.
+if not validate_pydantic_output(response):
+    if ctx.session.state.get("product_brain_retry_count", 0) < 1:
+        ctx.session.state["product_brain_retry_count"] = 1
+        return None  # trigger ADK retry
+    # After 1 retry still fails → silent skip, log AgentTrace with eval_score=0
+    log_validation_failure(response, ctx)
+    return skip_signal()
 ```
 
 ---
@@ -216,8 +232,9 @@ Every intervention must be one of these. No improvisation outside this list.
 
 ### Escalation Ladder
 
-Coordinator enforces stepwise escalation. It **cannot propose a heavy intervention
-if no lighter one has been tried and resolved on this bet first.**
+Coordinator selects the best intervention within the current escalation level.
+**Hard enforcement is handled by the Governor (check #8)** — Coordinator cannot
+bypass this by producing a higher-level intervention; Governor will deny it.
 
 ```
 Level 1 (Clarify):  clarify_bet, add_hypothesis, add_metric
@@ -226,16 +243,16 @@ Level 3 (Escalate): pre_mortem_session, jules_* actions
 Level 4 (Terminal): kill_bet
 ```
 
-**Hard rules:**
-- Cannot propose Level 2 unless a Level 1 intervention was accepted + outcome checked (14-day window)
-- Cannot propose Level 3 unless a Level 2 intervention was accepted + failed to resolve
-- Cannot propose Level 4 (`kill_bet`) unless Level 3 was attempted
-- Exception: `severity == "critical"` AND `chronic_rollover_count >= 3` allows skipping to Level 3
+**What Coordinator does:** Uses `prior_interventions` with outcomes to understand
+current escalation level and select an appropriate intervention. It should prefer
+lower-level actions, but enforcement of the ladder is deterministic in Governor.
 
-**Why this matters:** Prevents Aegis from recommending "kill the bet" as a first move.
-Builds founder trust by demonstrating measured, graduated judgment.
+**Why enforcement is in Governor, not Coordinator:** Coordinator is an LLM — it can
+reason about escalation levels but cannot guarantee it will never skip rungs under
+adversarial input or unusual prompting. Governor check #8 is a hard deterministic
+gate. See Governor section for the exact rule.
 
-**Coordinator reads:** `prior_interventions` with outcomes to determine current escalation level for the bet.
+**Exception:** `severity == "critical"` AND `chronic_rollover_count >= 3` → Governor allows skip to Level 3 directly.
 
 ---
 
@@ -245,16 +262,20 @@ Builds founder trust by demonstrating measured, graduated judgment.
 **Input:** proposed `Intervention` + `HeuristicVersion.policy` + workspace history
 **Output:** `ApprovedIntervention` OR `PolicyDenied(reason)`
 
-**Policy checks (all must pass):**
+**Policy checks (all 8 must pass — deterministic, no LLM):**
 
-| Check | Rule | On Fail |
-|---|---|---|
-| Confidence floor | `risk_signal.confidence >= policy.min_confidence` (default: 0.65) | Deny, log reason |
-| Duplicate suppression | No identical `action_type` on same `bet_id` in last 30 days | Deny, suggest `no_intervention` |
-| Rate cap | Max 1 surfaced intervention per bet per 7 days | Deny, log |
-| Jules gate | Jules actions require GitHub repo connected and founder has approved Jules at least once | Deny with `connect_github` prompt |
-| Reversibility check | `kill_bet` / `redesign_experiment` flagged as high-visibility — require extra approval step | Flag for explicit double-confirm in UI |
-| Acknowledged risk | If `risk_type` matches an `AcknowledgedRisk` on the bet | Auto-deny, no UI surface |
+| # | Check | Rule | On Fail |
+|---|---|---|---|
+| 1 | Confidence floor | `risk_signal.confidence >= policy.min_confidence` (default: 0.65) | Deny, log reason |
+| 2 | Duplicate suppression | No identical `action_type` on same `bet_id` in last 30 days | Deny, suggest `no_intervention` |
+| 3 | Rate cap | Max 1 surfaced intervention per bet per 7 days | Deny, log |
+| 4 | Jules gate | Jules actions require GitHub repo connected and founder approved Jules at least once | Deny with `connect_github` prompt |
+| 5 | Reversibility check | `kill_bet` / `redesign_experiment` or any `draft_document` at `escalation_level >= 3` flagged high-visibility | Flag for explicit double-confirm in UI |
+| 6 | Acknowledged risk | If `risk_type` matches an `AcknowledgedRisk` on the bet | Auto-deny, no UI surface |
+| 7 | Control level | `workspace.control_level` determines whether action requires approval or can auto-execute | Enforce L1/L2/L3 before Executor |
+| 8 | Escalation ladder | Proposed `escalation_level` must not exceed `max(prior_accepted_interventions.escalation_level) + 1`. Exception: `severity == "critical"` AND `chronic_rollover_count >= 3` allows skip to Level 3 | Deny with `escalation_ladder` reason; Coordinator must retry with lower-level action |
+
+**Why escalation ladder is in Governor, not Coordinator:** Coordinator is an LLM agent and cannot reliably enforce hard policy constraints. Governor is deterministic. The ladder is a hard rule, not a recommendation. Coordinator _recommends_ the best intervention; Governor _enforces_ that it doesn't skip rungs.
 
 **On PolicyDenied:** writes a `PolicyDeniedEvent` to AlloyDB (audit trail, not surfaced to founder). AutoResearch uses denied events to detect over-triggering heuristics.
 
@@ -265,18 +286,23 @@ the Governor computes a `BlastRadiusPreview` — a deterministic count of what w
 change if the action is executed.
 
 ```python
-# Deterministic — reads Linear, no LLM
-def compute_blast_radius(intervention: Intervention, workspace: Workspace) -> BlastRadiusPreview:
+# Deterministic — uses already-computed BetSnapshot data (NO fresh Linear API call).
+# Signal Engine already bounded reads to 14 days — reuse that data, don't re-read.
+def compute_blast_radius(
+    intervention: Intervention,
+    bet_snapshot: BetSnapshot,   # latest snapshot from AlloyDB, already computed
+    bet: Bet,
+) -> BlastRadiusPreview:
     if intervention.action_type in {"kill_bet", "rescope", "jules_refactor_blocker"}:
-        affected_issues = linear_mcp.list_issues(project_ids=bet.linear_project_ids)
         return BlastRadiusPreview(
-            affected_issue_count=len(affected_issues),
-            affected_assignee_ids=list({i.assignee_id for i in affected_issues if i.assignee_id}),
+            # Use Signal Engine's already-computed count — no fresh unbounded Linear read
+            affected_issue_count=bet_snapshot.linear_signals.total_issues_analyzed,
+            affected_assignee_ids=[],   # approximation: exact assignees are in BetSnapshot if needed
             affected_project_ids=bet.linear_project_ids,
-            estimated_notification_count=len(affected_issues),  # Linear notifies on status change
+            estimated_notification_count=bet_snapshot.linear_signals.total_issues_analyzed,
             reversible=intervention.action_type != "kill_bet",
         )
-    return BlastRadiusPreview(affected_issue_count=0, ..., reversible=True)  # lightweight actions
+    return BlastRadiusPreview(affected_issue_count=0, affected_assignee_ids=[], affected_project_ids=[], estimated_notification_count=0, reversible=True)
 ```
 
 The `BlastRadiusPreview` is attached to the `Intervention` before it's surfaced.
@@ -398,10 +424,16 @@ This surfaces immediate value. The founder decides whether to confirm, edit, or 
 ### Step 4: Confirm
 
 ```
-[Confirm] → status: "active" → monitoring starts
+[Confirm] → status: "active" → first LIVE monitoring scan runs immediately
+           → subsequent scans: weekly cron (not a 7-day wait before first value)
 [Edit] → founder edits fields → confirm again
 [Not a bet] → persists as BetRejection (training data for Detect tuning)
 ```
+
+**Why first scan is immediate:** A founder who connects Linear and confirms bets should see
+risk signals within minutes, not a week later. The Replay simulation (Step 5) shows historical
+value; the immediate live scan shows current risk. Together they eliminate the "0-7 day
+onboarding gap" where the product provides no value.
 
 ### Step 5: Replay / Simulation Mode (runs automatically at Confirm)
 
@@ -492,12 +524,20 @@ Three memory systems with non-overlapping responsibilities:
 - **Consistency model:** Strong consistency (PostgreSQL ACID)
 - **Never read:** transient runtime state, strategy docs
 
-### Vertex Memory Bank (semantic retrieval)
-- `ProductHeuristic[]` — product principles, example patterns, suggested actions
-- Bet context for cross-bet pattern detection
-- Intervention outcome embeddings (for similarity search on "what worked before")
-- **TTL:** Refreshed weekly from AlloyDB (heuristics evolve with AutoResearch)
-- **Never stored here:** bets, interventions, risk signals (AlloyDB is authoritative)
+### AlloyDB + pgvector (semantic retrieval — Phases 1–3)
+- `ProductHeuristic[]` — product principles, example patterns, suggested actions (stored in AlloyDB, retrieved via pgvector similarity search using bet problem_statement + signal summary as query vector)
+- `StartupFailurePattern[]` — failure corpus embeddings (Phase 2)
+- `BetOutcomeRecord[]` — cross-workspace outcome embeddings for similarity search (Phase 3)
+- **TTL:** Indefinite — same AlloyDB instance, no separate service to maintain
+- **Never stored here:** transient runtime state, raw strategy doc text
+
+### Graphiti Temporal KG (episodic retrieval — Phase 4+)
+- Temporal knowledge graph layered on top of AlloyDB (not a replacement for it)
+- Enables bi-temporal queries: "what did we know about this bet on day N?" and "how many times has this risk pattern recurred?"
+- AlloyDB is always the source of truth. Graphiti is a derivable index — if it dies, rebuild from AlloyDB.
+- **Phase 1–3:** skip Graphiti entirely. AlloyDB+pgvector is sufficient.
+
+**Note on `VertexAiMemoryBankService`:** This ADK class exists in v1.x (`from google.adk.memory import VertexAiMemoryBankService`) but we are not using it. It provides flat cosine-similarity retrieval only — insufficient for bi-temporal episodic queries. Our choice: AlloyDB+pgvector (Phases 1–3) → Graphiti (Phase 4+).
 
 ### ADK Session (transient runtime)
 - `ActiveBet` snapshot for current monitoring run
