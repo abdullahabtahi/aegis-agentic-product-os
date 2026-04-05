@@ -1,0 +1,68 @@
+{
+  "_description": "Cross-team workspace — blocked_by relations crossing team boundaries, 3 cross-team thrash signals. Expected: alignment_issue signal.",
+  "workspace": {
+    "id": "ws-crossteam-001",
+    "linear_team_id": "team-product-001",
+    "strategy_doc_refs": [],
+    "active_bet_ids": ["bet-crossteam-001"],
+    "control_level": "require_approval",
+    "created_at": "2026-01-01T00:00:00Z"
+  },
+  "bet": {
+    "id": "bet-crossteam-001",
+    "workspace_id": "ws-crossteam-001",
+    "name": "API Platform Launch",
+    "target_segment": "Developer ecosystem",
+    "problem_statement": "Third-party developers cannot integrate our product due to missing API endpoints and documentation.",
+    "hypothesis": "We believe launching a public API with 5 core endpoints and full docs will result in 50 integrations within 60 days.",
+    "success_metrics": [
+      {"name": "API integrations", "target_value": 50, "unit": "count"},
+      {"name": "Time to first integration", "target_value": 3, "unit": "days"}
+    ],
+    "time_horizon": "2026-05-01",
+    "declaration_source": {"type": "linear_project", "linear_project_id": "proj-api-001", "raw_artifact_refs": []},
+    "declaration_confidence": 0.87,
+    "status": "active",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.65,
+      "expected_weekly_velocity": 12,
+      "hypothesis_required": true,
+      "metric_linked_required": true
+    },
+    "acknowledged_risks": [],
+    "linear_project_ids": ["proj-api-001"],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-02-01T00:00:00Z",
+    "last_monitored_at": "2026-03-01T00:00:00Z"
+  },
+  "linear_signals": {
+    "total_issues_analyzed": 31,
+    "bet_mapped_issues": 20,
+    "bet_coverage_pct": 0.65,
+    "rollover_count": 3,
+    "chronic_rollover_count": 1,
+    "blocked_count": 6,
+    "misc_ticket_pct": 0.22,
+    "hypothesis_present": true,
+    "metric_linked": true,
+    "metric_linked_source": "API-15",
+    "cross_team_thrash_signals": 4,
+    "scope_change_count": 2,
+    "read_window_days": 14,
+    "placebo_productivity_score": 0.28
+  },
+  "issues": [
+    {"id": "API-01", "title": "Build /users endpoint", "status": "in_progress", "project_id": "proj-api-001", "description": "Core endpoint for developer API."},
+    {"id": "API-02", "title": "Build /events endpoint", "status": "blocked", "project_id": "proj-api-001", "description": "Blocked by AUTH team auth token design."},
+    {"id": "API-03", "title": "API rate limiting", "status": "blocked", "project_id": "proj-api-001", "description": "Blocked by INFRA team Nginx config."},
+    {"id": "API-04", "title": "OAuth2 integration docs", "status": "todo", "project_id": "proj-api-001", "description": "Blocked by AUTH team OAuth2 spec review."},
+    {"id": "API-15", "title": "Define API success metrics", "status": "done", "project_id": "proj-api-001", "description": "Success: 50 integrations within 60 days of launch."}
+  ],
+  "issue_relations": [
+    {"from_issue": "API-02", "type": "blocked_by", "to_issue": "AUTH-99", "to_team": "team-auth-001"},
+    {"from_issue": "API-03", "type": "blocked_by", "to_issue": "INFRA-45", "to_team": "team-infra-001"},
+    {"from_issue": "API-04", "type": "blocked_by", "to_issue": "AUTH-101", "to_team": "team-auth-001"},
+    {"from_issue": "API-03", "type": "blocked_by", "to_issue": "INFRA-46", "to_team": "team-infra-001"}
+  ]
+}

@@ -1,0 +1,142 @@
+{
+  "eval_set_id": "trace_02_alignment_issue",
+  "name": "Trace 02 — alignment_issue → align_team (L2)",
+  "description": "Bet with 4 cross-team blocked relations. Hypothesis and metrics are present (no strategy_unclear). Prior L1 clarify_bet was accepted. Expected: Product Brain emits alignment_issue, Coordinator proposes align_team at escalation level 2, Governor approves.",
+  "eval_cases": [
+    {
+      "eval_id": "alignment_issue_align_team_l2",
+      "conversation": [
+        {
+          "invocation_id": "inv_1",
+          "user_content": {
+            "parts": [{ "text": "Run Aegis scan for workspace ws-crossteam-001." }]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "name": "emit_risk_signal",
+                "args": { "risk_type": "alignment_issue" }
+              },
+              {
+                "name": "propose_intervention",
+                "args": { "action_type": "align_team", "escalation_level": 2 }
+              }
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "aegis",
+        "user_id": "eval_user",
+        "state": {
+          "workspace_id": "ws-crossteam-001",
+          "pipeline_checkpoint": "signal_engine_complete",
+          "workspace": {
+            "id": "ws-crossteam-001",
+            "linear_team_id": "team-product-001",
+            "strategy_doc_refs": [],
+            "active_bet_ids": ["bet-crossteam-001"],
+            "control_level": "require_approval",
+            "github_repo": null,
+            "created_at": "2026-01-01T00:00:00+00:00"
+          },
+          "bet": {
+            "id": "bet-crossteam-001",
+            "workspace_id": "ws-crossteam-001",
+            "name": "API Platform Launch",
+            "target_segment": "Developer ecosystem",
+            "problem_statement": "Third-party developers cannot integrate our product due to missing API endpoints and documentation.",
+            "hypothesis": "We believe launching a public API with 5 core endpoints and full docs will result in 50 integrations within 60 days.",
+            "success_metrics": [
+              { "name": "API integrations", "target_value": 50, "unit": "count" },
+              { "name": "Time to first integration", "target_value": 3, "unit": "days" }
+            ],
+            "time_horizon": "2026-05-01",
+            "declaration_source": {
+              "type": "linear_project",
+              "linear_project_id": "proj-api-001",
+              "raw_artifact_refs": []
+            },
+            "declaration_confidence": 0.87,
+            "status": "active",
+            "health_baseline": {
+              "expected_bet_coverage_pct": 0.65,
+              "expected_weekly_velocity": 12,
+              "hypothesis_required": true,
+              "metric_linked_required": true
+            },
+            "acknowledged_risks": [],
+            "linear_project_ids": ["proj-api-001"],
+            "linear_issue_ids": [],
+            "doc_refs": [],
+            "created_at": "2026-02-01T00:00:00+00:00",
+            "last_monitored_at": "2026-03-15T00:00:00+00:00"
+          },
+          "linear_signals": {
+            "total_issues_analyzed": 31,
+            "bet_mapped_issues": 20,
+            "bet_coverage_pct": 0.65,
+            "rollover_count": 3,
+            "chronic_rollover_count": 1,
+            "blocked_count": 6,
+            "misc_ticket_pct": 0.22,
+            "hypothesis_present": true,
+            "metric_linked": true,
+            "metric_linked_source": "API-15",
+            "cross_team_thrash_signals": 4,
+            "scope_change_count": 2,
+            "read_window_days": 14,
+            "placebo_productivity_score": 0.28
+          },
+          "bet_snapshot": {
+            "id": "snap-crossteam-001",
+            "bet_id": "bet-crossteam-001",
+            "captured_at": "2026-03-15T10:00:00+00:00",
+            "period_start": "2026-03-01T10:00:00+00:00",
+            "period_end": "2026-03-15T10:00:00+00:00",
+            "linear_signals": {
+              "total_issues_analyzed": 31,
+              "bet_mapped_issues": 20,
+              "bet_coverage_pct": 0.65,
+              "rollover_count": 3,
+              "chronic_rollover_count": 1,
+              "blocked_count": 6,
+              "misc_ticket_pct": 0.22,
+              "hypothesis_present": true,
+              "metric_linked": true,
+              "metric_linked_source": "API-15",
+              "cross_team_thrash_signals": 4,
+              "scope_change_count": 2,
+              "read_window_days": 14,
+              "placebo_productivity_score": 0.28
+            },
+            "health_score": 76.0,
+            "risk_types_present": ["alignment_issue"],
+            "status": "ok",
+            "hypothesis_staleness_days": null,
+            "hypothesis_experiment_count": 0,
+            "last_experiment_outcome": null,
+            "similar_bet_outcome_pct": null,
+            "outcome_pattern_source_count": 0,
+            "error_code": null
+          },
+          "prior_interventions": [
+            {
+              "id": "intv-crossteam-prev-001",
+              "bet_id": "bet-crossteam-001",
+              "workspace_id": "ws-crossteam-001",
+              "action_type": "clarify_bet",
+              "escalation_level": 1,
+              "status": "accepted",
+              "title": "Clarify bet scope and ownership boundaries",
+              "rationale": "Bet scope was unclear regarding which team owns the API auth integration.",
+              "confidence": 0.78,
+              "created_at": "2026-02-20T10:00:00+00:00"
+            }
+          ],
+          "recent_snapshots": []
+        }
+      }
+    }
+  ]
+}

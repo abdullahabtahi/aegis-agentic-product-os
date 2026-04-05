@@ -24,8 +24,23 @@ Continuous Pre-mortem / Risk Radar: watches Linear for strategy-execution misali
 ## Current Build State
 
 ```
-Research ✅ → Concept ✅ → Schema v3.0 ✅ → Architecture v2.0 ✅ → Scaffold 🚧 → Build → Eval → Deploy
+Research ✅ → Concept ✅ → Schema v3.0 ✅ → Architecture v2.0 ✅ → Phase 1 ✅ → Phase 2 🚧 → Eval → Deploy
 ```
+
+**Phase 1 complete — Linear MCP wired:**
+- `backend/tools/linear_tools.py`: `MockLinearMCP` + `RealLinearMCP` (httpx → Linear GraphQL) + `get_linear_mcp()` factory
+- `backend/.env.example`: `LINEAR_API_KEY`, `AEGIS_MOCK_LINEAR`, `GOOGLE_CLOUD_PROJECT/LOCATION`, `ALLOYDB_URL`
+- `SignalEngineAgent._linear_mcp = get_linear_mcp()` — live scan when `LINEAR_API_KEY` set; eval-safe otherwise
+- **Lenny MCP** (`https://lenny-mcp.onrender.com/mcp`): 284 podcast episodes — wired as Phase 2 `StartupFailurePattern` source for Product Brain. Add via: `claude mcp add -t http -s user lenny-transcripts https://lenny-mcp.onrender.com/mcp`
+
+**Phase 1 complete (gate pending `adk eval` confirmation):**
+- MockLinearMCP + 3 fixtures (healthy · messy · cross-team)
+- 5 golden traces in `backend/tests/eval/evalsets/` (strategy_unclear, alignment_issue, execution_issue, low_confidence, acknowledged_risk)
+- Pydantic models: `schema.py`, `contexts.py`, `responses.py`
+- AlloyDB Alembic migration: 13 tables (`01_initial_schema.py`)
+- Signal Engine TDD: 15/15 green
+- Pipeline: `SequentialAgent(sub_agents=[signal_engine, product_brain, coordinator, governor])`
+- **Gate:** run `make eval-all` — all 5 traces must score `tool_trajectory_avg_score > 0.8`
 
 **Immediate next: Phase 1 — Foundation**
 1. Wire `InMemoryArtifactService` into runner config (one line, preps Phase 4)
@@ -53,7 +68,7 @@ Research ✅ → Concept ✅ → Schema v3.0 ✅ → Architecture v2.0 ✅ → S
 | Signal Engine is deterministic | Python service, not LLM | Eliminates hallucination in metrics computation |
 | Strictly sequential pipeline | No parallel agents | Product Brain requires Signal Engine output; parallelism was architecturally invalid |
 | Signal Engine reads bounded | Always 14-day window | Prevents unbounded Linear API reads |
-| Governor has 7 policy checks | Added `control_level` check (7th) | Workspace-configurable autonomy gradient needed for production trust |
+| Governor has 8 policy checks | confidence_floor · duplicate_suppression · rate_cap · jules_gate · reversibility · acknowledged_risk · control_level · escalation_ladder | control_level = 7th (workspace autonomy gradient); escalation_ladder = 8th (Coordinator recommends, Governor enforces) |
 | HITL control levels: L1/L2/L3 | `ControlLevel` enum on `Workspace` | Founders start on L1 (draft only) and graduate — prevents both fatigue and trust failure |
 | AutoResearch = offline replay | Not live A/B testing | Safer; manual promotion required for MAJOR versions |
 | Product Brain debate pattern | Flash(Cynic) + Flash(Optimist) + Pro(synthesis) | Quality uplift; prompt cache on shared `bet_context` offsets Flash cost |
@@ -65,6 +80,7 @@ Research ✅ → Concept ✅ → Schema v3.0 ✅ → Architecture v2.0 ✅ → S
 | LinearSignals within-cycle caching | SKIP | Sequential pipeline already prevents duplicate reads in same cycle |
 | InMemoryArtifactService Phase 1 | GcsArtifactService Phase 4+ | One line to upgrade; no lock-in |
 | MockLinearMCP before agent code | Required for safe evals | Trust in evals requires isolated data |
+| Phase 2 Linear upgrade path | ADK native `McpToolset(StreamableHTTPConnectionParams(url="https://mcp.linear.app/mcp", headers={"Authorization": f"Bearer {LINEAR_API_KEY}"}))` — 24 tools incl. `list_issues`, `list_projects`, `list_cycles`, `create_comment` | No custom MCP needed; one-line swap from MockLinearMCP |
 | ADK SkillToolset for Product Brain | L1/L2/L3 progressive skill loading | ~70% token reduction on heuristic injection |
 | Versioned Constitution | `version_type: MAJOR\|MINOR\|PATCH` + `requires_manual_review` | MAJOR changes never auto-promoted by AutoResearch |
 | HeuristicVersion canary rollout | `is_canary` + `canary_metrics` (Phase 7) | Offline replay comparison; auto-revert on false-positive spike |
@@ -139,7 +155,7 @@ aegis-agentic-product-os/
 │   │   └── linear_tools.py          ← MockLinearMCP stub (build first)
 │   ├── skills/                      ← ADK SkillToolset (L1/L2/L3)
 │   ├── models/                      ← Pydantic models mirroring data-schema.ts
-│   └── evals/traces/                ← golden traces YAML (5 by hand, Phase 1)
+│   └── tests/eval/evalsets/         ← 5 golden traces (Phase 1, .evalset.json)
 └── frontend/                        ← scaffold after Phase 2
 ```
 

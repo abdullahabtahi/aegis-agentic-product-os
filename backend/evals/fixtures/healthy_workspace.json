@@ -1,0 +1,62 @@
+{
+  "_description": "Healthy workspace — high bet coverage, no rollovers, hypothesis present. Expected: no risk signal.",
+  "workspace": {
+    "id": "ws-healthy-001",
+    "linear_team_id": "team-healthy-001",
+    "strategy_doc_refs": [],
+    "active_bet_ids": ["bet-healthy-001"],
+    "control_level": "require_approval",
+    "created_at": "2026-01-01T00:00:00Z"
+  },
+  "bet": {
+    "id": "bet-healthy-001",
+    "workspace_id": "ws-healthy-001",
+    "name": "Onboarding Conversion Uplift",
+    "target_segment": "SMB founders, first 90 days",
+    "problem_statement": "New users drop off at step 3 of onboarding, reducing activation rate.",
+    "hypothesis": "We believe simplifying the onboarding flow from 5 steps to 3 will result in a 15% activation uplift for SMB founders in their first 90 days.",
+    "success_metrics": [
+      {"name": "Activation rate", "target_value": 0.65, "unit": "ratio"},
+      {"name": "Time to first value", "target_value": 5, "unit": "days"}
+    ],
+    "time_horizon": "2026-06-01",
+    "declaration_source": {"type": "linear_project", "linear_project_id": "proj-healthy-001", "raw_artifact_refs": []},
+    "declaration_confidence": 0.92,
+    "status": "active",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.7,
+      "expected_weekly_velocity": 8,
+      "hypothesis_required": true,
+      "metric_linked_required": true
+    },
+    "acknowledged_risks": [],
+    "linear_project_ids": ["proj-healthy-001"],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-01-15T00:00:00Z",
+    "last_monitored_at": "2026-03-01T00:00:00Z"
+  },
+  "linear_signals": {
+    "total_issues_analyzed": 42,
+    "bet_mapped_issues": 35,
+    "bet_coverage_pct": 0.83,
+    "rollover_count": 1,
+    "chronic_rollover_count": 0,
+    "blocked_count": 1,
+    "misc_ticket_pct": 0.10,
+    "hypothesis_present": true,
+    "metric_linked": true,
+    "metric_linked_source": "ONBOARD-42",
+    "cross_team_thrash_signals": 0,
+    "scope_change_count": 1,
+    "read_window_days": 14,
+    "placebo_productivity_score": 0.12
+  },
+  "issues": [
+    {"id": "ONBOARD-01", "title": "Simplify step 1 form", "status": "done", "project_id": "proj-healthy-001", "description": "Remove 3 optional fields to reduce friction. Target: activation +5%."},
+    {"id": "ONBOARD-02", "title": "Add progress indicator", "status": "done", "project_id": "proj-healthy-001", "description": "Show users how many steps remain."},
+    {"id": "ONBOARD-03", "title": "A/B test new flow", "status": "in_progress", "project_id": "proj-healthy-001", "description": "Run experiment: target 15% uplift vs baseline 50% activation."},
+    {"id": "ONBOARD-42", "title": "Define success metrics", "status": "done", "project_id": "proj-healthy-001", "description": "Success: activation_rate >= 0.65 within 90 days for new signups."}
+  ],
+  "issue_relations": []
+}

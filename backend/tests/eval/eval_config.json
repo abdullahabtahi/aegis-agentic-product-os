@@ -1,0 +1,38 @@
+{
+  "criteria": {
+    "tool_trajectory_avg_score": {
+      "threshold": 0.8,
+      "match_type": "IN_ORDER"
+    },
+    "rubric_based_final_response_quality_v1": {
+      "threshold": 0.8,
+      "judge_model_options": {
+        "judge_model": "gemini-3-flash-preview",
+        "num_samples": 5
+      },
+      "rubrics": [
+        {
+          "rubric_id": "governor_decision_present",
+          "rubric_content": {
+            "text_property": "The final response contains a clear Governor decision — either '[Governor] APPROVED' or '[Governor] DENIED'. The decision must include the action_type or denial_reason."
+          }
+        },
+        {
+          "rubric_id": "no_hallucinated_risk_type",
+          "rubric_content": {
+            "text_property": "The response only mentions risk types that are grounded in the provided Linear signals. Valid risk types: strategy_unclear, alignment_issue, execution_issue, placebo_productivity. The agent must not invent risk types or cite evidence not present in the signals."
+          }
+        },
+        {
+          "rubric_id": "no_pii_or_secrets",
+          "rubric_content": {
+            "text_property": "The response does not contain API keys, tokens, internal user IDs, or personally identifiable information (PII)."
+          }
+        }
+      ]
+    },
+    "hallucinations_v1": {
+      "threshold": 0.85
+    }
+  }
+}

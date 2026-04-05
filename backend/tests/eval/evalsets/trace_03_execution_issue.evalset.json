@@ -1,0 +1,142 @@
+{
+  "eval_set_id": "trace_03_execution_issue",
+  "name": "Trace 03 — execution_issue (chronic rollover) → rescope (L2)",
+  "description": "Bet with 4 chronic rollovers and low bet coverage. A prior L1 add_hypothesis intervention was accepted but the execution risk persists. Expected: Product Brain emits execution_issue, Coordinator proposes rescope at escalation level 2, Governor approves.",
+  "eval_cases": [
+    {
+      "eval_id": "execution_issue_rescope_l2",
+      "conversation": [
+        {
+          "invocation_id": "inv_1",
+          "user_content": {
+            "parts": [{ "text": "Run Aegis scan for workspace ws-exec-001." }]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "name": "emit_risk_signal",
+                "args": { "risk_type": "execution_issue" }
+              },
+              {
+                "name": "propose_intervention",
+                "args": { "action_type": "rescope", "escalation_level": 2 }
+              }
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "aegis",
+        "user_id": "eval_user",
+        "state": {
+          "workspace_id": "ws-exec-001",
+          "pipeline_checkpoint": "signal_engine_complete",
+          "workspace": {
+            "id": "ws-exec-001",
+            "linear_team_id": "team-exec-001",
+            "strategy_doc_refs": [],
+            "active_bet_ids": ["bet-exec-001"],
+            "control_level": "require_approval",
+            "github_repo": null,
+            "created_at": "2026-01-01T00:00:00+00:00"
+          },
+          "bet": {
+            "id": "bet-exec-001",
+            "workspace_id": "ws-exec-001",
+            "name": "Mobile Checkout Redesign",
+            "target_segment": "Mobile users with abandoned carts",
+            "problem_statement": "Mobile checkout abandonment rate is 68%, costing estimated $40K/month in lost revenue.",
+            "hypothesis": "We believe streamlining the mobile checkout to a 2-step flow will reduce abandonment by 20% in 45 days.",
+            "success_metrics": [
+              { "name": "Checkout abandonment rate", "target_value": 0.48, "unit": "ratio" },
+              { "name": "Mobile conversion rate", "target_value": 0.12, "unit": "ratio" }
+            ],
+            "time_horizon": "2026-05-15",
+            "declaration_source": {
+              "type": "linear_project",
+              "linear_project_id": "proj-exec-001",
+              "raw_artifact_refs": []
+            },
+            "declaration_confidence": 0.82,
+            "status": "active",
+            "health_baseline": {
+              "expected_bet_coverage_pct": 0.65,
+              "expected_weekly_velocity": 8,
+              "hypothesis_required": true,
+              "metric_linked_required": true
+            },
+            "acknowledged_risks": [],
+            "linear_project_ids": ["proj-exec-001"],
+            "linear_issue_ids": [],
+            "doc_refs": [],
+            "created_at": "2026-01-20T00:00:00+00:00",
+            "last_monitored_at": "2026-03-15T00:00:00+00:00"
+          },
+          "linear_signals": {
+            "total_issues_analyzed": 38,
+            "bet_mapped_issues": 11,
+            "bet_coverage_pct": 0.29,
+            "rollover_count": 7,
+            "chronic_rollover_count": 4,
+            "blocked_count": 5,
+            "misc_ticket_pct": 0.55,
+            "hypothesis_present": true,
+            "metric_linked": true,
+            "metric_linked_source": "CHECKOUT-22",
+            "cross_team_thrash_signals": 1,
+            "scope_change_count": 6,
+            "read_window_days": 14,
+            "placebo_productivity_score": 0.71
+          },
+          "bet_snapshot": {
+            "id": "snap-exec-001",
+            "bet_id": "bet-exec-001",
+            "captured_at": "2026-03-15T10:00:00+00:00",
+            "period_start": "2026-03-01T10:00:00+00:00",
+            "period_end": "2026-03-15T10:00:00+00:00",
+            "linear_signals": {
+              "total_issues_analyzed": 38,
+              "bet_mapped_issues": 11,
+              "bet_coverage_pct": 0.29,
+              "rollover_count": 7,
+              "chronic_rollover_count": 4,
+              "blocked_count": 5,
+              "misc_ticket_pct": 0.55,
+              "hypothesis_present": true,
+              "metric_linked": true,
+              "metric_linked_source": "CHECKOUT-22",
+              "cross_team_thrash_signals": 1,
+              "scope_change_count": 6,
+              "read_window_days": 14,
+              "placebo_productivity_score": 0.71
+            },
+            "health_score": 24.0,
+            "risk_types_present": ["execution_issue"],
+            "status": "ok",
+            "hypothesis_staleness_days": null,
+            "hypothesis_experiment_count": 0,
+            "last_experiment_outcome": null,
+            "similar_bet_outcome_pct": null,
+            "outcome_pattern_source_count": 0,
+            "error_code": null
+          },
+          "prior_interventions": [
+            {
+              "id": "intv-exec-prev-001",
+              "bet_id": "bet-exec-001",
+              "workspace_id": "ws-exec-001",
+              "action_type": "add_hypothesis",
+              "escalation_level": 1,
+              "status": "accepted",
+              "title": "Document hypothesis and success criteria for checkout redesign",
+              "rationale": "Bet lacked a testable hypothesis to guide the experiment design.",
+              "confidence": 0.81,
+              "created_at": "2026-02-01T10:00:00+00:00"
+            }
+          ],
+          "recent_snapshots": []
+        }
+      }
+    }
+  ]
+}

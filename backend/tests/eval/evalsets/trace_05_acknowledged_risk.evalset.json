@@ -1,0 +1,139 @@
+{
+  "eval_set_id": "trace_05_acknowledged_risk",
+  "name": "Trace 05 — acknowledged risk → Governor PolicyDenied (auto-deny)",
+  "description": "Bet with execution_issue signals (4 chronic rollovers) but founder has already acknowledged execution_issue as a known risk. Expected: Product Brain emits execution_issue, Coordinator proposes rescope, Governor DENIES with denial_reason=acknowledged_risk.",
+  "eval_cases": [
+    {
+      "eval_id": "acknowledged_risk_governor_denied",
+      "conversation": [
+        {
+          "invocation_id": "inv_1",
+          "user_content": {
+            "parts": [{ "text": "Run Aegis scan for workspace ws-ack-001." }]
+          },
+          "final_response": {
+            "role": "model",
+            "parts": [{ "text": "[Governor] DENIED — acknowledged_risk" }]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "name": "emit_risk_signal",
+                "args": { "risk_type": "execution_issue" }
+              },
+              {
+                "name": "propose_intervention",
+                "args": { "action_type": "rescope", "escalation_level": 1 }
+              }
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "aegis",
+        "user_id": "eval_user",
+        "state": {
+          "workspace_id": "ws-ack-001",
+          "pipeline_checkpoint": "signal_engine_complete",
+          "workspace": {
+            "id": "ws-ack-001",
+            "linear_team_id": "team-ack-001",
+            "strategy_doc_refs": [],
+            "active_bet_ids": ["bet-ack-001"],
+            "control_level": "draft_only",
+            "github_repo": null,
+            "created_at": "2026-01-01T00:00:00+00:00"
+          },
+          "bet": {
+            "id": "bet-ack-001",
+            "workspace_id": "ws-ack-001",
+            "name": "Growth Referral Program",
+            "target_segment": "Existing users, power segment",
+            "problem_statement": "Organic growth has stalled. Need a referral flywheel to drive viral coefficient above 1.0.",
+            "hypothesis": "We believe a dual-sided referral incentive will result in a viral coefficient >= 1.1 within 60 days of launch.",
+            "success_metrics": [
+              { "name": "Viral coefficient", "target_value": 1.1, "unit": "ratio" },
+              { "name": "Referral conversion rate", "target_value": 0.25, "unit": "ratio" }
+            ],
+            "time_horizon": "2026-06-30",
+            "declaration_source": {
+              "type": "linear_project",
+              "linear_project_id": "proj-ack-001",
+              "raw_artifact_refs": []
+            },
+            "declaration_confidence": 0.75,
+            "status": "active",
+            "health_baseline": {
+              "expected_bet_coverage_pct": 0.6,
+              "expected_weekly_velocity": 10,
+              "hypothesis_required": true,
+              "metric_linked_required": true
+            },
+            "acknowledged_risks": [
+              {
+                "risk_type": "execution_issue",
+                "acknowledged_at": "2026-02-28T10:00:00+00:00",
+                "founder_note": "Team is aware of the sprint rollover pattern. Engineering capacity issue is being addressed through a Q2 hire — do not surface execution_issue interventions until May."
+              }
+            ],
+            "linear_project_ids": ["proj-ack-001"],
+            "linear_issue_ids": [],
+            "doc_refs": [],
+            "created_at": "2026-01-25T00:00:00+00:00",
+            "last_monitored_at": "2026-03-15T00:00:00+00:00"
+          },
+          "linear_signals": {
+            "total_issues_analyzed": 35,
+            "bet_mapped_issues": 10,
+            "bet_coverage_pct": 0.29,
+            "rollover_count": 6,
+            "chronic_rollover_count": 4,
+            "blocked_count": 3,
+            "misc_ticket_pct": 0.48,
+            "hypothesis_present": true,
+            "metric_linked": true,
+            "metric_linked_source": "REF-12",
+            "cross_team_thrash_signals": 0,
+            "scope_change_count": 4,
+            "read_window_days": 14,
+            "placebo_productivity_score": 0.65
+          },
+          "bet_snapshot": {
+            "id": "snap-ack-001",
+            "bet_id": "bet-ack-001",
+            "captured_at": "2026-03-15T10:00:00+00:00",
+            "period_start": "2026-03-01T10:00:00+00:00",
+            "period_end": "2026-03-15T10:00:00+00:00",
+            "linear_signals": {
+              "total_issues_analyzed": 35,
+              "bet_mapped_issues": 10,
+              "bet_coverage_pct": 0.29,
+              "rollover_count": 6,
+              "chronic_rollover_count": 4,
+              "blocked_count": 3,
+              "misc_ticket_pct": 0.48,
+              "hypothesis_present": true,
+              "metric_linked": true,
+              "metric_linked_source": "REF-12",
+              "cross_team_thrash_signals": 0,
+              "scope_change_count": 4,
+              "read_window_days": 14,
+              "placebo_productivity_score": 0.65
+            },
+            "health_score": 28.0,
+            "risk_types_present": ["execution_issue"],
+            "status": "ok",
+            "hypothesis_staleness_days": null,
+            "hypothesis_experiment_count": 0,
+            "last_experiment_outcome": null,
+            "similar_bet_outcome_pct": null,
+            "outcome_pattern_source_count": 0,
+            "error_code": null
+          },
+          "prior_interventions": [],
+          "recent_snapshots": []
+        }
+      }
+    }
+  ]
+}

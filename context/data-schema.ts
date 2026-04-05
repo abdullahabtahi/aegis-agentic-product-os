@@ -199,6 +199,9 @@ export interface Workspace {
   strategy_doc_refs: string[]         // Notion/doc URLs for Product Brain agent
   active_bet_ids: string[]
   control_level: ControlLevel         // autonomy setting — Governor enforces this (7th policy check)
+  // Phase 6: GitHub repo URL — Governor jules_gate check (check #4) reads this.
+  // If null → all Jules actions auto-denied. Connect via Settings UI in Phase 6.
+  github_repo?: string
   created_at: string
 }
 

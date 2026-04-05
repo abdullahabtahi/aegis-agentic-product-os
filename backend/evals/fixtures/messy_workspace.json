@@ -1,0 +1,64 @@
+{
+  "_description": "Messy workspace — low bet coverage, 4 chronic rollovers, no hypothesis, no metric. Expected: execution_issue or strategy_unclear signal.",
+  "workspace": {
+    "id": "ws-messy-001",
+    "linear_team_id": "team-messy-001",
+    "strategy_doc_refs": [],
+    "active_bet_ids": ["bet-messy-001"],
+    "control_level": "draft_only",
+    "created_at": "2026-01-01T00:00:00Z"
+  },
+  "bet": {
+    "id": "bet-messy-001",
+    "workspace_id": "ws-messy-001",
+    "name": "Enterprise Dashboard",
+    "target_segment": "Enterprise buyers",
+    "problem_statement": "Build a dashboard.",
+    "hypothesis": "",
+    "success_metrics": [],
+    "time_horizon": "2026-12-01",
+    "declaration_source": {"type": "agent_inferred", "raw_artifact_refs": ["proj-messy-001"]},
+    "declaration_confidence": 0.61,
+    "status": "active",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.6,
+      "expected_weekly_velocity": 10,
+      "hypothesis_required": true,
+      "metric_linked_required": true
+    },
+    "acknowledged_risks": [],
+    "linear_project_ids": ["proj-messy-001"],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-01-10T00:00:00Z",
+    "last_monitored_at": "2026-03-01T00:00:00Z"
+  },
+  "linear_signals": {
+    "total_issues_analyzed": 38,
+    "bet_mapped_issues": 11,
+    "bet_coverage_pct": 0.29,
+    "rollover_count": 7,
+    "chronic_rollover_count": 4,
+    "blocked_count": 5,
+    "misc_ticket_pct": 0.55,
+    "hypothesis_present": false,
+    "metric_linked": false,
+    "metric_linked_source": null,
+    "cross_team_thrash_signals": 1,
+    "scope_change_count": 6,
+    "read_window_days": 14,
+    "placebo_productivity_score": 0.71
+  },
+  "issues": [
+    {"id": "DASH-01", "title": "Add user table", "status": "todo", "project_id": "proj-messy-001", "description": "", "rolled_over": true, "roll_count": 3},
+    {"id": "DASH-02", "title": "Export to CSV", "status": "todo", "project_id": "proj-messy-001", "description": "", "rolled_over": true, "roll_count": 4},
+    {"id": "DASH-08", "title": "Filter panel", "status": "todo", "project_id": null, "description": "Orphaned ticket — no project assigned", "rolled_over": true, "roll_count": 2},
+    {"id": "DASH-09", "title": "API rate-limit handling", "status": "todo", "project_id": null, "description": "Orphaned ticket — no project assigned", "rolled_over": true, "roll_count": 3},
+    {"id": "DASH-03", "title": "Fix sidebar bug", "status": "in_progress", "project_id": "proj-messy-001", "description": "Regression from last sprint"},
+    {"id": "DASH-04", "title": "Random chore — update deps", "status": "done", "project_id": null, "description": ""},
+    {"id": "DASH-05", "title": "Team offsite planning", "status": "done", "project_id": null, "description": ""},
+    {"id": "DASH-06", "title": "Refactor auth module", "status": "done", "project_id": null, "description": ""},
+    {"id": "DASH-07", "title": "Update README", "status": "done", "project_id": null, "description": ""}
+  ],
+  "issue_relations": []
+}

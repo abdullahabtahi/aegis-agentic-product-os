@@ -1,0 +1,126 @@
+{
+  "eval_set_id": "trace_01_strategy_unclear",
+  "name": "Trace 01 — strategy_unclear → clarify_bet (L1)",
+  "description": "Bet with empty hypothesis, no success metric, and vague problem statement. No prior interventions. Expected: Product Brain emits strategy_unclear, Coordinator proposes clarify_bet at escalation level 1, Governor approves.",
+  "eval_cases": [
+    {
+      "eval_id": "strategy_unclear_clarify_bet_l1",
+      "conversation": [
+        {
+          "invocation_id": "inv_1",
+          "user_content": {
+            "parts": [{ "text": "Run Aegis scan for workspace ws-strategy-001." }]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "name": "emit_risk_signal",
+                "args": { "risk_type": "strategy_unclear" }
+              },
+              {
+                "name": "propose_intervention",
+                "args": { "action_type": "clarify_bet", "escalation_level": 1 }
+              }
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "aegis",
+        "user_id": "eval_user",
+        "state": {
+          "workspace_id": "ws-strategy-001",
+          "pipeline_checkpoint": "signal_engine_complete",
+          "workspace": {
+            "id": "ws-strategy-001",
+            "linear_team_id": "team-strategy-001",
+            "strategy_doc_refs": [],
+            "active_bet_ids": ["bet-strategy-001"],
+            "control_level": "require_approval",
+            "github_repo": null,
+            "created_at": "2026-01-01T00:00:00+00:00"
+          },
+          "bet": {
+            "id": "bet-strategy-001",
+            "workspace_id": "ws-strategy-001",
+            "name": "Enterprise Dashboard",
+            "target_segment": "Enterprise buyers",
+            "problem_statement": "Build a dashboard.",
+            "hypothesis": "",
+            "success_metrics": [],
+            "time_horizon": "2026-12-01",
+            "declaration_source": {
+              "type": "agent_inferred",
+              "linear_project_id": null,
+              "raw_artifact_refs": ["proj-strategy-001"]
+            },
+            "declaration_confidence": 0.61,
+            "status": "active",
+            "health_baseline": {
+              "expected_bet_coverage_pct": 0.6,
+              "expected_weekly_velocity": 10,
+              "hypothesis_required": true,
+              "metric_linked_required": true
+            },
+            "acknowledged_risks": [],
+            "linear_project_ids": ["proj-strategy-001"],
+            "linear_issue_ids": [],
+            "doc_refs": [],
+            "created_at": "2026-01-10T00:00:00+00:00",
+            "last_monitored_at": "2026-03-15T00:00:00+00:00"
+          },
+          "linear_signals": {
+            "total_issues_analyzed": 38,
+            "bet_mapped_issues": 11,
+            "bet_coverage_pct": 0.29,
+            "rollover_count": 3,
+            "chronic_rollover_count": 0,
+            "blocked_count": 2,
+            "misc_ticket_pct": 0.55,
+            "hypothesis_present": false,
+            "metric_linked": false,
+            "metric_linked_source": null,
+            "cross_team_thrash_signals": 0,
+            "scope_change_count": 1,
+            "read_window_days": 14,
+            "placebo_productivity_score": 0.3
+          },
+          "bet_snapshot": {
+            "id": "snap-strategy-001",
+            "bet_id": "bet-strategy-001",
+            "captured_at": "2026-03-15T10:00:00+00:00",
+            "period_start": "2026-03-01T10:00:00+00:00",
+            "period_end": "2026-03-15T10:00:00+00:00",
+            "linear_signals": {
+              "total_issues_analyzed": 38,
+              "bet_mapped_issues": 11,
+              "bet_coverage_pct": 0.29,
+              "rollover_count": 3,
+              "chronic_rollover_count": 0,
+              "blocked_count": 2,
+              "misc_ticket_pct": 0.55,
+              "hypothesis_present": false,
+              "metric_linked": false,
+              "metric_linked_source": null,
+              "cross_team_thrash_signals": 0,
+              "scope_change_count": 1,
+              "read_window_days": 14,
+              "placebo_productivity_score": 0.3
+            },
+            "health_score": 30.5,
+            "risk_types_present": ["strategy_unclear"],
+            "status": "ok",
+            "hypothesis_staleness_days": null,
+            "hypothesis_experiment_count": 0,
+            "last_experiment_outcome": null,
+            "similar_bet_outcome_pct": null,
+            "outcome_pattern_source_count": 0,
+            "error_code": null
+          },
+          "prior_interventions": [],
+          "recent_snapshots": []
+        }
+      }
+    }
+  ]
+}

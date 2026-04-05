@@ -1,10 +1,51 @@
+# ── OS & Editors ─────────────────────────────────────────────────────────────
 .DS_Store
-node_modules/
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ty_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.log
+
+# ── Virtual Environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── uv ───────────────────────────────────────────────────────────────────────
+# uv.lock is committed intentionally — do NOT ignore it
+
+# ── Secrets & Credentials ─────────────────────────────────────────────────────
 .env
 .env.local
 .env.*.local
-dist/
-build/
+*.pem
+*.key
+service_account*.json
+gcloud_credentials*.json
+
+# ── Node / Frontend ───────────────────────────────────────────────────────────
+node_modules/
 .next/
 out/
 npm-debug.log*
@@ -12,7 +53,15 @@ yarn-debug.log*
 yarn-error.log*
 .vercel/
 .turbo/
-.idea/
-.vscode/
-*.swp
-*.swo
+
+# ── Database & Migrations generated artefacts ─────────────────────────────────
+*.sqlite3
+*.db
+
+# ── ADK / Google Cloud ────────────────────────────────────────────────────────
+.adk/
+adk_eval_results/
+
+# ── Build outputs ─────────────────────────────────────────────────────────────
+*.whl
+*.tar.gz

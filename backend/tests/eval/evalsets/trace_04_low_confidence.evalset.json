@@ -1,0 +1,125 @@
+{
+  "eval_set_id": "trace_04_low_confidence",
+  "name": "Trace 04 — low confidence (<0.6) → no_intervention (no emit_risk_signal tool call)",
+  "description": "Healthy bet with high coverage (0.83), 0 chronic rollovers, hypothesis present, and metric linked. All signals are within healthy thresholds. Expected: Product Brain does NOT call emit_risk_signal (confidence below 0.6 threshold), Coordinator proposes no_intervention. Governor auto-denies with confidence_below_floor.",
+  "eval_cases": [
+    {
+      "eval_id": "low_confidence_no_intervention",
+      "conversation": [
+        {
+          "invocation_id": "inv_1",
+          "user_content": {
+            "parts": [{ "text": "Run Aegis scan for workspace ws-healthy-001." }]
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "name": "propose_intervention",
+                "args": { "action_type": "no_intervention" }
+              }
+            ]
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "aegis",
+        "user_id": "eval_user",
+        "state": {
+          "workspace_id": "ws-healthy-001",
+          "pipeline_checkpoint": "signal_engine_complete",
+          "workspace": {
+            "id": "ws-healthy-001",
+            "linear_team_id": "team-healthy-001",
+            "strategy_doc_refs": [],
+            "active_bet_ids": ["bet-healthy-001"],
+            "control_level": "require_approval",
+            "github_repo": null,
+            "created_at": "2026-01-01T00:00:00+00:00"
+          },
+          "bet": {
+            "id": "bet-healthy-001",
+            "workspace_id": "ws-healthy-001",
+            "name": "Onboarding Conversion Uplift",
+            "target_segment": "SMB founders, first 90 days",
+            "problem_statement": "New users drop off at step 3 of onboarding, reducing activation rate.",
+            "hypothesis": "We believe simplifying the onboarding flow from 5 steps to 3 will result in a 15% activation uplift for SMB founders in their first 90 days.",
+            "success_metrics": [
+              { "name": "Activation rate", "target_value": 0.65, "unit": "ratio" },
+              { "name": "Time to first value", "target_value": 5, "unit": "days" }
+            ],
+            "time_horizon": "2026-06-01",
+            "declaration_source": {
+              "type": "linear_project",
+              "linear_project_id": "proj-healthy-001",
+              "raw_artifact_refs": []
+            },
+            "declaration_confidence": 0.92,
+            "status": "active",
+            "health_baseline": {
+              "expected_bet_coverage_pct": 0.7,
+              "expected_weekly_velocity": 8,
+              "hypothesis_required": true,
+              "metric_linked_required": true
+            },
+            "acknowledged_risks": [],
+            "linear_project_ids": ["proj-healthy-001"],
+            "linear_issue_ids": [],
+            "doc_refs": [],
+            "created_at": "2026-01-15T00:00:00+00:00",
+            "last_monitored_at": "2026-03-15T00:00:00+00:00"
+          },
+          "linear_signals": {
+            "total_issues_analyzed": 42,
+            "bet_mapped_issues": 35,
+            "bet_coverage_pct": 0.83,
+            "rollover_count": 1,
+            "chronic_rollover_count": 0,
+            "blocked_count": 1,
+            "misc_ticket_pct": 0.10,
+            "hypothesis_present": true,
+            "metric_linked": true,
+            "metric_linked_source": "ONBOARD-42",
+            "cross_team_thrash_signals": 0,
+            "scope_change_count": 1,
+            "read_window_days": 14,
+            "placebo_productivity_score": 0.12
+          },
+          "bet_snapshot": {
+            "id": "snap-healthy-001",
+            "bet_id": "bet-healthy-001",
+            "captured_at": "2026-03-15T10:00:00+00:00",
+            "period_start": "2026-03-01T10:00:00+00:00",
+            "period_end": "2026-03-15T10:00:00+00:00",
+            "linear_signals": {
+              "total_issues_analyzed": 42,
+              "bet_mapped_issues": 35,
+              "bet_coverage_pct": 0.83,
+              "rollover_count": 1,
+              "chronic_rollover_count": 0,
+              "blocked_count": 1,
+              "misc_ticket_pct": 0.10,
+              "hypothesis_present": true,
+              "metric_linked": true,
+              "metric_linked_source": "ONBOARD-42",
+              "cross_team_thrash_signals": 0,
+              "scope_change_count": 1,
+              "read_window_days": 14,
+              "placebo_productivity_score": 0.12
+            },
+            "health_score": 92.0,
+            "risk_types_present": [],
+            "status": "ok",
+            "hypothesis_staleness_days": null,
+            "hypothesis_experiment_count": 0,
+            "last_experiment_outcome": null,
+            "similar_bet_outcome_pct": null,
+            "outcome_pattern_source_count": 0,
+            "error_code": null
+          },
+          "prior_interventions": [],
+          "recent_snapshots": []
+        }
+      }
+    }
+  ]
+}
