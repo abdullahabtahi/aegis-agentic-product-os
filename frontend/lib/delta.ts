@@ -3,10 +3,11 @@
  * Uses fast-json-patch for RFC 6902 JSON Patch operations.
  */
 
-import { applyPatch, type Operation } from "fast-json-patch";
+import { applyPatch, deepClone, type Operation } from "fast-json-patch";
 
 /**
- * Apply a JSON Patch delta to state immutably.
+ * Apply a JSON Patch delta to state immutably (F3.2).
+ * Deep-clones before patching so React Flow detects changes.
  * Returns a new state object; original is never mutated.
  */
 export function applyStateDelta<T extends object>(
@@ -14,8 +15,8 @@ export function applyStateDelta<T extends object>(
   delta: Operation[],
 ): T {
   if (!delta || delta.length === 0) return state;
-  // applyPatch with mutateDocument=false returns a new document
-  const { newDocument } = applyPatch(state, delta, false, false);
+  const cloned = deepClone(state);
+  const { newDocument } = applyPatch(cloned, delta, true, false);
   return newDocument as T;
 }
 

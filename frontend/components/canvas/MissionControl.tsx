@@ -3,11 +3,12 @@
 /**
  * MissionControl — React Flow canvas showing the Aegis pipeline.
  *
- * Syncs with AG-UI state via useMissionControlSync.
- * Position preservation: only node.data is updated on STATE_DELTA (PR #1 req #7).
+ * Owns all RF state (nodes/edges) to avoid the split-ownership infinite loop.
+ * syncFromState merges data only — positions are never reset (PR #1 req #7).
+ * Client-only mount guard prevents SSR hydration mismatch from ReactFlow.
  */
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -25,8 +26,13 @@ import { BetNode } from "./BetNode";
 import { AgentActivityNode } from "./AgentActivityNode";
 import { RiskEdge } from "./RiskEdge";
 import type { AegisPipelineState } from "@/lib/types";
-import { useMissionControlSync } from "@/hooks/useMissionControlSync";
+import {
+  useMissionControlSync,
+  INITIAL_NODES,
+  INITIAL_EDGES,
+} from "@/hooks/useMissionControlSync";
 
+// Defined outside component so references are stable across renders
 const NODE_TYPES = {
   betNode: BetNode,
   agentActivity: AgentActivityNode,
@@ -41,37 +47,36 @@ interface MissionControlProps {
 }
 
 export function MissionControl({ agentState }: MissionControlProps) {
-  const { nodes: syncedNodes, edges: syncedEdges, syncFromState } =
-    useMissionControlSync();
+  // Gate: don't render ReactFlow during SSR — prevents hydration mismatch
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node>(syncedNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(syncedEdges);
+  // Single owner of all RF state
+  const [nodes, setNodes, onNodesChange] = useNodesState<Node>(INITIAL_NODES);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>(INITIAL_EDGES);
 
-  // Sync from AG-UI state — position-preserving merge
+  // Pass setters into the hook — hook never owns state itself
+  const { syncFromState } = useMissionControlSync({ setNodes, setEdges });
+
+  // Sync on every agentState change
   useEffect(() => {
     syncFromState(agentState);
   }, [agentState, syncFromState]);
 
-  // Apply synced nodes/edges from hook — preserve positions by merging data only
-  useEffect(() => {
-    setNodes((prev) => {
-      const prevById = new Map(prev.map((n) => [n.id, n]));
-      return syncedNodes.map((next) => {
-        const existing = prevById.get(next.id);
-        if (!existing) return next;
-        // Preserve layout state; update data only
-        return {
-          ...existing,
-          data: next.data,
-        };
-      });
-    });
-    setEdges(syncedEdges);
-  }, [syncedNodes, syncedEdges, setNodes, setEdges]);
-
   const onConnect = useCallback(() => {
     // Canvas is read-only — no manual connections
   }, []);
+
+  if (!mounted) {
+    return (
+      <div
+        className="w-full h-full flex items-center justify-center"
+        style={{ background: "#0A0A0F" }}
+      >
+        <span className="text-xs text-white/20 font-mono">Loading canvas…</span>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full h-full" style={{ background: "#0A0A0F" }}>
@@ -112,7 +117,7 @@ export function MissionControl({ agentState }: MissionControlProps) {
           }
         />
 
-        {/* SVG arrow marker */}
+        {/* SVG arrow marker — inside ReactFlow so it's client-only */}
         <svg style={{ position: "absolute", width: 0, height: 0 }}>
           <defs>
             <marker

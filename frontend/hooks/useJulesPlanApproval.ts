@@ -10,7 +10,7 @@
  */
 
 import { useCopilotAction } from "@copilotkit/react-core";
-import { useState } from "react";
+import { createElement, useState } from "react";
 import type { ActionType } from "@/lib/types";
 
 const JULES_ACTIONS = new Set<ActionType>([
@@ -35,13 +35,13 @@ interface JulesPlanPayload {
 
 interface ApprovalState {
   pending: JulesPlanPayload | null;
-  resolve: ((approved: boolean) => void) | null;
+  resolve: ((approved: boolean) => void) | undefined;
 }
 
 export function useJulesPlanApproval() {
   const [approval, setApproval] = useState<ApprovalState>({
     pending: null,
-    resolve: null,
+    resolve: undefined,
   });
 
   useCopilotAction({
@@ -62,12 +62,15 @@ export function useJulesPlanApproval() {
       setApproval({
         pending: payload,
         resolve: (approved: boolean) => {
-          respond({ approved });
-          setApproval({ pending: null, resolve: null });
+          if (respond) respond({ approved });
+          setApproval({ pending: null, resolve: undefined });
         },
       });
-      // Return null — the ApprovalCard component renders via approval state
-      return null;
+      // Render an invisible sentinel — ApprovalCard is rendered via portal in workspace/page
+      return createElement("span", {
+        "data-jules-approval": "pending",
+        style: { display: "none" },
+      });
     },
   });
 

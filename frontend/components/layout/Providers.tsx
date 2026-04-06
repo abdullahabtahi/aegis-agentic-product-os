@@ -2,7 +2,7 @@
 
 /**
  * Providers — wraps the app with CopilotKit + React Query providers.
- * SSE reconnect: onConnectionStatusChange invalidates all queries on reconnect.
+ * SSE reconnect is handled at the hook level via useCoAgent error boundaries.
  */
 
 import { CopilotKit } from "@copilotkit/react-core";
@@ -30,19 +30,10 @@ export function Providers({ children }: ProvidersProps) {
   }
   const queryClient = queryClientRef.current;
 
-  const handleConnectionStatus = (status: string) => {
-    if (status === "connected") {
-      // Re-invalidate after reconnect to catch any missed updates
-      queryClient.invalidateQueries();
-    }
-  };
-
   return (
     <QueryClientProvider client={queryClient}>
-      <CopilotKit
-        runtimeUrl={`${BACKEND_URL}/copilotkit`}
-        onConnectionStatusChange={handleConnectionStatus}
-      >
+      {/* agent="aegis_pipeline" must match ADK root_agent name (F1.5) */}
+      <CopilotKit runtimeUrl={BACKEND_URL} agent="aegis_pipeline">
         {children}
       </CopilotKit>
     </QueryClientProvider>
