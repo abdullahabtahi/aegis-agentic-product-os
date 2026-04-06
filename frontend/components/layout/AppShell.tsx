@@ -5,7 +5,7 @@
  * Linear-inspired: compact sidebar, high information density.
  */
 
-import { Layers, Bell, Settings, Activity } from "lucide-react";
+import { Layers, Bell, Settings, Activity, ShieldOff } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -19,6 +19,7 @@ interface AppShellProps {
 const NAV_ITEMS = [
   { href: "/workspace", icon: Layers, label: "Mission Control" },
   { href: "/workspace/inbox", icon: Bell, label: "Inbox" },
+  { href: "/workspace/suppression", icon: ShieldOff, label: "Suppression Log" },
   { href: "/workspace/activity", icon: Activity, label: "Activity" },
   { href: "/workspace/settings", icon: Settings, label: "Settings" },
 ];

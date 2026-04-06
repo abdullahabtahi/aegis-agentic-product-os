@@ -10,8 +10,27 @@ This ensures the system is "Cloud Ready" without breaking Claude Code's local fl
 import os
 import logging
 from functools import lru_cache
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+# ─── Load .env early ────────────────────────────────────────────────────────
+# Config uses @lru_cache — it is instantiated at first import, which may happen
+# before main.py has a chance to load .env. Load here to be safe regardless of
+# import order. override=False means shell/process env vars always win.
+_env_path = Path(__file__).parent.parent / ".env"
+if _env_path.exists():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(dotenv_path=_env_path, override=False)
+    except ImportError:
+        for _line in _env_path.read_text().splitlines():
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _k, _, _v = _line.partition("=")
+                os.environ.setdefault(_k.strip(), _v.strip())
+# ────────────────────────────────────────────────────────────────────────────
+
 
 class Config:
     def __init__(self):

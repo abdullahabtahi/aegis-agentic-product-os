@@ -1,18 +1,17 @@
 "use client";
 
 /**
- * useInterventionApproval — optimistic accept/reject with rollback.
- * Implements PR #1 req #10: useMutation with onMutate/onError/onSettled.
+ * useInterventionApproval — server-confirmed accept/reject.
+ *
+ * NO optimistic status mutation. The UI shows a loading spinner while the
+ * request is in-flight. The cache is only updated after the server confirms
+ * the execution succeeded (onSuccess/onSettled). This prevents the "silent
+ * failure" scenario where the UI shows "Accepted" but Linear never received
+ * the write.
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { approveIntervention, rejectIntervention } from "@/lib/api";
-import type { Intervention } from "@/lib/types";
-
-type MutationContext = {
-  previousInterventions: Intervention[] | undefined;
-  interventionId: string;
-};
 
 export function useInterventionApproval(workspaceId: string) {
   const queryClient = useQueryClient();
@@ -21,27 +20,11 @@ export function useInterventionApproval(workspaceId: string) {
   const approve = useMutation({
     mutationFn: (id: string) => approveIntervention(id),
 
-    onMutate: async (id): Promise<MutationContext> => {
-      await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData<Intervention[]>(queryKey);
-
-      // Optimistic update: mark as accepted immediately
-      queryClient.setQueryData<Intervention[]>(queryKey, (old) =>
-        old?.map((i) =>
-          i.id === id ? { ...i, status: "accepted" as const } : i,
-        ),
-      );
-
-      return { previousInterventions: previous, interventionId: id };
-    },
-
-    onError: (_err, _id, context) => {
-      if (context?.previousInterventions) {
-        queryClient.setQueryData(queryKey, context.previousInterventions);
-      }
-    },
+    // No onMutate optimistic update — wait for server confirmation.
+    // isPending on the mutation drives the loading spinner in ApprovalCard.
 
     onSettled: () => {
+      // Re-fetch the real server state after success or failure.
       queryClient.invalidateQueries({ queryKey });
     },
   });
@@ -49,25 +32,6 @@ export function useInterventionApproval(workspaceId: string) {
   const reject = useMutation({
     mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
       rejectIntervention(id, reason),
-
-    onMutate: async ({ id }): Promise<MutationContext> => {
-      await queryClient.cancelQueries({ queryKey });
-      const previous = queryClient.getQueryData<Intervention[]>(queryKey);
-
-      queryClient.setQueryData<Intervention[]>(queryKey, (old) =>
-        old?.map((i) =>
-          i.id === id ? { ...i, status: "rejected" as const } : i,
-        ),
-      );
-
-      return { previousInterventions: previous, interventionId: id };
-    },
-
-    onError: (_err, _vars, context) => {
-      if (context?.previousInterventions) {
-        queryClient.setQueryData(queryKey, context.previousInterventions);
-      }
-    },
 
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey });

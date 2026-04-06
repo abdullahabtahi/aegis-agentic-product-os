@@ -2,13 +2,19 @@
 
 /**
  * ApprovalCard — HITL approval surface for Governor-approved interventions.
- * Shows skeleton while loading, transitions to active state with full details.
- * Double-confirm required for kill_bet and L3+ actions (PR #1 req).
+ *
+ * Double-confirm: driven entirely by intervention.requires_double_confirm
+ * (set by Governor reversibility check). Frontend never hardcodes which
+ * actions require it — that is the Governor's responsibility.
+ *
+ * Execution state: no optimistic status update. While isExecuting=true, the
+ * card shows a spinner and disables both buttons to prevent double-submission.
+ * The card only resolves (moves to history) after the server confirms success.
  */
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, X, AlertTriangle, Zap } from "lucide-react";
+import { Check, X, AlertTriangle, Zap, Loader2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StreamingExplanation } from "./StreamingExplanation";
 import { SeverityBadge, EscalationBadge } from "./SeverityBadge";
@@ -21,25 +27,23 @@ interface ApprovalCardProps {
   onApprove: (id: string) => void;
   onReject: (id: string, reason?: string) => void;
   isLoading?: boolean;
-  isPending?: boolean; // optimistic pending state
+  /** True while the mutation is in-flight — disables buttons, shows spinner */
+  isExecuting?: boolean;
 }
-
-const DOUBLE_CONFIRM_ACTIONS = new Set(["kill_bet"]);
 
 export function ApprovalCard({
   intervention,
   onApprove,
   onReject,
   isLoading = false,
-  isPending = false,
+  isExecuting = false,
 }: ApprovalCardProps) {
   const [confirmStep, setConfirmStep] = useState<"idle" | "confirming">("idle");
   const [rejectReason, setRejectReason] = useState("");
   const [showRejectInput, setShowRejectInput] = useState(false);
 
-  const requiresDoubleConfirm =
-    DOUBLE_CONFIRM_ACTIONS.has(intervention.action_type) ||
-    intervention.escalation_level >= 4;
+  // Delegate double-confirm decision to the Governor — never hardcode here.
+  const requiresDoubleConfirm = !!intervention.requires_double_confirm;
 
   const handleApprove = () => {
     if (requiresDoubleConfirm && confirmStep === "idle") {
@@ -51,8 +55,8 @@ export function ApprovalCard({
   };
 
   const handleReject = () => {
-    if (showRejectInput && rejectReason.trim()) {
-      onReject(intervention.id, rejectReason.trim());
+    if (showRejectInput) {
+      onReject(intervention.id, rejectReason.trim() || undefined);
       setShowRejectInput(false);
       setRejectReason("");
       return;
@@ -79,7 +83,7 @@ export function ApprovalCard({
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: isPending ? 0.6 : 1, y: 0 }}
+      animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
       className={cn(
         "rounded-lg border bg-[#111118] p-4 transition-all",
@@ -90,7 +94,7 @@ export function ApprovalCard({
             : "border-white/10",
       )}
     >
-      {/* Header */}
+      {/* Header badges */}
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex items-center gap-2 flex-wrap">
           <EscalationBadge level={intervention.escalation_level} />
@@ -103,10 +107,15 @@ export function ApprovalCard({
               Jules
             </span>
           )}
+          {requiresDoubleConfirm && (
+            <span className="inline-flex items-center text-[10px] font-mono px-1.5 py-0.5 rounded border bg-amber-400/10 text-amber-400 border-amber-400/20">
+              confirm required
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Title */}
+      {/* Action label + escalation level */}
       <h3 className="font-semibold text-white text-sm mb-1">
         {ACTION_LABELS[intervention.action_type]}
       </h3>
@@ -114,7 +123,7 @@ export function ApprovalCard({
         {ESCALATION_LABELS[intervention.escalation_level]}
       </p>
 
-      {/* Rationale — isolated component */}
+      {/* Rationale — isolated to prevent cascading re-renders */}
       <StreamingExplanation text={intervention.rationale} />
 
       {/* Blast radius warning */}
@@ -128,7 +137,7 @@ export function ApprovalCard({
         </div>
       )}
 
-      {/* Jules plan details */}
+      {/* Jules plan preview */}
       {isJulesAction && intervention.proposed_issue_title && (
         <div className="mt-3 p-2.5 rounded bg-[#4F7EFF]/5 border border-[#4F7EFF]/15 text-[11px] space-y-1">
           <div className="font-semibold text-white/70">
@@ -171,7 +180,13 @@ export function ApprovalCard({
 
       {/* Actions */}
       <div className="flex items-center gap-2 mt-4">
-        {confirmStep === "confirming" ? (
+        {isExecuting ? (
+          /* Execution in-flight — disable both buttons, show spinner */
+          <div className="flex items-center gap-2 text-[11px] text-white/40">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-[#4F7EFF]" />
+            <span>Sending to Linear…</span>
+          </div>
+        ) : confirmStep === "confirming" ? (
           <>
             <span className="text-[11px] text-amber-400 flex-1">
               Confirm {ACTION_LABELS[intervention.action_type]}?
@@ -193,26 +208,21 @@ export function ApprovalCard({
           <>
             <button
               onClick={handleApprove}
-              disabled={isPending}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-[#4F7EFF]/20 text-[#4F7EFF] border border-[#4F7EFF]/30 hover:bg-[#4F7EFF]/30 transition-colors disabled:opacity-40"
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-[#4F7EFF]/20 text-[#4F7EFF] border border-[#4F7EFF]/30 hover:bg-[#4F7EFF]/30 transition-colors"
             >
               <Check className="w-3 h-3" />
-              {requiresDoubleConfirm ? "Accept (confirm)" : "Accept"}
+              {requiresDoubleConfirm ? "Accept →" : "Accept"}
             </button>
             <button
               onClick={handleReject}
-              disabled={isPending}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-white/5 text-white/50 border border-white/10 hover:bg-white/10 transition-colors disabled:opacity-40"
+              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded bg-white/5 text-white/50 border border-white/10 hover:bg-white/10 transition-colors"
             >
               <X className="w-3 h-3" />
               {showRejectInput ? "Confirm reject" : "Reject"}
             </button>
             {showRejectInput && (
               <button
-                onClick={() => {
-                  setShowRejectInput(false);
-                  setRejectReason("");
-                }}
+                onClick={() => { setShowRejectInput(false); setRejectReason(""); }}
                 className="text-[10px] text-white/30 hover:text-white/50"
               >
                 cancel

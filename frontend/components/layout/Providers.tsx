@@ -8,7 +8,6 @@
 import { CopilotKit } from "@copilotkit/react-core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useRef } from "react";
-import { BACKEND_URL } from "@/lib/constants";
 
 interface ProvidersProps {
   children: React.ReactNode;
@@ -32,8 +31,8 @@ export function Providers({ children }: ProvidersProps) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* agent="aegis_pipeline" must match ADK root_agent name (F1.5) */}
-      <CopilotKit runtimeUrl={BACKEND_URL} agent="aegis_pipeline">
+      {/* runtimeUrl points to the Next.js API route, which proxies to ag_ui_adk */}
+      <CopilotKit runtimeUrl="/api/copilotkit" agent="aegis_pipeline" showDevConsole={false}>
         {children}
       </CopilotKit>
     </QueryClientProvider>

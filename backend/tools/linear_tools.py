@@ -313,8 +313,10 @@ class RealLinearMCP:
     _MAX_ISSUES = 250  # safety cap — prevents unbounded queries
 
     def __init__(self, api_key: str) -> None:
+        # Linear personal API keys are sent without the "Bearer" prefix.
+        # Bearer prefix → INPUT_ERROR 400 from Linear GraphQL API.
         self._headers = {
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": api_key,
             "Content-Type": "application/json",
         }
         # Relations cache populated by list_issues; consumed by list_issue_relations.

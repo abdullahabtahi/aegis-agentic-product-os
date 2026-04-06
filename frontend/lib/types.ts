@@ -73,6 +73,7 @@ export interface RiskSignal {
 export interface Intervention {
   id: string;
   bet_id: string;
+  bet_name?: string;          // denormalized for inbox grouping display
   workspace_id: string;
   action_type: ActionType;
   escalation_level: EscalationLevel;
@@ -80,6 +81,8 @@ export interface Intervention {
   rationale: string;
   confidence: number;
   status: InterventionStatus;
+  /** Set by Governor reversibility check — frontend must NOT hardcode this. */
+  requires_double_confirm?: boolean;
   risk_signal?: RiskSignal;
   proposed_comment?: string;
   proposed_issue_title?: string;

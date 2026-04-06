@@ -19,11 +19,11 @@ import type { Intervention } from "@/lib/types";
 export default function WorkspacePage() {
   const { workspaceId } = useWorkspaceState();
   const { state: agentState } = useAgentStateSync();
-  const { pending } = useInterventionInbox(workspaceId);
+  // Single hook instance — owns all intervention state for this page
+  const { pending, invalidateOnComplete } = useInterventionInbox(workspaceId);
   const { pendingPlan, confirmApproval } = useJulesPlanApproval();
 
   // Invalidate intervention list when pipeline reaches awaiting_founder_approval
-  const { invalidateOnComplete } = useInterventionInbox(workspaceId);
   useEffect(() => {
     if (agentState.pipeline_status === "awaiting_founder_approval") {
       invalidateOnComplete();
@@ -81,8 +81,9 @@ export default function WorkspacePage() {
                       created_at: new Date().toISOString(),
                     } as Intervention
                   }
-                  onApprove={() => confirmApproval(true)}
-                  onReject={() => confirmApproval(false)}
+                  // Jules actions: id param is ignored — decision flows via CopilotKit respond()
+                  onApprove={(_id) => confirmApproval(true)}
+                  onReject={(_id) => confirmApproval(false)}
                 />
               </div>
             </div>

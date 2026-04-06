@@ -9,15 +9,22 @@ CopilotKit connects to: http://localhost:8000/
 """
 
 import os
+import logging
 import google.auth
 from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
+# config.py loads .env before instantiating Config, so LINEAR_API_KEY etc. are
+# available in os.environ for all downstream modules (agent.py, linear_tools.py).
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 
 from app.agent import root_agent
+from app.config import config  # singleton — resolves secrets after env is loaded
 from db.engine import get_session, is_db_configured
+
+logger = logging.getLogger(__name__)
+
 
 # ─────────────────────────────────────────────
 # AG-UI ADK AGENT WRAPPER
@@ -81,8 +88,8 @@ async def health_check(response: Response):
         health["dependencies"]["google_cloud"] = f"error: {str(e)}"
         health["status"] = "unhealthy"
 
-    # 3. Check Linear API
-    api_key = os.environ.get("LINEAR_API_KEY")
+    # 3. Check Linear API (use config singleton — it resolved from env/GCP Secret Manager)
+    api_key = config.LINEAR_API_KEY
     is_mock = os.environ.get("AEGIS_MOCK_LINEAR", "").lower() == "true"
     if is_mock:
         health["dependencies"]["linear_api"] = "mock_mode"
@@ -90,7 +97,6 @@ async def health_check(response: Response):
         health["dependencies"]["linear_api"] = "configured"
     else:
         health["dependencies"]["linear_api"] = "missing_api_key"
-        # Not a fatal error if Mock mode is expected, but worth flagging
         if not is_mock:
             health["status"] = "unhealthy"
 
@@ -112,5 +118,71 @@ async def get_taxonomy():
         },
         "description": "Standard intervention taxonomy for Aegis Agentic Product OS."
     }
+
+# ─────────────────────────────────────────────
+# INTERVENTION REST ENDPOINTS (read by frontend InboxHook)
+# ─────────────────────────────────────────────
+
+from fastapi import Query, HTTPException
+
+@app.get("/interventions")
+async def list_interventions(workspace_id: str = Query(...)):
+    """Return pending/recent interventions for a workspace.
+    Reads from AlloyDB; returns empty list when DB not configured (local dev).
+    """
+    from db.engine import is_db_configured
+    if not is_db_configured():
+        # Local dev without AlloyDB — return empty, not an error
+        return []
+    try:
+        # Repository is bet-scoped; aggregate across all bets for the workspace
+        from sqlalchemy import text
+        from db.engine import get_session
+        async with get_session() as session:
+            result = await session.execute(
+                text("""
+                    SELECT i.id, i.bet_id, i.action_type, i.escalation_level,
+                           i.status, i.rejection_reason AS denial_reason,
+                           i.rationale, i.confidence, i.created_at, i.decided_at AS resolved_at,
+                           i.requires_double_confirm, i.blast_radius,
+                           i.proposed_comment, i.proposed_issue_title, i.proposed_issue_description,
+                           b.name AS bet_name
+                    FROM interventions i
+                    LEFT JOIN bets b ON b.id = i.bet_id
+                    WHERE i.workspace_id = :wid
+                    ORDER BY i.created_at DESC
+                    LIMIT 50
+                """),
+                {"wid": workspace_id},
+            )
+            rows = [dict(row._mapping) for row in result]
+        return rows
+    except Exception as exc:
+        logger.warning("Failed to list interventions for workspace %s: %s", workspace_id, exc)
+        return []
+
+
+@app.post("/interventions/{intervention_id}/approve")
+async def approve_intervention_endpoint(intervention_id: str):
+    """Mark an intervention accepted and trigger Executor."""
+    from app.approval_handler import approve_intervention
+    try:
+        await approve_intervention(intervention_id)
+        return {"status": "accepted", "intervention_id": intervention_id}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.post("/interventions/{intervention_id}/reject")
+async def reject_intervention_endpoint(intervention_id: str, body: dict = {}):
+    """Mark an intervention rejected."""
+    from app.approval_handler import reject_intervention
+    reason = body.get("reason", "founder_rejected")
+    try:
+        await reject_intervention(intervention_id, denial_reason=reason)
+        return {"status": "rejected", "intervention_id": intervention_id}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
 
 add_adk_fastapi_endpoint(app, adk_agent, path="/")
