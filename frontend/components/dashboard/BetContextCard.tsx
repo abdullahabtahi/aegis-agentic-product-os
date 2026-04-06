@@ -43,9 +43,10 @@ export function BetContextCard({
       : null;
 
   // Derive health score from confidence if available; default 72
-  const healthScore = riskSignal?.confidence
-    ? Math.round((1 - riskSignal.confidence) * 100)
-    : 72;
+  const healthScore =
+    riskSignal?.confidence !== undefined
+      ? Math.round((1 - riskSignal.confidence) * 100)
+      : 72;
 
   const riskTypeLabel =
     riskSignal?.risk_type &&
