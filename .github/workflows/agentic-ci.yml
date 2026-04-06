@@ -33,6 +33,14 @@ jobs:
         # Mock Linear for tests
         AEGIS_MOCK_LINEAR: "true"
 
+    - name: Authenticate to Google Cloud
+      id: auth
+      uses: google-github-actions/auth@v2
+      with:
+        # Use Workload Identity Federation for production-grade security
+        workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+        service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
     - name: Run Agent Evaluations
       run: cd backend && make eval-all
       env:
@@ -41,11 +49,3 @@ jobs:
         # Requires GCP credentials for Gemini model calls
         # We assume a service account key is stored in GitHub Secrets
         GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
-
-    - name: Authenticate to Google Cloud
-      id: auth
-      uses: google-github-actions/auth@v2
-      with:
-        # Use Workload Identity Federation for production-grade security
-        workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
-        service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}

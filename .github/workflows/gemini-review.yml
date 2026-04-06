@@ -1,7 +1,7 @@
 name: Gemini CLI Security Review
 on:
   pull_request:
-    types: [opened, synchronized, reopened]
+    types: [opened, synchronize, reopened]
   issue_comment:
     types: [created]
 
