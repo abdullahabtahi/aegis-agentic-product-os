@@ -123,7 +123,14 @@ export function useMissionControlSync(workspaceId: string) {
   // StateDeltaEvent gives incremental health_score updates per bet
   useAgentStateSync({
     onSnapshot: (snapshot: WorkspaceAgentState) => {
-      setNodes(snapshot.bets.map(betToNode))
+      // PROD-FIX: Merge data only, preserve position/interaction state
+      setNodes(nds => {
+        const existingNodes = new Map(nds.map(n => [n.id, n]))
+        return snapshot.bets.map(bet => {
+          const existing = existingNodes.get(bet.id)
+          return existing ? { ...existing, data: betToNodeData(bet) } : betToNode(bet)
+        })
+      })
       setEdges(snapshot.risk_signals.map(riskToEdge))
     },
     onDelta: (delta: AgentStateDelta) => {
@@ -448,8 +455,15 @@ export function InboxInterventionCard({
       )}
 
       <CardFooter className="pt-2 gap-2">
-        <Button size="sm" className="flex-1" onClick={() => onAccept(note)}>Accept</Button>
-        <Button size="sm" variant="outline" onClick={() => onReject(note)}>Reject</Button>
+        <Button size="sm" className="flex-1" onClick={() => {
+          // PROD-FIX: Optimistic UI updates
+          setExpanded(false);
+          onAccept(note);
+        }}>Accept</Button>
+        <Button size="sm" variant="outline" onClick={() => {
+          setExpanded(false);
+          onReject(note);
+        }}>Reject</Button>
         <Button size="sm" variant="ghost" onClick={onSnooze}>Snooze</Button>
       </CardFooter>
     </Card>
@@ -528,6 +542,8 @@ export function SuppressionLog({ events }: { events: PolicyDeniedEvent[] }) {
 import { useEffect } from "react"
 import { EventType } from "@ag-ui/core"
 
+import { useRef } from "react"
+
 export function useAgentToolCallEvents({
   onToolCallStart,
   onToolCallEnd,
@@ -537,13 +553,21 @@ export function useAgentToolCallEvents({
 }) {
   const { agentSubscriber } = useCopilotContext()
 
+  // PROD-FIX: Use refs for callbacks to prevent stale closures and infinite re-subscribes
+  const startRef = useRef(onToolCallStart)
+  const endRef = useRef(onToolCallEnd)
+
+  useEffect(() => { startRef.current = onToolCallStart }, [onToolCallStart])
+  useEffect(() => { endRef.current = onToolCallEnd }, [onToolCallEnd])
+
   useEffect(() => {
+    if (!agentSubscriber) return
     const unsub = agentSubscriber.subscribe({
-      onToolCallStartEvent: (e) => onToolCallStart({
+      onToolCallStartEvent: (e) => startRef.current({
         toolName: e.toolCallName,
         betId: e.parentMessageId,   // convention: parentMessageId = betId for scoped tools
       }),
-      onToolCallEndEvent: (e) => onToolCallEnd({
+      onToolCallEndEvent: (e) => endRef.current({
         toolName: e.toolCallName,
         betId: e.parentMessageId,
       }),
@@ -560,14 +584,14 @@ export function useAgentToolCallEvents({
 // Uses TextMessageChunk events via CopilotKit's built-in streaming
 import { useCoAgentStateRender } from "@copilotkit/react-core"
 
-export function RiskSignalCard({ riskSignal }: { riskSignal: RiskSignal }) {
-  // Render agent's streaming explanation as it arrives
+// PROD-FIX: Isolate streaming component to prevent full card re-renders
+function StreamingExplanation() {
   useCoAgentStateRender({
     name: "product_brain_agent",
     render: ({ state, status }) => {
       if (status === "inProgress" && state.streaming_explanation) {
         return (
-          <div className="text-sm text-muted-foreground animate-pulse">
+          <div className="text-sm text-muted-foreground animate-pulse mt-2">
             {state.streaming_explanation}
           </div>
         )
@@ -575,7 +599,10 @@ export function RiskSignalCard({ riskSignal }: { riskSignal: RiskSignal }) {
       return null
     },
   })
+  return null
+}
 
+export function RiskSignalCard({ riskSignal }: { riskSignal: RiskSignal }) {
   return (
     <Card className="border-l-4" style={{ borderLeftColor: riskTypeToColor(riskSignal.risk_type) }}>
       <CardHeader className="pb-2">
@@ -588,6 +615,7 @@ export function RiskSignalCard({ riskSignal }: { riskSignal: RiskSignal }) {
       </CardHeader>
       <CardContent>
         <p className="text-sm">{riskSignal.explanation}</p>
+        <StreamingExplanation />
         <EvidenceList evidence={riskSignal.evidence} className="mt-3" />
         <ProductPrincipleRefs refs={riskSignal.product_principle_refs} className="mt-2" />
       </CardContent>
@@ -886,8 +914,13 @@ frontend/
 
 4. **React Query for base state, AG-UI for live updates.** Never poll the API for
    agent-driven changes. Use AG-UI `StateDeltaEvent` for surgical React Query cache updates.
+   **Warning:** Be careful not to overwhelm React Query with high-frequency streaming events. Separate structural state (React Query) from volatile streaming text (isolated components).
 
-5. **Accessibility.** All `Dialog`/`Sheet` components must include `DialogTitle`.
+5. **React Flow State Preservation.** Never completely overwrite the `nodes` array when syncing with the backend. This destroys positional state (`x`, `y`) and user interaction states (dragging, selection). Always merge new `data` into existing nodes.
+
+6. **Optimistic UI & Callback stability.** Provide immediate visual feedback (e.g., hiding a card instantly upon 'Accept' while the agent processes). Use `useRef` for callbacks in `useEffect` dependency arrays when subscribing to agent events to prevent stale closures.
+
+7. **Accessibility.** All `Dialog`/`Sheet` components must include `DialogTitle`.
    Intervention cards must support keyboard navigation (Tab through Accept/Reject/Dismiss).
    Risk type colors must not be the only differentiator (use labels + icons too).
 
