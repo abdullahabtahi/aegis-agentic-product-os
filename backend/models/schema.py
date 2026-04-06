@@ -418,6 +418,20 @@ class HeuristicVersion(BaseModel):
     model_config = {"frozen": True}
 
 
+class SuppressionRule(BaseModel):
+    """Override & Teach: auto-suppress matching (risk_type, action_type, reason) after 2 rejections in 30d."""
+    risk_type: RiskType
+    action_type: ActionType
+    rejection_reason: RejectionReasonCategory
+    rejection_count: int
+    first_rejected_at: str  # ISO 8601
+    last_rejected_at: str   # ISO 8601
+    suppressed_until: str   # ISO 8601 (last_rejected_at + auto_suppress_days)
+    workspace_id: str
+
+    model_config = {"frozen": True}
+
+
 class BetRejection(BaseModel):
     id: str
     workspace_id: str

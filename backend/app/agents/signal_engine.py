@@ -350,9 +350,11 @@ class SignalEngineAgent(BaseAgent):
     async def _run_async_impl(
         self, ctx: InvocationContext
     ) -> AsyncGenerator[Event, None]:
-        # Check pipeline checkpoint — skip if already completed (crash recovery, F3.3)
-        if ctx.session.state.get("pipeline_checkpoint") == "signal_engine_complete":
+        # Check pipeline checkpoint — skip if already completed (crash recovery + re-invocation)
+        checkpoint = ctx.session.state.get("pipeline_checkpoint", "")
+        if checkpoint and checkpoint != "":
             yield Event(
+                invocation_id=ctx.invocation_id,
                 author=self.name,
                 content=types.Content(
                     role="model",
@@ -366,6 +368,7 @@ class SignalEngineAgent(BaseAgent):
 
         if not bet_dict:
             yield Event(
+                invocation_id=ctx.invocation_id,
                 author=self.name,
                 content=types.Content(
                     role="model",
@@ -396,6 +399,7 @@ class SignalEngineAgent(BaseAgent):
             status_msg = f"[SignalEngine] ERROR — {snapshot.error_code}"
 
         yield Event(
+            invocation_id=ctx.invocation_id,
             author=self.name,
             content=types.Content(
                 role="model",
@@ -404,8 +408,19 @@ class SignalEngineAgent(BaseAgent):
         )
 
 
-# Singleton for pipeline use
-signal_engine_agent = SignalEngineAgent(
-    name="signal_engine",
-    description="Deterministic Signal Engine — reads Linear, computes LinearSignals and BetSnapshot.",
-)
+def create_signal_engine_agent() -> SignalEngineAgent:
+    """Factory — always returns a fresh instance with no pre-existing parent.
+
+    ADK eval re-validates Pydantic models per test case; module-level singletons
+    cause 'already has a parent' errors when the validator runs twice on the same
+    object. Always use this factory in pipeline construction.
+    """
+    return SignalEngineAgent(
+        name="signal_engine",
+        description="Deterministic Signal Engine — reads Linear, computes LinearSignals and BetSnapshot.",
+    )
+
+
+# Backward-compat alias for unit tests that import this directly.
+# Do NOT use in pipeline construction — use create_signal_engine_agent() instead.
+signal_engine_agent = create_signal_engine_agent()

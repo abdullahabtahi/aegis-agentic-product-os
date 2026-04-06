@@ -30,6 +30,7 @@ from google.adk.agents.invocation_context import InvocationContext
 from google.adk.events import Event
 from google.genai import types
 
+from app.override_teach import should_suppress
 from models.responses import GovernorDecision, PolicyCheckResult
 from models.schema import DEFAULT_HEURISTIC_VERSION, PolicyDenialReason
 
@@ -53,7 +54,7 @@ def check_confidence_floor(
 
 def check_duplicate_suppression(
     action_type: str,
-    bet_id: str,
+    _bet_id: str,  # Phase 2+: used for AlloyDB date-filtered query
     prior_interventions: list[dict],
     window_days: int = 30,
 ) -> PolicyCheckResult:
@@ -74,7 +75,7 @@ def check_duplicate_suppression(
 
 
 def check_rate_cap(
-    bet_id: str,
+    _bet_id: str,  # Phase 2+: used for AlloyDB date-filtered query
     prior_interventions: list[dict],
     rate_cap_days: int = 7,
 ) -> PolicyCheckResult:
@@ -215,9 +216,17 @@ class GovernorAgent(BaseAgent):
     async def _run_async_impl(
         self, ctx: InvocationContext
     ) -> AsyncGenerator[Event, None]:
-        # Check pipeline checkpoint (crash recovery)
-        if ctx.session.state.get("pipeline_checkpoint") == "governor_complete":
+        # Check pipeline checkpoint (crash recovery + re-invocation after approval)
+        checkpoint = ctx.session.state.get("pipeline_checkpoint", "")
+        if checkpoint in (
+            "governor_complete",
+            "awaiting_founder_approval",
+            "founder_approved",
+            "founder_rejected",
+            "executor_complete",
+        ):
             yield Event(
+                invocation_id=ctx.invocation_id,
                 author=self.name,
                 content=types.Content(
                     role="model",
@@ -235,6 +244,7 @@ class GovernorAgent(BaseAgent):
             ).model_dump()
             ctx.session.state["pipeline_checkpoint"] = "governor_complete"
             yield Event(
+                invocation_id=ctx.invocation_id,
                 author=self.name,
                 content=types.Content(
                     role="model",
@@ -258,10 +268,10 @@ class GovernorAgent(BaseAgent):
         confidence = float(proposal.get("confidence", 0.0))
 
         # Read context from session state
-        bet = ctx.state.get("bet", {})
-        workspace = ctx.state.get("workspace", {})
-        prior_interventions = ctx.state.get("prior_interventions", [])
-        risk_signal_draft = ctx.state.get("risk_signal_draft", "")
+        bet = ctx.session.state.get("bet", {})
+        workspace = ctx.session.state.get("workspace", {})
+        prior_interventions = ctx.session.state.get("prior_interventions", [])
+        risk_signal_draft = ctx.session.state.get("risk_signal_draft", "")
         if isinstance(risk_signal_draft, str):
             risk_signal_draft = {}
         risk_type = risk_signal_draft.get("risk_type", "")
@@ -271,8 +281,35 @@ class GovernorAgent(BaseAgent):
         control_level = workspace.get("control_level", "draft_only")
         workspace_has_github = bool(workspace.get("github_repo"))
         thresholds = DEFAULT_HEURISTIC_VERSION.risk_thresholds
-        chronic_rollover_count = ctx.state.get("linear_signals", {}).get("chronic_rollover_count", 0)
+        chronic_rollover_count = ctx.session.state.get("linear_signals", {}).get("chronic_rollover_count", 0)
         has_draft_document = bool(proposal.get("proposed_issue_description"))
+
+        # Override & Teach: check if this pattern was rejected enough to auto-suppress
+        rejection_history = ctx.session.state.get("rejection_history", [])
+        suppressed, suppression_reason = should_suppress(
+            rejection_history, risk_type, action_type,
+            threshold=2, window_days=thresholds.auto_suppress_days,
+        )
+        if suppressed:
+            decision = GovernorDecision(
+                approved=False,
+                denial_reason="override_teach_suppression",
+            )
+            msg = (
+                f"[Governor] DENIED — override_teach_suppression: "
+                f"({risk_type}, {action_type}, {suppression_reason}) rejected 2+ times"
+            )
+            ctx.session.state["governor_decision"] = decision.model_dump()
+            ctx.session.state["pipeline_checkpoint"] = "governor_complete"
+            yield Event(
+                invocation_id=ctx.invocation_id,
+                author=self.name,
+                content=types.Content(
+                    role="model",
+                    parts=[types.Part.from_text(text=msg)],
+                ),
+            )
+            return
 
         # Run all 8 checks in order
         checks: list[PolicyCheckResult] = [
@@ -303,6 +340,9 @@ class GovernorAgent(BaseAgent):
                 blast_radius_attached=False,
             )
             msg = f"[Governor] DENIED — {denial_reason}: {failing.details}"
+            ctx.session.state["governor_decision"] = decision.model_dump()
+            ctx.session.state["policy_checks"] = [c.model_dump() for c in checks]
+            ctx.session.state["pipeline_checkpoint"] = "governor_complete"
         else:
             decision = GovernorDecision(
                 approved=True,
@@ -310,15 +350,32 @@ class GovernorAgent(BaseAgent):
                 requires_double_confirm=requires_double_confirm,
                 blast_radius_attached=False,
             )
-            msg = f"[Governor] APPROVED — action_type={action_type}, level={escalation_level}"
+            msg = (
+                f"[Governor] APPROVED — AWAITING_FOUNDER_APPROVAL. "
+                f"action_type={action_type}, level={escalation_level}"
+            )
             if requires_double_confirm:
                 msg += " (double-confirm required)"
 
-        ctx.session.state["governor_decision"] = decision.model_dump()
-        ctx.session.state["policy_checks"] = [c.model_dump() for c in checks]
-        ctx.session.state["pipeline_checkpoint"] = "governor_complete"
+            # Jules feedback #3: halt pipeline and expose full intervention for CopilotKit.
+            # CopilotKit reads pipeline_status == "awaiting_founder_approval" to surface
+            # the InterventionApprovalCard. Executor (Phase 3) only runs when
+            # pipeline_status transitions to "founder_approved" via AG-UI action.
+            ctx.session.state["governor_decision"] = decision.model_dump()
+            ctx.session.state["policy_checks"] = [c.model_dump() for c in checks]
+            ctx.session.state["pipeline_status"] = "awaiting_founder_approval"
+            ctx.session.state["pipeline_checkpoint"] = "awaiting_founder_approval"
+            # Full intervention payload — CopilotKit renders this in InterventionApprovalCard
+            ctx.session.state["awaiting_approval_intervention"] = {
+                **proposal,
+                "requires_double_confirm": requires_double_confirm,
+                "risk_type": risk_type,
+                "risk_severity": risk_severity,
+                "control_level": control_level,
+            }
 
         yield Event(
+            invocation_id=ctx.invocation_id,
             author=self.name,
             content=types.Content(
                 role="model",
@@ -327,8 +384,16 @@ class GovernorAgent(BaseAgent):
         )
 
 
-# Singleton for pipeline use
-governor_agent = GovernorAgent(
-    name="governor",
-    description="Deterministic policy gate — 8 checks before any intervention reaches HITL surface.",
-)
+def create_governor_agent() -> GovernorAgent:
+    """Factory — always returns a fresh instance with no pre-existing parent.
+
+    See signal_engine.py factory comment for why singletons break ADK eval.
+    """
+    return GovernorAgent(
+        name="governor",
+        description="Deterministic policy gate — 8 checks before any intervention reaches HITL surface.",
+    )
+
+
+# Backward-compat alias. Do NOT use in pipeline construction.
+governor_agent = create_governor_agent()
