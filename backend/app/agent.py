@@ -78,7 +78,7 @@ root_agent = aegis_pipeline
 
 app = App(
     root_agent=root_agent,
-    name="aegis",
+    name="app",  # Must match directory name for adk web session routing
 )
 
 # Expose artifact_service for use in runner creation (tests, eval, Phase 4)

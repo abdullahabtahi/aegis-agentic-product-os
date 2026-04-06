@@ -30,6 +30,7 @@ from google.adk.tools import ToolContext
 from google.genai import types
 
 from models.schema import DEFAULT_HEURISTIC_VERSION
+from tools.lenny_mcp import search_lenny_transcripts
 
 
 # ─────────────────────────────────────────────
@@ -247,6 +248,9 @@ async def before_cynic(callback_context: CallbackContext) -> types.Content | Non
     staleness_warning = _compute_hypothesis_staleness_warning(bet, bet_snapshot)
     signals_str = _format_detected_signals(signals)
 
+    from app.app_utils.trace_logging import record_trace_start
+    record_trace_start(callback_context)
+
     callback_context.state["product_brain_context"] = {
         "bet_id": bet.get("id"),
         "bet_name": bet.get("name"),
@@ -276,21 +280,64 @@ async def before_synthesis(callback_context: CallbackContext) -> None:
     callback_context.state["pb_optimist_json"] = json.dumps(optimist, indent=2) if optimist else "(optimist did not respond)"
 
 
+def _synthesis_output_has_valid_tool_call(llm_response: LlmResponse) -> bool:
+    """Check if synthesis LLM response contains a valid emit_risk_signal or
+    an explicit 'confidence below threshold' text (which is valid — no tool call needed).
+
+    Returns True if output is valid, False if retry should be attempted.
+    """
+    if not llm_response or not llm_response.content:
+        return False
+    # Check for tool calls (emit_risk_signal)
+    for part in llm_response.content.parts or []:
+        if part.function_call and part.function_call.name == "emit_risk_signal":
+            args = part.function_call.args or {}
+            # Validate required fields
+            risk_type = args.get("risk_type", "")
+            confidence = args.get("confidence", 0)
+            headline = args.get("headline", "")
+            if risk_type and isinstance(confidence, (int, float)) and headline:
+                return True
+            return False  # Tool called but with invalid args — retry
+    # Check for explicit low-confidence skip (valid behavior per spec)
+    for part in llm_response.content.parts or []:
+        if part.text and "confidence below threshold" in part.text.lower():
+            return True
+    # No tool call and no skip message — invalid
+    return False
+
+
 async def after_synthesis_model(
     callback_context: CallbackContext,
     llm_response: LlmResponse,  # ADK passes this as keyword arg 'llm_response='
 ) -> LlmResponse | None:
-    """1-retry on validation failure. Silent skip after 1 retry."""
+    """1-retry on validation failure. Silent skip after 1 retry.
+
+    Validates that synthesis produced either:
+      1. A valid emit_risk_signal tool call (risk_type + confidence + headline)
+      2. An explicit "confidence below threshold" skip message
+    """
+    if _synthesis_output_has_valid_tool_call(llm_response):
+        return None  # Valid — pass through
+
     retry_count = callback_context.state.get("product_brain_retry_count", 0)
     if retry_count < 1:
-        callback_context.state["product_brain_retry_count"] = retry_count
+        callback_context.state["product_brain_retry_count"] = retry_count + 1
+        return None  # ADK will re-invoke the model
+
+    # After 1 retry still invalid — silent skip, no risk signal surfaced
+    # This is the safe path: no signal > bad signal
+    callback_context.state["product_brain_skip_reason"] = "validation_failed_after_retry"
     return None
 
 
 async def after_synthesis(callback_context: CallbackContext) -> types.Content | None:
-    """Reset retry counter and set checkpoint."""
+    """Reset retry counter, set checkpoint, and persist AgentTrace."""
+    from app.app_utils.trace_logging import log_product_brain_trace
+
     callback_context.state["product_brain_retry_count"] = 0
     callback_context.state["pipeline_checkpoint"] = "product_brain_complete"
+    await log_product_brain_trace(callback_context)
     return None
 
 
@@ -389,6 +436,17 @@ If confident (>= 0.6), generate founder-facing copy:
     RIGHT: "3 weeks of rollover risk threaten your launch window."
   explanation: 2–3 sentences. Cite specific signal values. Ground in product principles.
 
+## OPTIONAL ENRICHMENT:
+You have access to search_lenny_transcripts — 284 episodes of Lenny's Podcast with product
+leaders (Shreyas Doshi, Julie Zhuo, Brian Chesky, etc.). Use it BEFORE classifying to find
+relevant product principles or startup failure patterns. Search terms:
+  - strategy_unclear → "hypothesis validation strategy execution"
+  - alignment_issue → "team alignment cross functional collaboration"
+  - execution_issue → "sprint velocity shipping cadence rollover"
+  - placebo_productivity → "vanity metrics busy work real progress"
+If the search returns useful principles, cite them in your classification_rationale.
+If the search fails or returns nothing, proceed without it — do not block on enrichment.
+
 ## CRITICAL RULES:
 1. prior_risk_types context in session is HISTORICAL — do NOT copy it as your answer.
 2. Classify independently from Cynic/Optimist if their confidence is low.
@@ -420,7 +478,10 @@ def create_product_brain_debate() -> SequentialAgent:
                 model="gemini-3-flash-preview",
                 instruction=_CYNIC_INSTRUCTION,
                 description="Pessimistic risk analyst. Surfaces worst-case interpretation of Linear signals.",
-                tools=[emit_cynic_assessment],
+                # Both assessment tools on both agents — ADK nested SequentialAgent
+                # can merge tool registries across siblings, causing "tool not found"
+                # if only one tool is registered per agent.
+                tools=[emit_cynic_assessment, emit_optimist_assessment],
                 before_agent_callback=before_cynic,
             ),
             Agent(
@@ -428,21 +489,17 @@ def create_product_brain_debate() -> SequentialAgent:
                 model="gemini-3-flash-preview",
                 instruction=_OPTIMIST_INSTRUCTION,
                 description="Optimistic risk analyst. Surfaces mitigating factors for Linear signals.",
-                tools=[emit_optimist_assessment],
+                tools=[emit_optimist_assessment, emit_cynic_assessment],
             ),
             Agent(
                 name="product_brain_synthesis",
                 model="gemini-3.1-pro-preview",
                 instruction=_SYNTHESIS_INSTRUCTION,
                 description="Senior strategist synthesising Cynic/Optimist debate into final risk signal.",
-                tools=[emit_risk_signal],
+                tools=[emit_risk_signal, search_lenny_transcripts],
                 before_agent_callback=before_synthesis,
                 after_agent_callback=after_synthesis,
                 after_model_callback=after_synthesis_model,
             ),
         ],
     )
-
-
-# Backward-compat alias. Do NOT use in pipeline construction.
-product_brain_debate = create_product_brain_debate()

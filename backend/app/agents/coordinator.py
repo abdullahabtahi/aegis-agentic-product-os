@@ -106,9 +106,19 @@ async def before_coordinator(callback_context: CallbackContext) -> types.Content
             role="model",
             parts=[types.Part.from_text(text="[Coordinator] Skipped — checkpoint exists")],
         )
+    from app.app_utils.trace_logging import record_trace_start
+    record_trace_start(callback_context)
+
     bet = callback_context.state.get("bet", {})
     risk_signal_draft = callback_context.state.get("risk_signal_draft", "")
     prior_interventions = callback_context.state.get("prior_interventions", [])
+
+    # Fetch workspace-level calibration data (accepted/rejected counts)
+    from db.repository import get_workspace_intervention_stats
+    workspace_id = callback_context.state.get(
+        "workspace_id", bet.get("workspace_id", ""),
+    )
+    workspace_stats = await get_workspace_intervention_stats(workspace_id)
 
     context = {
         "bet_id": bet.get("id"),
@@ -120,6 +130,7 @@ async def before_coordinator(callback_context: CallbackContext) -> types.Content
         "acknowledged_risks": bet.get("acknowledged_risks", []),
         "risk_signal_draft": risk_signal_draft,
         "prior_interventions": prior_interventions,
+        "workspace_stats": workspace_stats,
         "heuristic_version": DEFAULT_HEURISTIC_VERSION.version,
         "intervention_ranking_weights": [
             w.model_dump() for w in DEFAULT_HEURISTIC_VERSION.intervention_ranking_weights
@@ -131,11 +142,16 @@ async def before_coordinator(callback_context: CallbackContext) -> types.Content
     callback_context.state["bet_name"] = bet.get("name", "")
     callback_context.state["hypothesis"] = bet.get("hypothesis", "")
     callback_context.state["acknowledged_risks"] = bet.get("acknowledged_risks", [])
+    callback_context.state["prior_interventions"] = prior_interventions
     callback_context.state["intervention_ranking_weights"] = context["intervention_ranking_weights"]
+    callback_context.state["workspace_stats"] = workspace_stats
 
 
 async def after_coordinator(callback_context: CallbackContext) -> types.Content | None:
+    from app.app_utils.trace_logging import log_coordinator_trace
+
     callback_context.state["pipeline_checkpoint"] = "coordinator_complete"
+    await log_coordinator_trace(callback_context)
     return None
 
 
@@ -191,6 +207,9 @@ Special:
 - Level 4 (kill_bet) only if Level 3 was attempted
 - Exception: severity == critical AND chronic_rollover_count >= 3 → you may recommend Level 3
 
+## WORKSPACE CALIBRATION (founder decision history — use to calibrate confidence):
+{workspace_stats}
+
 ## RANKING WEIGHTS (higher = prefer this action):
 {intervention_ranking_weights}
 
@@ -219,7 +238,3 @@ def create_coordinator_agent() -> Agent:
         before_agent_callback=before_coordinator,
         after_agent_callback=after_coordinator,
     )
-
-
-# Backward-compat alias. Do NOT use in pipeline construction.
-coordinator_agent = create_coordinator_agent()

@@ -76,7 +76,7 @@ class ExecutorResult(BaseModel):
     executed: bool
     action_type: str
     linear_write_result: dict | None = None
-    jules_stub_result: dict | None = None
+    jules_session_result: dict | None = None  # Jules API session creation result
     error: str | None = None
 
     model_config = {"frozen": True}

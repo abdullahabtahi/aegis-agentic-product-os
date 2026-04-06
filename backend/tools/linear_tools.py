@@ -431,16 +431,63 @@ class RealLinearMCP:
         return result
 
     async def write_action(self, action: dict[str, Any]) -> dict[str, str]:
-        """Phase 1-3: intentionally unimplemented.
+        """Execute a bounded LinearAction write via Linear GraphQL API.
 
-        Phase 4 Executor writes go through McpToolset(StreamableHTTPConnectionParams(
-            url="https://mcp.linear.app/mcp", headers={"Authorization": "Bearer ..."}
-        )) — not through this class.
+        Supports: add_comment (commentCreate), create_issue (issueCreate).
+        Other action types return a no-op confirmation.
+        All writes are bounded to the LinearAction interface — never improvises.
         """
-        raise NotImplementedError(
-            "Live writes are handled by the Phase 4 Executor via McpToolset. "
-            "Signal Engine is read-only. Check CLAUDE.md for write architecture."
-        )
+        # add_comment → Linear commentCreate mutation
+        comment_text = action.get("add_comment")
+        if comment_text and isinstance(comment_text, str):
+            # add_comment requires an issue_id context — passed as action metadata
+            issue_id = action.get("issue_id", "")
+            if not issue_id:
+                return {"status": "skipped", "reason": "add_comment requires issue_id"}
+            mutation = """
+            mutation CreateComment($issueId: String!, $body: String!) {
+              commentCreate(input: { issueId: $issueId, body: $body }) {
+                success
+                comment { id body }
+              }
+            }
+            """
+            data = await self._graphql(mutation, {"issueId": issue_id, "body": comment_text})
+            result = data.get("commentCreate", {})
+            if result.get("success"):
+                return {"status": "success", "comment_id": result.get("comment", {}).get("id", "")}
+            return {"status": "failed", "reason": "commentCreate returned success=false"}
+
+        # create_issue → Linear issueCreate mutation
+        create_issue = action.get("create_issue")
+        if create_issue and isinstance(create_issue, dict):
+            title = create_issue.get("title", "")
+            description = create_issue.get("description", "")
+            project_id = create_issue.get("project_id")
+            if not title:
+                return {"status": "skipped", "reason": "create_issue requires title"}
+            variables: dict[str, Any] = {"title": title, "description": description}
+            # projectId is optional — only set if provided
+            project_clause = ""
+            if project_id:
+                variables["projectId"] = project_id
+                project_clause = ", projectId: $projectId"
+            mutation = f"""
+            mutation CreateIssue($title: String!, $description: String!{', $projectId: String' if project_id else ''}) {{
+              issueCreate(input: {{ title: $title, description: $description{project_clause} }}) {{
+                success
+                issue {{ id title }}
+              }}
+            }}
+            """
+            data = await self._graphql(mutation, variables)
+            result = data.get("issueCreate", {})
+            if result.get("success"):
+                return {"status": "success", "issue_id": result.get("issue", {}).get("id", "")}
+            return {"status": "failed", "reason": "issueCreate returned success=false"}
+
+        # Unrecognized or no-op action
+        return {"status": "no_op", "reason": "no recognized write action in payload"}
 
 
 # ─────────────────────────────────────────────

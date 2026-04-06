@@ -15,6 +15,7 @@ Contract (from CLAUDE.md):
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import AsyncGenerator
@@ -347,6 +348,37 @@ class SignalEngineAgent(BaseAgent):
     #   - key present → RealLinearMCP (live workspace scans)
     _linear_mcp: LinearMCPClient = get_linear_mcp()
 
+    def _parse_bet_from_user_message(
+        self, ctx: InvocationContext
+    ) -> tuple[dict | None, str]:
+        """Extract bet and workspace_id from user message JSON.
+
+        ADK web playground sends the initial payload as a user message text,
+        not as pre-loaded session state. This parses that JSON and populates
+        session state so downstream agents can read it normally.
+        """
+        for event in reversed(ctx.session.events or []):
+            if not event.content or event.content.role != "user":
+                continue
+            for part in event.content.parts or []:
+                if not part.text:
+                    continue
+                try:
+                    payload = json.loads(part.text)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if isinstance(payload, dict) and "bet" in payload:
+                    bet_dict = payload["bet"]
+                    workspace_id = payload.get("workspace_id", "")
+                    workspace = payload.get("workspace", {})
+                    # Populate session state for downstream agents
+                    ctx.session.state["bet"] = bet_dict
+                    ctx.session.state["workspace_id"] = workspace_id
+                    if workspace:
+                        ctx.session.state["workspace"] = workspace
+                    return bet_dict, workspace_id
+        return None, ""
+
     async def _run_async_impl(
         self, ctx: InvocationContext
     ) -> AsyncGenerator[Event, None]:
@@ -365,6 +397,11 @@ class SignalEngineAgent(BaseAgent):
 
         bet_dict = ctx.session.state.get("bet")
         workspace_id = ctx.session.state.get("workspace_id", "")
+
+        # ADK web sends JSON as a user message, not pre-loaded session state.
+        # Parse bet/workspace from the latest user message if not in state.
+        if not bet_dict:
+            bet_dict, workspace_id = self._parse_bet_from_user_message(ctx)
 
         if not bet_dict:
             yield Event(
@@ -419,8 +456,3 @@ def create_signal_engine_agent() -> SignalEngineAgent:
         name="signal_engine",
         description="Deterministic Signal Engine — reads Linear, computes LinearSignals and BetSnapshot.",
     )
-
-
-# Backward-compat alias for unit tests that import this directly.
-# Do NOT use in pipeline construction — use create_signal_engine_agent() instead.
-signal_engine_agent = create_signal_engine_agent()

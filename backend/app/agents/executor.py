@@ -33,6 +33,7 @@ from google.adk.events import Event
 from google.genai import types
 
 from models.responses import ExecutorResult
+from tools.jules_service import get_jules_client
 from tools.linear_tools import MockLinearMCP, RealLinearMCP, get_linear_mcp
 
 # Union type alias
@@ -146,32 +147,47 @@ class ExecutorAgent(BaseAgent):
             )
             return
 
-        # Handle Jules actions (stub)
+        # Handle Jules actions — create coding session via Jules API
         if action_type.startswith("jules_"):
-            jules_result = {
-                "status": "jules_stub",
-                "message": (
-                    f"Jules action '{action_type}' stubbed for hackathon. "
-                    "requirePlanApproval=True would be set in production."
-                ),
-            }
-            result = ExecutorResult(
-                executed=True,
+            workspace = ctx.session.state.get("workspace", {})
+            github_repo = workspace.get("github_repo", "")
+
+            jules_client = get_jules_client()
+            jules_result = await jules_client.create_session(
                 action_type=action_type,
-                jules_stub_result=jules_result,
+                title=proposal.get("title", action_type),
+                rationale=proposal.get("rationale", ""),
+                github_repo=github_repo,
+            )
+
+            executed = jules_result.get("status") == "session_created"
+            result = ExecutorResult(
+                executed=executed,
+                action_type=action_type,
+                jules_session_result=jules_result,
+                error=jules_result.get("error") if not executed else None,
             )
             ctx.session.state["executor_result"] = result.model_dump()
-            ctx.session.state["pipeline_status"] = "executed"
+            ctx.session.state["pipeline_status"] = "executed" if executed else "execution_failed"
             ctx.session.state["pipeline_checkpoint"] = "executor_complete"
-            ctx.session.state["outcome_check_scheduled_at"] = (
-                datetime.now(timezone.utc) + timedelta(days=_OUTCOME_CHECK_DELAY_DAYS)
-            ).isoformat()
+            if executed:
+                ctx.session.state["jules_session_id"] = jules_result.get("session_id", "")
+                ctx.session.state["jules_url"] = jules_result.get("jules_url", "")
+                ctx.session.state["outcome_check_scheduled_at"] = (
+                    datetime.now(timezone.utc) + timedelta(days=_OUTCOME_CHECK_DELAY_DAYS)
+                ).isoformat()
+
+            status = jules_result.get("status", "error")
+            msg = f"[Executor] Jules {action_type} — {status}"
+            if executed:
+                msg += f" (session: {jules_result.get('session_id', '')}, plan approval required)"
+
             yield Event(
                 invocation_id=ctx.invocation_id,
                 author=self.name,
                 content=types.Content(
                     role="model",
-                    parts=[types.Part.from_text(text=f"[Executor] Jules stub — {action_type}")],
+                    parts=[types.Part.from_text(text=msg)],
                 ),
             )
             return
@@ -245,7 +261,3 @@ def create_executor_agent() -> ExecutorAgent:
         name="executor",
         description="Deterministic executor — writes founder-approved interventions to Linear.",
     )
-
-
-# Backward-compat alias. Do NOT use in pipeline construction.
-executor_agent = create_executor_agent()
