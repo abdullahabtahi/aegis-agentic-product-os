@@ -479,6 +479,15 @@ class GovernorAgent(BaseAgent):
                 # Standard path: halt and await founder approval via CopilotKit
                 ctx.session.state["pipeline_status"] = "awaiting_founder_approval"
                 ctx.session.state["pipeline_checkpoint"] = "awaiting_founder_approval"
+                # Emit tool args so CopilotKit useRenderTool renders InlineApprovalCard
+                ctx.session.state["request_founder_approval_args"] = {
+                    "intervention_title": proposal.get("title", "Intervention requires your approval"),
+                    "action_type": action_type,
+                    "escalation_level": escalation_level,
+                    "rationale": proposal.get("rationale", ""),
+                    "confidence": confidence,
+                    "risk_type": risk_type,
+                }
             # Persist trace (approved)
             from app.app_utils.trace_logging import log_governor_trace
             await log_governor_trace(ctx.session.state, approved=True)
