@@ -25,6 +25,11 @@ from google.adk.agents import SequentialAgent
 from google.adk.apps import App
 from google.adk.artifacts import InMemoryArtifactService  # Phase 4: swap to GcsArtifactService
 
+from app.app_utils.telemetry import setup_telemetry
+
+# Initialize observability (OpenTelemetry + Cloud Trace)
+setup_telemetry()
+
 # Import factories — always create fresh instances to avoid ADK eval parent-check errors
 from app.agents.coordinator import create_coordinator_agent
 from app.agents.executor import create_executor_agent

@@ -222,11 +222,17 @@ async def update_intervention_status(
     rejection_reason: str | None = None,
     founder_note: str | None = None,
 ) -> bool:
-    """Update intervention status after founder decision. Returns success."""
+    """Update intervention status after founder decision. Returns success.
+    
+    Also updates the human_accepted field on the associated AgentTrace records
+    to complete the feedback flywheel (data mining for AutoResearch).
+    """
     if not is_db_configured():
         return False
     try:
+        accepted = (status == "accepted")
         async with get_session() as session:
+            # 1. Update the intervention
             await session.execute(
                 text("""
                     UPDATE interventions
@@ -244,6 +250,26 @@ async def update_intervention_status(
                     "founder_note": founder_note,
                 },
             )
+            
+            # 2. Backfill human_accepted for tracing/eval feedback
+            # Find the risk_signal_id linked to this intervention
+            res = await session.execute(
+                text("SELECT risk_signal_id FROM interventions WHERE id = :id"),
+                {"id": intervention_id}
+            )
+            risk_id = res.scalar()
+            if risk_id:
+                # Update all traces associated with this risk_signal
+                # Note: this assumes trace output_ids contains the risk_signal_id
+                await session.execute(
+                    text("""
+                        UPDATE agent_traces
+                        SET human_accepted = :accepted
+                        WHERE :risk_id = ANY(output_ids)
+                    """),
+                    {"risk_id": risk_id, "accepted": accepted}
+                )
+
         return True
     except Exception as exc:
         logger.warning("Failed to update intervention %s: %s", intervention_id, exc)

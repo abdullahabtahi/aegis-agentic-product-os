@@ -894,3 +894,114 @@ frontend/
 6. **Streaming UX.** The risk explanation in `RiskSignalCard` streams via
    `TextMessageChunk`. Never wait for the full explanation before showing the card.
    Show skeleton → stream in → complete.
+
+7. **React Flow position preservation.** When AG-UI `StateSnapshot` or `StateDelta` events
+   arrive, merge data only — never reset node positions or interaction state. The
+   `useMissionControlSync` hook must preserve `position`, `selected`, `dragging` from
+   existing nodes and only update `data` fields:
+
+   ```typescript
+   // CORRECT — merge data, preserve position/interaction
+   onSnapshot: (snapshot) => {
+     setNodes(prev => {
+       const posMap = new Map(prev.map(n => [n.id, { position: n.position, selected: n.selected }]))
+       return snapshot.bets.map(bet => {
+         const existing = posMap.get(bet.id)
+         return {
+           ...betToNode(bet),
+           position: existing?.position ?? betToNode(bet).position,
+           selected: existing?.selected ?? false,
+         }
+       })
+     })
+   }
+
+   // WRONG — resets positions, causes jarring canvas jumps
+   onSnapshot: (snapshot) => {
+     setNodes(snapshot.bets.map(betToNode))
+   }
+   ```
+
+8. **Stable callback refs in AG-UI hooks.** `useAgentToolCallEvents` must use `useRef` for
+   callback stability to avoid stale closures. React `useEffect` captures the initial
+   closure; without refs, callbacks see stale node state:
+
+   ```typescript
+   export function useAgentToolCallEvents({ onToolCallStart, onToolCallEnd }) {
+     const startRef = useRef(onToolCallStart)
+     const endRef = useRef(onToolCallEnd)
+     startRef.current = onToolCallStart
+     endRef.current = onToolCallEnd
+
+     const { agentSubscriber } = useCopilotContext()
+
+     useEffect(() => {
+       const unsub = agentSubscriber.subscribe({
+         onToolCallStartEvent: (e) => startRef.current({ toolName: e.toolCallName, betId: e.parentMessageId }),
+         onToolCallEndEvent: (e) => endRef.current({ toolName: e.toolCallName, betId: e.parentMessageId }),
+       })
+       return () => unsub()
+     }, [agentSubscriber])  // stable deps — no stale closures
+   }
+   ```
+
+9. **Isolate streaming renders.** Streaming text updates (e.g., risk explanations) must
+   render in a dedicated `StreamingExplanation` component with its own state, not inside
+   the parent `RiskSignalCard`. This prevents cascading re-renders of the card, badges,
+   and evidence list on every text chunk:
+
+   ```tsx
+   // StreamingExplanation.tsx — isolated from parent re-renders
+   function StreamingExplanation({ agentName }: { agentName: string }) {
+     const [text, setText] = useState("")
+     useCoAgentStateRender({
+       name: agentName,
+       render: ({ state, status }) => {
+         if (status === "inProgress" && state.streaming_explanation) {
+           setText(state.streaming_explanation)
+         }
+         return null
+       },
+     })
+     return text ? <p className="text-sm text-muted-foreground animate-pulse">{text}</p> : null
+   }
+
+   // RiskSignalCard uses it — parent doesn't re-render on stream updates
+   export function RiskSignalCard({ riskSignal }: { riskSignal: RiskSignal }) {
+     return (
+       <Card>
+         <CardHeader>...</CardHeader>
+         <CardContent>
+           <StreamingExplanation agentName="product_brain_agent" />
+           <p className="text-sm">{riskSignal.explanation}</p>
+         </CardContent>
+       </Card>
+     )
+   }
+   ```
+
+10. **Optimistic UI for intervention actions.** Accept/reject in the Intervention Inbox
+    should update the UI immediately, then reconcile with the server. This avoids
+    the "button disabled, waiting for server" pattern that feels sluggish:
+
+    ```typescript
+    // Optimistic accept — instant UI feedback, server reconciliation via mutation
+    const acceptMutation = useMutation({
+      mutationFn: (id: string) => api.acceptIntervention(id, note),
+      onMutate: async (id) => {
+        await queryClient.cancelQueries({ queryKey: ["interventions", workspaceId] })
+        const previous = queryClient.getQueryData(["interventions", workspaceId])
+        queryClient.setQueryData(["interventions", workspaceId], (old: Intervention[]) =>
+          old.filter(i => i.id !== id)  // remove from pending immediately
+        )
+        return { previous }
+      },
+      onError: (_err, _id, context) => {
+        queryClient.setQueryData(["interventions", workspaceId], context?.previous)
+        toast.error("Failed to accept — restored to queue")
+      },
+      onSettled: () => {
+        queryClient.invalidateQueries({ queryKey: ["interventions", workspaceId] })
+      },
+    })
+    ```
