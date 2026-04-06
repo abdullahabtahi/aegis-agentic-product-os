@@ -25,14 +25,6 @@ jobs:
     - name: Install dependencies
       run: cd backend && make install
 
-    - name: Run Unit Tests
-      run: cd backend && make test
-      env:
-        GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
-        GOOGLE_CLOUD_LOCATION: global
-        # Mock Linear for tests
-        AEGIS_MOCK_LINEAR: "true"
-
     - name: Authenticate to Google Cloud
       id: auth
       uses: google-github-actions/auth@v2
@@ -40,6 +32,15 @@ jobs:
         # Use Workload Identity Federation for production-grade security
         workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
         service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+    - name: Run Unit Tests
+      run: cd backend && make test
+      env:
+        GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+        GOOGLE_CLOUD_LOCATION: global
+        GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
+        # Mock Linear for tests
+        AEGIS_MOCK_LINEAR: "true"
 
     - name: Run Agent Evaluations
       run: cd backend && make eval-all
