@@ -25,11 +25,12 @@ from google.adk.agents import SequentialAgent
 from google.adk.apps import App
 from google.adk.artifacts import InMemoryArtifactService  # Phase 4: swap to GcsArtifactService
 
-# Import individual agents
-from app.agents.coordinator import coordinator_agent
-from app.agents.governor import governor_agent
-from app.agents.product_brain import product_brain_agent
-from app.agents.signal_engine import signal_engine_agent
+# Import factories — always create fresh instances to avoid ADK eval parent-check errors
+from app.agents.coordinator import create_coordinator_agent
+from app.agents.executor import create_executor_agent
+from app.agents.governor import create_governor_agent
+from app.agents.product_brain import create_product_brain_debate
+from app.agents.signal_engine import create_signal_engine_agent
 
 _, project_id = google.auth.default()
 os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
@@ -46,13 +47,14 @@ aegis_pipeline = SequentialAgent(
     name="aegis_pipeline",
     description=(
         "Continuous pre-mortem for startup bets. "
-        "Runs: Signal Engine → Product Brain → Coordinator → Governor."
+        "Runs: Signal Engine → Product Brain → Coordinator → Governor → Executor."
     ),
     sub_agents=[
-        signal_engine_agent,   # Deterministic: reads Linear, computes LinearSignals
-        product_brain_agent,   # LLM: classifies risk, generates copy
-        coordinator_agent,     # LLM: selects intervention
-        governor_agent,        # Deterministic: 8 policy checks
+        create_signal_engine_agent(),   # Deterministic: reads Linear, computes LinearSignals
+        create_product_brain_debate(),  # Debate: Cynic (flash) → Optimist (flash) → Synthesis (pro)
+        create_coordinator_agent(),     # LLM: selects intervention
+        create_governor_agent(),        # Deterministic: 8 policy checks
+        create_executor_agent(),        # Deterministic: executes approved interventions
     ],
 )
 
@@ -76,7 +78,7 @@ root_agent = aegis_pipeline
 
 app = App(
     root_agent=root_agent,
-    name="aegis",
+    name="app",  # Must match directory name for adk web session routing
 )
 
 # Expose artifact_service for use in runner creation (tests, eval, Phase 4)

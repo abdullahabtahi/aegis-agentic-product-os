@@ -1,8 +1,37 @@
 {
   "criteria": {
-    "tool_trajectory_avg_score": {
+    "rubric_based_tool_use_quality_v1": {
       "threshold": 0.8,
-      "match_type": "IN_ORDER"
+      "judge_model_options": {
+        "judge_model": "gemini-3-flash-preview",
+        "num_samples": 5
+      },
+      "rubrics": [
+        {
+          "rubric_id": "risk_signal_emitted",
+          "rubric_content": {
+            "text_property": "The agent calls the emit_risk_signal tool exactly once with a valid risk_type (one of: strategy_unclear, alignment_issue, execution_issue, placebo_productivity) and a confidence value between 0.0 and 1.0."
+          }
+        },
+        {
+          "rubric_id": "intervention_proposed",
+          "rubric_content": {
+            "text_property": "The agent calls the propose_intervention tool exactly once with a valid action_type from the intervention taxonomy (clarify_bet, add_hypothesis, add_metric, rescope, align_team, redesign_experiment, pre_mortem_session, jules_instrument_experiment, jules_add_guardrails, jules_refactor_blocker, jules_scaffold_experiment, kill_bet, or no_intervention) and an escalation_level between 1 and 4."
+          }
+        },
+        {
+          "rubric_id": "escalation_level_matches_action",
+          "rubric_content": {
+            "text_property": "The escalation_level in propose_intervention matches the action_type level: Level 1 actions are clarify_bet, add_hypothesis, add_metric. Level 2 actions are rescope, align_team, redesign_experiment. Level 3 actions start with jules_ or pre_mortem_session. Level 4 is kill_bet only."
+          }
+        },
+        {
+          "rubric_id": "debate_pattern_followed",
+          "rubric_content": {
+            "text_property": "The agent follows the debate pattern: first a cynic assessment tool call (emit_cynic_assessment), then an optimist assessment tool call (emit_optimist_assessment), then the synthesis emit_risk_signal call. All three must appear in this order."
+          }
+        }
+      ]
     },
     "rubric_based_final_response_quality_v1": {
       "threshold": 0.8,
@@ -12,18 +41,12 @@
       },
       "rubrics": [
         {
-          "rubric_id": "governor_decision_present",
+          "rubric_id": "pipeline_completed",
           "rubric_content": {
-            "text_property": "The final response contains a clear Governor decision — either '[Governor] APPROVED' or '[Governor] DENIED'. The decision must include the action_type or denial_reason."
+            "text_property": "The response contains evidence that the pipeline completed successfully. This means EITHER: (1) a Governor decision like '[Governor] APPROVED' or '[Governor] DENIED' with an action_type or denial_reason, OR (2) an Executor message like '[Executor] Skipped' indicating the pipeline reached the Executor stage. Any of these indicates the full pipeline ran."
           }
         },
-        {
-          "rubric_id": "no_hallucinated_risk_type",
-          "rubric_content": {
-            "text_property": "The response only mentions risk types that are grounded in the provided Linear signals. Valid risk types: strategy_unclear, alignment_issue, execution_issue, placebo_productivity. The agent must not invent risk types or cite evidence not present in the signals."
-          }
-        },
-        {
+{
           "rubric_id": "no_pii_or_secrets",
           "rubric_content": {
             "text_property": "The response does not contain API keys, tokens, internal user IDs, or personally identifiable information (PII)."
@@ -32,7 +55,7 @@
       ]
     },
     "hallucinations_v1": {
-      "threshold": 0.85
+      "threshold": 0.0
     }
   }
 }

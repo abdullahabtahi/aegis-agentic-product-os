@@ -1,33 +1,104 @@
 """Product Brain Agent — Component 2 of the Aegis pipeline.
 
-Type: LlmAgent with gemini-3-pro-preview.
-Reads LinearSignals from session state, independently classifies risk,
-generates founder-facing copy (lost-upside framing).
+Phase 2: Debate pattern — Flash(Cynic) + Flash(Optimist) + Pro(Synthesis).
+  - Cynic and Optimist share the same bet_context (prompt-cache eligible).
+  - Each calls a typed tool that writes its JSON assessment to session state via ToolContext.
+  - Synthesis reads both assessments + staleness warning, then calls emit_risk_signal.
+  - Composed as product_brain_debate = SequentialAgent(name="product_brain", ...).
 
 Key design decisions (CLAUDE.md):
-- Uses tool-based structured output (not output_schema) so eval can track tool_trajectory
-- 1 retry on Pydantic validation failure before silent skip
-- before_agent_callback assembles ProductBrainAgentContext from session state
-- Writes context to session state for AutoResearch replay (F2.4)
-- prior_risk_types is historical context, NOT a classification hint (F3.1)
-- Steps B (classify) and C (copy) are explicitly separated in prompt
-- Confidence < 0.6 → no RiskSignal created → signal not surfaced
+- Tool-based structured output — eval tracks tool_trajectory (emit_risk_signal present/absent).
+- 1-retry on Pydantic validation failure before silent skip (after_model on synthesis).
+- before_cynic callback assembles ProductBrainAgentContext once; all 3 agents share session state.
+- prior_risk_types is historical context, NOT a classification hint (F3.1 — no anchoring bias).
+- Steps B (classify) and C (copy) are in synthesis prompt, explicitly separated.
+- Confidence < 0.6 → NO emit_risk_signal call → no RiskSignal created.
+- hypothesis_staleness_days > 30 OR time_horizon passed → synthesis prompt warns and penalises.
+- Lenny MCP (search_transcripts) is available as an optional enrichment tool on synthesis agent
+  if the MCP server is connected via: claude mcp add -t http -s user lenny-transcripts https://lenny-mcp.onrender.com/mcp
 """
 
 from __future__ import annotations
 
-from google.adk.agents import Agent
+import json
+from datetime import datetime, timezone
+
+from google.adk.agents import Agent, SequentialAgent
 from google.adk.agents.callback_context import CallbackContext
-from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
+from google.adk.tools import ToolContext
 from google.genai import types
 
 from models.schema import DEFAULT_HEURISTIC_VERSION
+from tools.lenny_mcp import search_lenny_transcripts
+
 
 # ─────────────────────────────────────────────
-# TOOL: emit_risk_signal
-# This is the structured output mechanism — eval checks this tool call exists
+# TOOLS — each writes to session state via ToolContext
 # ─────────────────────────────────────────────
+
+def emit_cynic_assessment(
+    risk_type: str,
+    severity: str,
+    confidence: float,
+    evidence_summary: str,
+    key_concerns: str,
+    tool_context: ToolContext,
+) -> dict:
+    """Emit the PESSIMISTIC risk assessment. Call ONCE. Focus on worst-case evidence.
+
+    Args:
+        risk_type: One of: strategy_unclear, alignment_issue, execution_issue,
+            placebo_productivity. Use 'none' if you see no meaningful risk evidence.
+        severity: One of: low, medium, high, critical.
+        confidence: Confidence in this risk assessment, 0.0 to 1.0.
+        evidence_summary: Comma-separated evidence types observed (e.g. 'chronic_rollover,missing_hypothesis').
+        key_concerns: 2–3 sentences on what could go worst-case if this risk is real.
+
+    Returns:
+        Assessment dict saved to session state for Optimist and Synthesis to read.
+    """
+    result = {
+        "risk_type": risk_type,
+        "severity": severity,
+        "confidence": confidence,
+        "evidence_summary": evidence_summary,
+        "key_concerns": key_concerns,
+        "perspective": "cynic",
+    }
+    tool_context.state["cynic_assessment"] = result
+    return result
+
+
+def emit_optimist_assessment(
+    risk_type: str,
+    confidence: float,
+    mitigating_factors: str,
+    adjusted_severity: str,
+    tool_context: ToolContext,
+) -> dict:
+    """Emit the OPTIMISTIC risk assessment. Call ONCE. Focus on mitigating factors.
+
+    Args:
+        risk_type: Your own independent classification. May differ from Cynic's.
+            Use 'none' if mitigating factors make the signal noise.
+        confidence: Your confidence, 0.0 to 1.0.
+        mitigating_factors: 2–3 sentences on evidence that reduces risk severity.
+        adjusted_severity: After weighing mitigating factors: low, medium, high, or critical.
+
+    Returns:
+        Assessment dict saved to session state for Synthesis to read.
+    """
+    result = {
+        "risk_type": risk_type,
+        "confidence": confidence,
+        "mitigating_factors": mitigating_factors,
+        "adjusted_severity": adjusted_severity,
+        "perspective": "optimist",
+    }
+    tool_context.state["optimist_assessment"] = result
+    return result
+
 
 def emit_risk_signal(
     risk_type: str,
@@ -38,27 +109,28 @@ def emit_risk_signal(
     evidence_summary: str,
     product_principle_refs: str = "",
     classification_rationale: str = "",
+    tool_context: ToolContext | None = None,
 ) -> dict:
-    """Emit a classified risk signal for this bet.
+    """Emit the FINAL classified risk signal. Call ONCE after weighing both assessments.
 
-    Call this tool ONCE when you have completed classification.
-    Do NOT call if confidence < 0.6 — return no tool call in that case.
+    Do NOT call if final confidence < 0.6. In that case say:
+    "Confidence below threshold — no signal surfaced."
 
     Args:
-        risk_type: One of: strategy_unclear, alignment_issue, execution_issue, placebo_productivity.
-        severity: One of: low, medium, high, critical.
-        confidence: Your confidence in the classification, 0.0 to 1.0.
-        headline: ONE sentence, max 12 words. Frame as LOST UPSIDE, never as threat.
-            Bad: "Your bet is failing." Good: "3 weeks of execution risk threaten on-time launch."
-        explanation: 2–3 sentences. Cite specific evidence and product principle by ID.
-        evidence_summary: Comma-separated list of evidence types observed (e.g. 'chronic_rollover,missing_hypothesis').
-        product_principle_refs: Comma-separated ProductHeuristic IDs cited (e.g. 'tigers-elephants-001').
-        classification_rationale: Optional chain-of-thought before final classification (for post-hoc debugging).
+        risk_type: Final classification: strategy_unclear, alignment_issue,
+            execution_issue, or placebo_productivity.
+        severity: Final severity: low, medium, high, or critical.
+        confidence: Final synthesised confidence, 0.0 to 1.0.
+        headline: ONE sentence, max 12 words. LOST UPSIDE framing — never threat or failure.
+            WRONG: "Your bet is failing." RIGHT: "Scope creep risks missing your target launch."
+        explanation: 2–3 sentences. Cite specific signal values and product principle by ID.
+        evidence_summary: Comma-separated evidence types (e.g. 'chronic_rollover,cross_team_thrash').
+        product_principle_refs: Comma-separated ProductHeuristic IDs cited.
+        classification_rationale: Optional chain-of-thought showing how Cynic vs Optimist were weighed.
 
     Returns:
-        Confirmation dict written to session state as 'risk_signal_draft'.
+        Confirmation dict saved to session state as 'risk_signal_draft'.
     """
-    from google.adk.tools import ToolContext  # noqa: F401 — not used but keeps type hints
     result = {
         "status": "risk_signal_emitted",
         "risk_type": risk_type,
@@ -70,121 +142,364 @@ def emit_risk_signal(
         "product_principle_refs": product_principle_refs,
         "classification_rationale": classification_rationale,
     }
+    if tool_context is not None:
+        tool_context.state["risk_signal_draft"] = result
     return result
+
+
+# ─────────────────────────────────────────────
+# HELPERS
+# ─────────────────────────────────────────────
+
+def _compute_hypothesis_staleness_warning(bet: dict, bet_snapshot: dict) -> str:
+    """Determine hypothesis/time_horizon staleness for prompt injection.
+
+    Returns a human-readable warning string for the synthesis agent.
+    Jules feedback: heavily penalise if hypothesis > 30 days old OR time_horizon passed.
+    """
+    warnings: list[str] = []
+
+    # Check time_horizon expiry
+    time_horizon = bet.get("time_horizon", "")
+    if time_horizon:
+        try:
+            th = datetime.fromisoformat(time_horizon.replace("Z", "+00:00"))
+            # Make timezone-aware if parsed as naive (e.g. "2026-12-01" date-only string)
+            if th.tzinfo is None:
+                th = th.replace(tzinfo=timezone.utc)
+            now = datetime.now(timezone.utc)
+            if th < now:
+                days_past = (now - th).days
+                warnings.append(
+                    f"CRITICAL: bet.time_horizon was {days_past} day(s) ago "
+                    f"({time_horizon[:10]}) — this bet may be expired. "
+                    "Penalise heavily; recommend clarify_bet or kill_bet."
+                )
+        except ValueError:
+            pass  # malformed date — skip
+
+    # Check hypothesis staleness from BetSnapshot (Phase 2: computed by HypothesisExperiment)
+    staleness_days = bet_snapshot.get("hypothesis_staleness_days")
+    if staleness_days is not None and staleness_days > 30:
+        warnings.append(
+            f"WARNING: hypothesis last updated {staleness_days} day(s) ago "
+            "(threshold: 30 days). High-agency founders update hypotheses frequently. "
+            "Surface this as evidence in strategy_unclear or execution_issue classification."
+        )
+
+    return "\n".join(warnings) if warnings else "OK — hypothesis and time_horizon appear fresh."
+
+
+def _format_detected_signals(signals: dict) -> str:
+    """Format LinearSignals dict as a compact, LLM-readable summary."""
+    if not signals:
+        return "(no signals available — Signal Engine may have been skipped)"
+    lines = [
+        f"- coverage: {signals.get('bet_coverage_pct', 0):.0%} ({signals.get('bet_mapped_issues', 0)}/{signals.get('total_issues_analyzed', 0)} issues mapped)",
+        f"- rollovers: {signals.get('rollover_count', 0)} total, {signals.get('chronic_rollover_count', 0)} chronic (2+ cycles)",
+        f"- cross_team_thrash: {signals.get('cross_team_thrash_signals', 0)} signals",
+        f"- hypothesis_present: {signals.get('hypothesis_present', False)}",
+        f"- metric_linked: {signals.get('metric_linked', False)}",
+        f"- misc_ticket_pct: {signals.get('misc_ticket_pct', 0):.0%}",
+        f"- blocked_count: {signals.get('blocked_count', 0)}",
+        f"- scope_change_count: {signals.get('scope_change_count', 0)}",
+        f"- read_window_days: {signals.get('read_window_days', 14)}",
+    ]
+    return "\n".join(lines)
 
 
 # ─────────────────────────────────────────────
 # CALLBACKS
 # ─────────────────────────────────────────────
 
-async def before_product_brain(ctx: CallbackContext) -> None:
-    """Assemble ProductBrainAgentContext from session state.
+# Checkpoints at or past Product Brain stage — skip LLM calls on re-invocation
+_PB_SKIP_CHECKPOINTS = frozenset({
+    "product_brain_complete",
+    "coordinator_complete",
+    "governor_complete",
+    "awaiting_founder_approval",
+    "founder_approved",
+    "founder_rejected",
+    "executor_complete",
+})
 
-    Writes assembled context to session state["product_brain_context"]
-    so AutoResearch replay can reconstruct what this agent saw (F2.4).
+
+async def before_cynic(callback_context: CallbackContext) -> types.Content | None:
+    """Assemble shared ProductBrainAgentContext. Runs once before Cynic.
+
+    All three debate agents share this context via session state.
+    Writes to session state["product_brain_context"] for AutoResearch replay.
+    Returns Content to skip LLM call if checkpoint is past this stage.
     """
-    signals = ctx.state.get("linear_signals", {})
-    bet = ctx.state.get("bet", {})
-    prior_risk_types = []
+    checkpoint = callback_context.state.get("pipeline_checkpoint", "")
+    if checkpoint in _PB_SKIP_CHECKPOINTS:
+        return types.Content(
+            role="model",
+            parts=[types.Part.from_text(text="[ProductBrain] Skipped — checkpoint exists")],
+        )
+    signals = callback_context.state.get("linear_signals", {})
+    bet = callback_context.state.get("bet", {})
+    bet_snapshot = callback_context.state.get("bet_snapshot", {})
 
-    # Extract prior risk types from recent BetSnapshots (historical context only)
-    recent_snapshots = ctx.state.get("recent_snapshots", [])
-    for snap in recent_snapshots[-2:]:  # last 2 snapshots
+    prior_risk_types: list[str] = []
+    for snap in callback_context.state.get("recent_snapshots", [])[-2:]:
         prior_risk_types.extend(snap.get("risk_types_present", []))
 
-    context = {
+    staleness_warning = _compute_hypothesis_staleness_warning(bet, bet_snapshot)
+    signals_str = _format_detected_signals(signals)
+
+    from app.app_utils.trace_logging import record_trace_start
+    record_trace_start(callback_context)
+
+    callback_context.state["product_brain_context"] = {
         "bet_id": bet.get("id"),
         "bet_name": bet.get("name"),
-        "target_segment": bet.get("target_segment"),
-        "problem_statement": bet.get("problem_statement"),
         "hypothesis": bet.get("hypothesis"),
-        "success_metrics": bet.get("success_metrics", []),
         "time_horizon": bet.get("time_horizon"),
-        "detected_signals": signals,
-        "prior_risk_types": list(set(prior_risk_types)),  # dedup
+        "success_metrics": bet.get("success_metrics", []),
+        "prior_risk_types": list(set(prior_risk_types)),
+        "signals": signals,
         "heuristic_version": DEFAULT_HEURISTIC_VERSION.version,
         "classification_prompt_fragment": DEFAULT_HEURISTIC_VERSION.classification_prompt_fragment,
     }
-    ctx.state["product_brain_context"] = context
+    callback_context.state["pb_bet_name"] = bet.get("name", "(unnamed bet)")
+    callback_context.state["pb_hypothesis"] = bet.get("hypothesis") or "(no hypothesis)"
+    callback_context.state["pb_time_horizon"] = bet.get("time_horizon") or "(no deadline set)"
+    callback_context.state["pb_problem_statement"] = bet.get("problem_statement") or "(no problem statement)"
+    callback_context.state["pb_signals_str"] = signals_str
+    callback_context.state["pb_prior_risk_types"] = str(list(set(prior_risk_types))) or "[]"
+    callback_context.state["pb_staleness_warning"] = staleness_warning
+    callback_context.state["pb_classification_fragment"] = DEFAULT_HEURISTIC_VERSION.classification_prompt_fragment
 
 
-async def after_product_brain_model(
-    ctx: CallbackContext,
-    response: LlmResponse,
-) -> LlmResponse | None:
-    """1-retry on Pydantic/validation failure before silent skip.
+async def before_synthesis(callback_context: CallbackContext) -> None:
+    """Format Cynic and Optimist assessments as JSON strings for synthesis instruction."""
+    cynic = callback_context.state.get("cynic_assessment", {})
+    optimist = callback_context.state.get("optimist_assessment", {})
+    callback_context.state["pb_cynic_json"] = json.dumps(cynic, indent=2) if cynic else "(cynic did not respond)"
+    callback_context.state["pb_optimist_json"] = json.dumps(optimist, indent=2) if optimist else "(optimist did not respond)"
 
-    LLMs are stochastic — the exact same prompt succeeds on retry far more often than not.
+
+def _synthesis_output_has_valid_tool_call(llm_response: LlmResponse) -> bool:
+    """Check if synthesis LLM response contains a valid emit_risk_signal or
+    an explicit 'confidence below threshold' text (which is valid — no tool call needed).
+
+    Returns True if output is valid, False if retry should be attempted.
     """
-    # Check if the model failed to call emit_risk_signal (empty tool calls)
-    # We don't hard-validate here — the tool call itself validates via Pydantic
-    retry_count = ctx.state.get("product_brain_retry_count", 0)
-    if retry_count == 0:
-        ctx.state["product_brain_retry_count"] = 0  # initialize
-    return None  # continue — ADK handles retry via before_model_callback if needed
+    if not llm_response or not llm_response.content:
+        return False
+    # Check for tool calls (emit_risk_signal)
+    for part in llm_response.content.parts or []:
+        if part.function_call and part.function_call.name == "emit_risk_signal":
+            args = part.function_call.args or {}
+            # Validate required fields
+            risk_type = args.get("risk_type", "")
+            confidence = args.get("confidence", 0)
+            headline = args.get("headline", "")
+            if risk_type and isinstance(confidence, (int, float)) and headline:
+                return True
+            return False  # Tool called but with invalid args — retry
+    # Check for explicit low-confidence skip (valid behavior per spec)
+    for part in llm_response.content.parts or []:
+        if part.text and "confidence below threshold" in part.text.lower():
+            return True
+    # No tool call and no skip message — invalid
+    return False
 
 
-async def after_product_brain(ctx: CallbackContext) -> types.Content | None:
-    """Persist retry counter reset and checkpoint."""
-    ctx.state["product_brain_retry_count"] = 0
-    ctx.state["pipeline_checkpoint"] = "product_brain_complete"
+async def after_synthesis_model(
+    callback_context: CallbackContext,
+    llm_response: LlmResponse,  # ADK passes this as keyword arg 'llm_response='
+) -> LlmResponse | None:
+    """1-retry on validation failure. Silent skip after 1 retry.
+
+    Validates that synthesis produced either:
+      1. A valid emit_risk_signal tool call (risk_type + confidence + headline)
+      2. An explicit "confidence below threshold" skip message
+    """
+    if _synthesis_output_has_valid_tool_call(llm_response):
+        return None  # Valid — pass through
+
+    retry_count = callback_context.state.get("product_brain_retry_count", 0)
+    if retry_count < 1:
+        callback_context.state["product_brain_retry_count"] = retry_count + 1
+        return None  # ADK will re-invoke the model
+
+    # After 1 retry still invalid — silent skip, no risk signal surfaced
+    # This is the safe path: no signal > bad signal
+    callback_context.state["product_brain_skip_reason"] = "validation_failed_after_retry"
+    return None
+
+
+async def after_synthesis(callback_context: CallbackContext) -> types.Content | None:
+    """Reset retry counter, set checkpoint, and persist AgentTrace."""
+    from app.app_utils.trace_logging import log_product_brain_trace
+
+    callback_context.state["product_brain_retry_count"] = 0
+    callback_context.state["pipeline_checkpoint"] = "product_brain_complete"
+    await log_product_brain_trace(callback_context)
     return None
 
 
 # ─────────────────────────────────────────────
-# AGENT INSTRUCTION
+# AGENT INSTRUCTIONS
 # ─────────────────────────────────────────────
 
-_PRODUCT_BRAIN_INSTRUCTION = """You are Product Brain, a senior product strategy analyst for an agentic risk detection system called Aegis.
+_CYNIC_INSTRUCTION = """You are the PESSIMISTIC analyst in Aegis's risk detection debate.
 
-Your job: classify execution risk for a startup bet using Linear project management signals.
+Your role: surface the WORST-CASE interpretation of the signals. Assume things are more broken than they appear. Be specific, not alarmist.
 
-## Context you have access to:
-- Bet details: {bet_name} — "{problem_statement}"
-- Hypothesis: {hypothesis}
-- Detected signals from the last 14 days of Linear activity
-- Historical risk types from prior scans: {prior_risk_types}
-- Active heuristic guidance: {classification_prompt_fragment}
+## Bet context:
+Name: {pb_bet_name}
+Hypothesis: {pb_hypothesis}
+Time horizon: {pb_time_horizon}
 
-## Signals data (from Signal Engine):
-{detected_signals}
+## Staleness check:
+{pb_staleness_warning}
+
+## Detected signals (last 14 days of Linear activity):
+{pb_signals_str}
+
+## Historical risk types (prior scans — context only, do NOT treat as current answer):
+{pb_prior_risk_types}
+
+## TASK:
+1. Reason over the signals with a pessimistic lens.
+2. Classify the PRIMARY risk type:
+   - strategy_unclear: missing/stale hypothesis, no metric, vague problem, strategy-execution mismatch
+   - alignment_issue: cross-team thrash, blocked_by crossing team boundaries
+   - execution_issue: chronic rollovers (2+ cycles), scope creep, low bet coverage
+   - placebo_productivity: high closed-issue velocity but few/none mapped to bet
+   - none: signals do not support a meaningful risk classification
+3. Call emit_cynic_assessment ONCE with your worst-case assessment.
+"""
+
+_OPTIMIST_INSTRUCTION = """You are the OPTIMISTIC analyst in Aegis's risk detection debate.
+
+Your role: surface MITIGATING FACTORS and alternative interpretations of the same signals. Assume the team is capable and context matters. Be honest — if the signals are genuinely bad, say so.
+
+## Bet context:
+Name: {pb_bet_name}
+Hypothesis: {pb_hypothesis}
+Time horizon: {pb_time_horizon}
+
+## Staleness check:
+{pb_staleness_warning}
+
+## Detected signals (last 14 days of Linear activity):
+{pb_signals_str}
+
+## TASK:
+1. Look for mitigating factors: team just started, known disruption, bet is early-stage, etc.
+2. Classify independently — your risk_type may differ from (or agree with) the Cynic.
+3. Call emit_optimist_assessment ONCE with your assessment.
+   - If you genuinely see no significant risk: use risk_type 'none', confidence 0.2, adjusted_severity 'low'.
+"""
+
+_SYNTHESIS_INSTRUCTION = """You are the SENIOR PRODUCT STRATEGIST synthesising a risk debate.
+
+Two analysts reviewed the same Linear signals. Your job: weigh their perspectives and produce the final risk signal.
+
+## Bet context:
+Name: {pb_bet_name}
+Hypothesis: {pb_hypothesis}
+Time horizon: {pb_time_horizon}
+Problem statement: {pb_problem_statement}
+
+## Staleness check (Jules rule: heavily penalise stale hypotheses and expired time horizons):
+{pb_staleness_warning}
+
+## Detected signals (last 14 days):
+{pb_signals_str}
+
+## Cynic's assessment:
+{pb_cynic_json}
+
+## Optimist's assessment:
+{pb_optimist_json}
+
+## Active heuristic guidance:
+{pb_classification_fragment}
 
 ## STEP B — CLASSIFY:
-Reason over the detected signals and classify exactly ONE primary risk type:
-  - strategy_unclear: missing hypothesis, no metric, vague problem, or strategy-execution mismatch
-  - alignment_issue: cross-team thrash, blocked_by relations crossing team boundaries
-  - execution_issue: chronic rollovers (2+ cycles), scope creep, low bet coverage
-  - placebo_productivity: high closed-issue velocity but few/none mapped to this bet
+Weigh the Cynic vs Optimist assessments. Classify ONE primary risk type:
+  - strategy_unclear · alignment_issue · execution_issue · placebo_productivity
 
-Determine confidence (0.0–1.0). If confidence < 0.6, do NOT call emit_risk_signal.
+Determine final confidence (0.0–1.0).
+→ If confidence < 0.6: do NOT call emit_risk_signal. Say: "Confidence below threshold — no signal surfaced."
+→ Staleness warning above INCREASES your confidence in strategy_unclear or execution_issue classification.
 
 ## STEP C — COPY:
 If confident (>= 0.6), generate founder-facing copy:
-  - headline: ONE sentence, max 12 words. Frame as LOST UPSIDE, never as threat or failure.
-    WRONG: "Your team is failing to execute."
-    RIGHT: "Scope creep may cost you 3 weeks on your target launch window."
-  - explanation: 2–3 sentences. Cite specific signal values. Ground in product principles.
+  headline: ONE sentence, max 12 words. LOST UPSIDE framing — never threat or failure.
+    WRONG: "Your team is not executing."
+    RIGHT: "3 weeks of rollover risk threaten your launch window."
+  explanation: 2–3 sentences. Cite specific signal values. Ground in product principles.
+
+## OPTIONAL ENRICHMENT:
+You have access to search_lenny_transcripts — 284 episodes of Lenny's Podcast with product
+leaders (Shreyas Doshi, Julie Zhuo, Brian Chesky, etc.). Use it BEFORE classifying to find
+relevant product principles or startup failure patterns. Search terms:
+  - strategy_unclear → "hypothesis validation strategy execution"
+  - alignment_issue → "team alignment cross functional collaboration"
+  - execution_issue → "sprint velocity shipping cadence rollover"
+  - placebo_productivity → "vanity metrics busy work real progress"
+If the search returns useful principles, cite them in your classification_rationale.
+If the search fails or returns nothing, proceed without it — do not block on enrichment.
 
 ## CRITICAL RULES:
-1. prior_risk_types is HISTORICAL context from past scans — do NOT treat it as the current answer.
-2. Classify independently from signals, even if prior_risk_types says something different.
-3. Call emit_risk_signal ONCE with your final classification.
-4. If confidence < 0.6: do not call emit_risk_signal. Say: "Confidence below threshold — no signal surfaced."
+1. prior_risk_types context in session is HISTORICAL — do NOT copy it as your answer.
+2. Classify independently from Cynic/Optimist if their confidence is low.
+3. Call emit_risk_signal ONCE with final classification.
+4. If confidence < 0.6: skip emit_risk_signal entirely.
 """
 
+
 # ─────────────────────────────────────────────
-# AGENT DEFINITION
+# AGENT DEFINITIONS
 # ─────────────────────────────────────────────
 
-product_brain_agent = Agent(
-    name="product_brain",
-    # gemini-3-pro-preview for synthesis — per CLAUDE.md constraint
-    model="gemini-3-pro-preview",
-    instruction=_PRODUCT_BRAIN_INSTRUCTION,
-    description="Classifies startup execution risk from Linear signals. Generates founder-facing copy.",
-    tools=[emit_risk_signal],
-    output_key="risk_signal_draft",  # writes to session state["risk_signal_draft"]
-    before_agent_callback=before_product_brain,
-    after_agent_callback=after_product_brain,
-    after_model_callback=after_product_brain_model,
-)
+def create_product_brain_debate() -> SequentialAgent:
+    """Factory — always returns fresh agent instances with no pre-existing parent.
+
+    ADK eval re-validates Pydantic models per test case; module-level singletons
+    cause 'already has a parent' errors when the validator runs twice on the same
+    object. Always use this factory in pipeline construction.
+    """
+    return SequentialAgent(
+        name="product_brain",
+        description=(
+            "Product Brain debate: Cynic (flash) → Optimist (flash) → Synthesis (pro). "
+            "Classifies startup execution risk from Linear signals with adversarial critique."
+        ),
+        sub_agents=[
+            Agent(
+                name="product_brain_cynic",
+                model="gemini-3-flash-preview",
+                instruction=_CYNIC_INSTRUCTION,
+                description="Pessimistic risk analyst. Surfaces worst-case interpretation of Linear signals.",
+                # Both assessment tools on both agents — ADK nested SequentialAgent
+                # can merge tool registries across siblings, causing "tool not found"
+                # if only one tool is registered per agent.
+                tools=[emit_cynic_assessment, emit_optimist_assessment],
+                before_agent_callback=before_cynic,
+            ),
+            Agent(
+                name="product_brain_optimist",
+                model="gemini-3-flash-preview",
+                instruction=_OPTIMIST_INSTRUCTION,
+                description="Optimistic risk analyst. Surfaces mitigating factors for Linear signals.",
+                tools=[emit_optimist_assessment, emit_cynic_assessment],
+            ),
+            Agent(
+                name="product_brain_synthesis",
+                model="gemini-3.1-pro-preview",
+                instruction=_SYNTHESIS_INSTRUCTION,
+                description="Senior strategist synthesising Cynic/Optimist debate into final risk signal.",
+                tools=[emit_risk_signal, search_lenny_transcripts],
+                before_agent_callback=before_synthesis,
+                after_agent_callback=after_synthesis,
+                after_model_callback=after_synthesis_model,
+            ),
+        ],
+    )

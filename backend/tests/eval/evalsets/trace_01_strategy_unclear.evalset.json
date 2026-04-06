@@ -1,7 +1,7 @@
 {
   "eval_set_id": "trace_01_strategy_unclear",
-  "name": "Trace 01 — strategy_unclear → clarify_bet (L1)",
-  "description": "Bet with empty hypothesis, no success metric, and vague problem statement. No prior interventions. Expected: Product Brain emits strategy_unclear, Coordinator proposes clarify_bet at escalation level 1, Governor approves.",
+  "name": "Trace 01 — strategy_unclear → add_hypothesis (L1)",
+  "description": "Bet with empty hypothesis, no success metric, and vague problem statement. No prior interventions. Expected: Product Brain emits strategy_unclear, Coordinator proposes add_hypothesis at escalation level 1 (missing hypothesis evidence + confidence 0.85 > clarify_bet threshold), Governor approves.",
   "eval_cases": [
     {
       "eval_id": "strategy_unclear_clarify_bet_l1",
@@ -19,7 +19,7 @@
               },
               {
                 "name": "propose_intervention",
-                "args": { "action_type": "clarify_bet", "escalation_level": 1 }
+                "args": { "action_type": "add_hypothesis", "escalation_level": 1 }
               }
             ]
           }

@@ -71,6 +71,17 @@ class GovernorDecision(BaseModel):
     model_config = {"frozen": True}
 
 
+class ExecutorResult(BaseModel):
+    """Produced by Executor after executing (or skipping) a founder-approved intervention."""
+    executed: bool
+    action_type: str
+    linear_write_result: dict | None = None
+    jules_session_result: dict | None = None  # Jules API session creation result
+    error: str | None = None
+
+    model_config = {"frozen": True}
+
+
 class PolicyCheckResult(BaseModel):
     """Internal result of a single Governor policy check."""
     check_name: str

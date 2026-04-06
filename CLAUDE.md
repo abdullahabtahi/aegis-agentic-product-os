@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Aegis — Agentic Product OS
 
 ## Hard Constraints (read every session, non-negotiable)
@@ -15,6 +19,28 @@
 
 ---
 
+## Commands
+
+All commands run from `backend/`:
+
+```bash
+cd backend
+make install           # Install deps via uv (auto-installs uv if missing)
+make playground        # ADK web playground at localhost:8501 (auto-reloads)
+make test              # Unit + integration tests (pytest)
+make eval              # Single evalset (default: trace_01_strategy_unclear)
+make eval EVALSET=tests/eval/evalsets/trace_03_execution_issue.evalset.json  # Specific evalset
+make eval-all          # All 5 golden traces
+make lint              # codespell + ruff check + ruff format + ty check
+```
+
+Run a single test file: `cd backend && uv run pytest tests/unit/test_signal_engine.py -v`
+Run Python scripts: `cd backend && uv run python script.py`
+
+Environment: copy `backend/.env.example` → `backend/.env`. Required: `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`. Optional: `LINEAR_API_KEY` (enables real Linear reads), `AEGIS_MOCK_LINEAR` (forces mock).
+
+---
+
 ## What This Is
 
 Continuous Pre-mortem / Risk Radar: watches Linear for strategy-execution misalignment and surfaces risk signals with bounded corrective actions to founders for approval. Target: "fire investigator not smoke detector" — episodic + outcome-based reasoning, not threshold matching.
@@ -24,8 +50,15 @@ Continuous Pre-mortem / Risk Radar: watches Linear for strategy-execution misali
 ## Current Build State
 
 ```
-Research ✅ → Concept ✅ → Schema v3.0 ✅ → Architecture v2.0 ✅ → Phase 1 ✅ → Phase 2 🚧 → Eval → Deploy
+Research ✅ → Concept ✅ → Schema v3.0 ✅ → Architecture v2.0 ✅ → Phase 1 ✅ → Phase 2 ✅ → Eval 🚧 → Deploy
 ```
+
+**Phase 2 complete — gate: `make eval-all` with rubric_based tone + classification ≥ 0.8**
+- `product_brain.py`: debate pipeline — `cynic_agent` (flash) → `optimist_agent` (flash) → `synthesis_agent` (pro)
+- Hypothesis staleness penalty: `time_horizon` expiry + `hypothesis_staleness_days > 30` → `+0.10` confidence boost to `strategy_unclear`
+- `governor.py`: approved path sets `pipeline_status = "awaiting_founder_approval"` + `awaiting_approval_intervention` for CopilotKit (Jules #3)
+- `backend/skills/`: `risk-classifier/SKILL.md` · `strategy-heuristics/SKILL.md` · `intervention-ranker/SKILL.md`
+- `RejectionReasonCluster` NLP deferred permanently — categorical `denial_reason` enum only (Jules #2)
 
 **Phase 1 complete — Linear MCP wired:**
 - `backend/tools/linear_tools.py`: `MockLinearMCP` + `RealLinearMCP` (httpx → Linear GraphQL) + `get_linear_mcp()` factory
@@ -41,23 +74,6 @@ Research ✅ → Concept ✅ → Schema v3.0 ✅ → Architecture v2.0 ✅ → P
 - Signal Engine TDD: 15/15 green
 - Pipeline: `SequentialAgent(sub_agents=[signal_engine, product_brain, coordinator, governor])`
 - **Gate:** run `make eval-all` — all 5 traces must score `tool_trajectory_avg_score > 0.8`
-
-**Immediate next: Phase 1 — Foundation**
-1. Wire `InMemoryArtifactService` into runner config (one line, preps Phase 4)
-2. Build `MockLinearMCP` stub (`backend/tools/linear_tools.py`) — gate before any agent code
-   - Ship with 3 workspace fixtures in `backend/evals/fixtures/`: healthy · messy (execution_issue/strategy_unclear) · cross-team (alignment_issue)
-3. Write 5 golden traces as **JSON evalsets** in `backend/evals/` (`.evalset.json` format — `adk eval` requires JSON, NOT YAML)
-   **Required coverage (all 4 risk types + 1 Governor deny):**
-   - Trace 1: `strategy_unclear` → `clarify_bet` (escalation L1)
-   - Trace 2: `alignment_issue` → `align_team` (escalation L2)
-   - Trace 3: `execution_issue` (chronic rollover) → `rescope` (escalation L2)
-   - Trace 4: Low confidence (< 0.6) → null RiskSignal → `no_intervention` (no tool call)
-   - Trace 5: Acknowledged risk → Governor PolicyDenied (auto-deny, escalation_ladder or acknowledged_risk reason)
-4. Write Pydantic models mirroring schema (`backend/models/schema.py`, `contexts.py`, `responses.py`)
-   - `hypothesis_staleness_days: int | None = None` (null = Phase 2 not active)
-5. AlloyDB + Alembic `01_initial_schema.py` (13 tables including Phase 2 new tables)
-6. Signal Engine TDD: `async def compute_signals(workspace_id, bet, monitoring_period_days=14) → BetSnapshot`
-7. Pipeline: compose via ADK `SequentialAgent(sub_agents=[signal_engine, product_brain, coordinator, governor])`
 
 ---
 
@@ -104,6 +120,40 @@ Research ✅ → Concept ✅ → Schema v3.0 ✅ → Architecture v2.0 ✅ → P
 | SSE streaming for AutoResearch | SKIP | Not needed Phase 1-4 |
 | PDF weekly digest | SKIP | Feature, not infrastructure |
 | GitHub MCP | Phase 6 (leading indicators only) | PR velocity, review lag as Signal Engine inputs — not Phase 1-3 |
+
+---
+
+## Pipeline Architecture (how agents connect)
+
+Entry point: `backend/app/agent.py` → `SequentialAgent("aegis_pipeline")` wraps 5 sub-agents.
+Each agent reads from `ctx.session.state` and writes its output back to state for the next stage.
+
+```
+Signal Engine (BaseAgent, deterministic)
+  reads: session.state["bet"], ["workspace_id"]
+  writes: "linear_signals", "bet_snapshot"
+    ↓
+Product Brain (SequentialAgent, LLM debate)
+  sub-agents: cynic_agent (flash) → optimist_agent (flash) → synthesis_agent (pro)
+  reads: "bet_snapshot", "linear_signals"
+  writes: "risk_signal_draft"
+    ↓
+Coordinator (LlmAgent)
+  reads: "risk_signal_draft", bet context
+  writes: "intervention_proposal"
+    ↓
+Governor (BaseAgent, deterministic — 8 policy checks)
+  reads: "intervention_proposal", "risk_signal_draft", workspace config
+  writes: "governor_decision", "pipeline_status"
+    ↓
+Executor (BaseAgent, deterministic)
+  reads: "governor_decision" (only runs if approved + founder accepted)
+  writes: "executor_result", "pipeline_status"
+```
+
+Two-invocation model: Pipeline halts at Governor → `awaiting_founder_approval`. External call to `approve_intervention()` / `reject_intervention()` (in `approval_handler.py`) transitions state. Re-run pipeline → prior agents skip via checkpoint → Executor runs.
+
+Override & Teach (`override_teach.py`): If same `(risk_type, action_type, rejection_reason)` rejected 2x in 30 days, Governor auto-suppresses that pattern.
 
 ---
 
@@ -172,6 +222,15 @@ aegis-agentic-product-os/
 | **5** | Frontend: AG-UI · Intervention Inbox · Suppression Log · `control_level` settings UI · HITL L1/L2/L3 toggle | Demo-ready UI |
 | **6** | Replay/Simulation Mode · Day 1 Health Report · Bet Declaration flow · Subject Hygiene for Jules (`build_jules_subject`) · BetOutcomeRecord corpus (opt-in) | Bet declaration flow complete |
 | **7** | HeuristicVersion canary rollout · `EvalSynthesisJob` · Deployment + eval hardening | All risk types pass eval threshold |
+
+---
+
+## ADK Gotchas
+
+- **Model 404 errors**: Fix `GOOGLE_CLOUD_LOCATION` (set to `global`, not `us-central1`). Don't change the model name.
+- **ADK tool imports**: Import the tool instance, not the module: `from google.adk.tools.load_web_page import load_web_page`
+- **Agent parent-check errors**: ADK agents can only have one parent. Use factory functions (`create_*_agent()`) that return fresh instances — never reuse agent objects across tests or eval runs.
+- **Eval format**: `adk eval` requires `.evalset.json` (JSON, not YAML). Evalsets live in `backend/tests/eval/evalsets/`.
 
 ---
 

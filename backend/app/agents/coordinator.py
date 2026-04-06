@@ -1,6 +1,6 @@
 """Coordinator Agent — Component 3 of the Aegis pipeline.
 
-Type: LlmAgent with gemini-3-pro-preview.
+Type: LlmAgent with gemini-3.1-pro-preview.
 Receives RiskSignal, selects ONE intervention from the taxonomy.
 
 Key design decisions (CLAUDE.md):
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
+from google.adk.tools import ToolContext
 from google.genai import types
 
 from models.schema import DEFAULT_HEURISTIC_VERSION
@@ -34,6 +35,7 @@ def propose_intervention(
     proposed_comment: str = "",
     proposed_issue_title: str = "",
     proposed_issue_description: str = "",
+    tool_context: ToolContext | None = None,
 ) -> dict:
     """Propose exactly ONE intervention for the detected risk signal.
 
@@ -60,7 +62,7 @@ def propose_intervention(
     Returns:
         Confirmation dict stored in session state as 'intervention_proposal'.
     """
-    return {
+    result = {
         "status": "intervention_proposed",
         "action_type": action_type,
         "escalation_level": escalation_level,
@@ -72,21 +74,51 @@ def propose_intervention(
         "proposed_issue_title": proposed_issue_title,
         "proposed_issue_description": proposed_issue_description,
     }
+    if tool_context is not None:
+        tool_context.state["intervention_proposal"] = result
+    return result
 
 
 # ─────────────────────────────────────────────
 # CALLBACKS
 # ─────────────────────────────────────────────
 
-async def before_coordinator(ctx: CallbackContext) -> None:
+# Checkpoints at or past Coordinator stage — skip LLM call on re-invocation
+_COORD_SKIP_CHECKPOINTS = frozenset({
+    "coordinator_complete",
+    "governor_complete",
+    "awaiting_founder_approval",
+    "founder_approved",
+    "founder_rejected",
+    "executor_complete",
+})
+
+
+async def before_coordinator(callback_context: CallbackContext) -> types.Content | None:
     """Assemble CoordinatorAgentContext from session state.
 
     Writes to session state["coordinator_context"] for AutoResearch replay.
+    Returns Content to skip LLM call if checkpoint is past this stage.
     """
-    bet = ctx.state.get("bet", {})
-    risk_signal_draft = ctx.state.get("risk_signal_draft", "")
-    prior_interventions = ctx.state.get("prior_interventions", [])
-    workspace_id = ctx.state.get("workspace_id", "")
+    checkpoint = callback_context.state.get("pipeline_checkpoint", "")
+    if checkpoint in _COORD_SKIP_CHECKPOINTS:
+        return types.Content(
+            role="model",
+            parts=[types.Part.from_text(text="[Coordinator] Skipped — checkpoint exists")],
+        )
+    from app.app_utils.trace_logging import record_trace_start
+    record_trace_start(callback_context)
+
+    bet = callback_context.state.get("bet", {})
+    risk_signal_draft = callback_context.state.get("risk_signal_draft", "")
+    prior_interventions = callback_context.state.get("prior_interventions", [])
+
+    # Fetch workspace-level calibration data (accepted/rejected counts)
+    from db.repository import get_workspace_intervention_stats
+    workspace_id = callback_context.state.get(
+        "workspace_id", bet.get("workspace_id", ""),
+    )
+    workspace_stats = await get_workspace_intervention_stats(workspace_id)
 
     context = {
         "bet_id": bet.get("id"),
@@ -98,16 +130,28 @@ async def before_coordinator(ctx: CallbackContext) -> None:
         "acknowledged_risks": bet.get("acknowledged_risks", []),
         "risk_signal_draft": risk_signal_draft,
         "prior_interventions": prior_interventions,
+        "workspace_stats": workspace_stats,
         "heuristic_version": DEFAULT_HEURISTIC_VERSION.version,
         "intervention_ranking_weights": [
             w.model_dump() for w in DEFAULT_HEURISTIC_VERSION.intervention_ranking_weights
         ],
     }
-    ctx.state["coordinator_context"] = context
+    callback_context.state["coordinator_context"] = context
+
+    # Write flat keys for ADK instruction template substitution: {bet_name}, {hypothesis}, etc.
+    callback_context.state["bet_name"] = bet.get("name", "")
+    callback_context.state["hypothesis"] = bet.get("hypothesis", "")
+    callback_context.state["acknowledged_risks"] = bet.get("acknowledged_risks", [])
+    callback_context.state["prior_interventions"] = prior_interventions
+    callback_context.state["intervention_ranking_weights"] = context["intervention_ranking_weights"]
+    callback_context.state["workspace_stats"] = workspace_stats
 
 
-async def after_coordinator(ctx: CallbackContext) -> types.Content | None:
-    ctx.state["pipeline_checkpoint"] = "coordinator_complete"
+async def after_coordinator(callback_context: CallbackContext) -> types.Content | None:
+    from app.app_utils.trace_logging import log_coordinator_trace
+
+    callback_context.state["pipeline_checkpoint"] = "coordinator_complete"
+    await log_coordinator_trace(callback_context)
     return None
 
 
@@ -163,6 +207,9 @@ Special:
 - Level 4 (kill_bet) only if Level 3 was attempted
 - Exception: severity == critical AND chronic_rollover_count >= 3 → you may recommend Level 3
 
+## WORKSPACE CALIBRATION (founder decision history — use to calibrate confidence):
+{workspace_stats}
+
 ## RANKING WEIGHTS (higher = prefer this action):
 {intervention_ranking_weights}
 
@@ -177,14 +224,17 @@ Special:
 # AGENT DEFINITION
 # ─────────────────────────────────────────────
 
-coordinator_agent = Agent(
-    name="coordinator",
-    # gemini-3-pro-preview for synthesis — per CLAUDE.md constraint
-    model="gemini-3-pro-preview",
-    instruction=_COORDINATOR_INSTRUCTION,
-    description="Selects one intervention from the taxonomy for a detected risk signal.",
-    tools=[propose_intervention],
-    output_key="intervention_proposal",
-    before_agent_callback=before_coordinator,
-    after_agent_callback=after_coordinator,
-)
+def create_coordinator_agent() -> Agent:
+    """Factory — always returns a fresh instance with no pre-existing parent.
+
+    See signal_engine.py factory comment for why singletons break ADK eval.
+    """
+    return Agent(
+        name="coordinator",
+        model="gemini-3.1-pro-preview",
+        instruction=_COORDINATOR_INSTRUCTION,
+        description="Selects one intervention from the taxonomy for a detected risk signal.",
+        tools=[propose_intervention],
+        before_agent_callback=before_coordinator,
+        after_agent_callback=after_coordinator,
+    )

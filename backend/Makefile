@@ -37,21 +37,21 @@ test:
 # ==============================================================================
 
 # Run agent evaluation using ADK eval
-# Usage: make eval [EVALSET=tests/eval/evalsets/basic.evalset.json] [EVAL_CONFIG=tests/eval/eval_config.json]
+# Usage: make eval [EVALSET=tests/eval/evalsets/trace_01_strategy_unclear.evalset.json] [EVAL_CONFIG=tests/eval/eval_config.json]
 eval:
 	@echo "==============================================================================="
 	@echo "| Running Agent Evaluation                                                    |"
 	@echo "==============================================================================="
 	uv sync --dev --extra eval
-	uv run adk eval ./app $${EVALSET:-tests/eval/evalsets/basic.evalset.json} \
+	uv run adk eval ./app $${EVALSET:-tests/eval/evalsets/trace_01_strategy_unclear.evalset.json} \
 		$(if $(EVAL_CONFIG),--config_file_path=$(EVAL_CONFIG),$(if $(wildcard tests/eval/eval_config.json),--config_file_path=tests/eval/eval_config.json,))
 
-# Run evaluation with all evalsets
+# Run evaluation with all Aegis evalsets (trace_01 through trace_05)
 eval-all:
 	@echo "==============================================================================="
 	@echo "| Running All Evalsets                                                        |"
 	@echo "==============================================================================="
-	@for evalset in tests/eval/evalsets/*.evalset.json; do \
+	@for evalset in tests/eval/evalsets/trace_0*.evalset.json; do \
 		echo ""; \
 		echo "▶ Running: $$evalset"; \
 		$(MAKE) eval EVALSET=$$evalset || exit 1; \
