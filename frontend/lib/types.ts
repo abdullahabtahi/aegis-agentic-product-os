@@ -62,6 +62,13 @@ export interface AcknowledgedRisk {
   note?: string;
 }
 
+export interface EvidenceIssue {
+  id: string;
+  title: string;
+  status: string;
+  url: string;
+}
+
 export interface RiskSignal {
   risk_type: RiskType;
   severity: Severity;

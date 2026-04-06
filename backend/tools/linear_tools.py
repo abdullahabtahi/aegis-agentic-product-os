@@ -1,27 +1,10 @@
-"""Linear MCP — Mock + Real implementations for Signal Engine reads.
+"""Linear Interface — Primary implementation for Aegis Signal Engine reads.
 
-CLAUDE.md constraint: MockLinearMCP must exist before any agent code. No live writes
-during eval. `get_linear_mcp()` returns Mock when LINEAR_API_KEY is absent or
-AEGIS_MOCK_LINEAR=true (eval mode), otherwise returns RealLinearMCP.
+Signal Engine reads directly from the Linear GraphQL API via RealLinearMCP,
+satisfying the 14-day bounded read window (CLAUDE.md hard invariant).
 
-Architecture note (CLAUDE.md locked decision):
-  Signal Engine reads → RealLinearMCP via direct httpx → Linear GraphQL API.
-  Future Phase 4 Executor writes → McpToolset(StreamableHTTPConnectionParams(
-      url="https://mcp.linear.app/mcp",
-      headers={"Authorization": f"Bearer {LINEAR_API_KEY}"}
-  ))
-  McpToolset is designed for LLM agents, not deterministic BaseAgent reads.
-
-Interface (shared by Mock and Real):
-    list_issues(project_ids, days=14, team_id=None) → list[LinearIssue]
-    list_issue_relations(issue_ids) → list[IssueRelation]
-    write_action(action) → dict[str, str]
-
-Fixture selection (MockLinearMCP):
-  "proj-healthy-*"   → healthy_workspace.json
-  "proj-messy-*"     → messy_workspace.json
-  "proj-api-*"       → cross_team_workspace.json (alignment_issue scenario)
-  anything else      → raises ValueError (fail fast — tests must use known fixtures)
+Future Phase 4 Executor writes will transition to the standardized McpToolset
+integrated with the official Linear MCP server.
 """
 
 from __future__ import annotations
@@ -185,14 +168,8 @@ class MockLinearMCP:
         }
 
 
-# ─────────────────────────────────────────────
-# ADK FunctionTool wrappers
-# ─────────────────────────────────────────────
-# These are the tool functions exposed to ADK agents.
-# They delegate to a MockLinearMCP instance held in session state.
-# Phase 2+: replace MockLinearMCP with real McpToolset.
-
-_mock = MockLinearMCP()
+# ADK FunctionTool wrappers delegation
+# Executed in the context of the Signal Engine agent.
 
 
 async def list_linear_issues(project_ids: str, days: int = 14) -> dict:
@@ -206,7 +183,8 @@ async def list_linear_issues(project_ids: str, days: int = 14) -> dict:
         dict with 'issues' list and 'total' count.
     """
     ids = [p.strip() for p in project_ids.split(",") if p.strip()]
-    issues = await _mock.list_issues(project_ids=ids, days=days)
+    client = get_linear_mcp()
+    issues = await client.list_issues(project_ids=ids, days=days)
     return {
         "status": "success",
         "issues": [
@@ -235,7 +213,8 @@ async def list_linear_relations(issue_ids: str) -> dict:
         dict with 'relations' list and cross-team count.
     """
     ids = [i.strip() for i in issue_ids.split(",") if i.strip()]
-    relations = await _mock.list_issue_relations(issue_ids=ids)
+    client = get_linear_mcp()
+    relations = await client.list_issue_relations(issue_ids=ids)
     cross_team = [r for r in relations if r.to_team is not None]
     return {
         "status": "success",
@@ -254,7 +233,7 @@ async def list_linear_relations(issue_ids: str) -> dict:
 
 
 # ─────────────────────────────────────────────
-# REAL LINEAR MCP (Phase 2+)
+# REAL LINEAR MCP
 # ─────────────────────────────────────────────
 
 # GraphQL query: issues + inline relations + cycle history for rollover detection.
@@ -324,7 +303,8 @@ class RealLinearMCP:
         # list_issues before list_issue_relations within the same pipeline cycle.
         self._relations_cache: dict[str, list[IssueRelation]] = {}
 
-    async def _graphql(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
+    async def _graphql(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+        variables = variables or {}
         import httpx  # lazy import — only needed when LINEAR_API_KEY is set
 
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -357,9 +337,6 @@ class RealLinearMCP:
                 f"Signal Engine must never read more than 14 days. Got days={days}. "
                 "This is a hard constraint (CLAUDE.md)."
             )
-        if not project_ids and not team_id:
-            return []
-
         cutoff = (
             datetime.now(timezone.utc) - timedelta(days=days)
         ).isoformat()
@@ -488,6 +465,30 @@ class RealLinearMCP:
                 return {"status": "success", "issue_id": result.get("issue", {}).get("id", "")}
             return {"status": "failed", "reason": "issueCreate returned success=false"}
 
+    async def whoami(self) -> dict[str, str]:
+        """Diagnostic helper: returns the authenticated user and organization.
+        
+        Use this to verify LINEAR_API_KEY connectivity.
+        """
+        query = """
+        query {
+          viewer { id name email }
+          organization { id name logoUrl }
+        }
+        """
+        try:
+            data = await self._graphql(query)
+            viewer = data.get("viewer") or {}
+            org = data.get("organization") or {}
+            return {
+                "user": viewer.get("name", "Unknown"),
+                "email": viewer.get("email", "Unknown"),
+                "organization": org.get("name", "Unknown"),
+                "status": "connected"
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
         # Unrecognized or no-op action
         return {"status": "no_op", "reason": "no recognized write action in payload"}
 
@@ -496,22 +497,15 @@ class RealLinearMCP:
 # FACTORY
 # ─────────────────────────────────────────────
 
-def get_linear_mcp() -> MockLinearMCP | RealLinearMCP:
+def get_linear_mcp() -> RealLinearMCP | MockLinearMCP:
     """Return the correct Linear client based on environment.
 
-    Returns MockLinearMCP when:
-      - LINEAR_API_KEY is not set (default for local dev + eval)
-      - AEGIS_MOCK_LINEAR=true (explicit override for CI/CD)
-
-    Returns RealLinearMCP when:
-      - LINEAR_API_KEY is set AND AEGIS_MOCK_LINEAR is not "true"
-
-    Golden traces (adk eval) always run with MockLinearMCP via the
-    pipeline_checkpoint mechanism — they never reach this function.
+    Always returns RealLinearMCP if LINEAR_API_KEY is present in .env.
+    Falls back to MockLinearMCP only for local dev without a key or explicit eval mode.
     """
     api_key = os.environ.get("LINEAR_API_KEY", "").strip()
     force_mock = os.environ.get("AEGIS_MOCK_LINEAR", "").lower() == "true"
 
-    if not api_key or force_mock:
-        return MockLinearMCP()
-    return RealLinearMCP(api_key=api_key)
+    if api_key and not force_mock:
+        return RealLinearMCP(api_key=api_key)
+    return MockLinearMCP()

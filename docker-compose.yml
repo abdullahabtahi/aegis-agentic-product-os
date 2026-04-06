@@ -1,0 +1,34 @@
+# docker-compose.yml
+services:
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: aegis-backend
+    ports:
+      - "8080:8080"
+    env_file:
+      - ./backend/.env
+    environment:
+      - AEGIS_LOCAL_DEV=true
+    networks:
+      - aegis-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: aegis-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      # backend refers to the service name in this network
+      - BACKEND_URL=http://backend:8080/
+    depends_on:
+      - backend
+    networks:
+      - aegis-network
+
+networks:
+  aegis-network:
+    driver: bridge

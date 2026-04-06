@@ -48,7 +48,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Next.js dev server
+    allow_origins=["*"],  # Open for development to avoid port mismatch (3000 vs 3001)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -104,6 +104,22 @@ async def health_check(response: Response):
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
         
     return health
+
+
+@app.get("/diag/linear")
+async def diagnostic_linear():
+    """Diagnostic endpoint to verify Linear API connectivity.
+    
+    Returns the authenticated user and organization.
+    """
+    from tools.linear_tools import get_linear_mcp, RealLinearMCP
+    client = get_linear_mcp()
+    if not isinstance(client, RealLinearMCP):
+        return {
+            "status": "mock",
+            "message": "System is running in MOCK mode (AEGIS_MOCK_LINEAR=true or no API key)."
+        }
+    return await client.whoami()
 
 @app.get("/taxonomy")
 async def get_taxonomy():
@@ -185,4 +201,7 @@ async def reject_intervention_endpoint(intervention_id: str, body: dict = {}):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-add_adk_fastapi_endpoint(app, adk_agent, path="/")
+# Mounting ADK routes with the prefix expected by the frontend HttpAgent
+add_adk_fastapi_endpoint(app, adk_agent, path="/adk/v1/app")
+
+

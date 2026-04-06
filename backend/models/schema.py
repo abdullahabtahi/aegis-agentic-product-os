@@ -143,6 +143,15 @@ class AcknowledgedRisk(BaseModel):
     model_config = {"frozen": True}
 
 
+class EvidenceIssue(BaseModel):
+    id: str
+    title: str
+    status: str
+    url: str
+
+    model_config = {"frozen": True}
+
+
 class LinearSignals(BaseModel):
     total_issues_analyzed: int
     bet_mapped_issues: int
@@ -158,6 +167,7 @@ class LinearSignals(BaseModel):
     scope_change_count: int
     read_window_days: int = 14  # always 14 — bounded Signal Engine reads
     placebo_productivity_score: float | None = None
+    evidence_issues: list[EvidenceIssue] = Field(default_factory=list)
 
     model_config = {"frozen": True}
 

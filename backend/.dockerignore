@@ -1,0 +1,9 @@
+# .dockerignore
+.venv
+__pycache__
+*.pyc
+.git
+.github
+frontend
+node_modules
+.next

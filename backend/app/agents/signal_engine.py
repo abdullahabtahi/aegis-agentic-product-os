@@ -2,7 +2,7 @@
 
 Type: Deterministic ADK BaseAgent subclass — NOT an LLM agent.
 Participates in ADK event loop (emits events, session state propagation, eval compatibility).
-No LLM calls. All logic is pure Python + MockLinearMCP reads.
+No LLM calls. All logic is pure Python + Linear GraphQL API reads.
 
 Contract (from CLAUDE.md):
 - Always bounded to 14-day read window — hard invariant
@@ -10,7 +10,7 @@ Contract (from CLAUDE.md):
 - Produces: LinearSignals + BetSnapshot persisted to session state
 - Does NOT: interpret signals, infer risk type, write to Linear, make LLM calls
 - Writes to session state: "linear_signals", "bet_snapshot"
-- Phase 2: replace MockLinearMCP with real Linear MCP via McpToolset
+- Future: integrated with McpToolset for agent-led interventions.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from models.schema import (
     Bet,
     BetHealthBaseline,
     BetSnapshot,
+    EvidenceIssue,
     LinearSignals,
     RiskType,
     ScanErrorCode,
@@ -198,9 +199,9 @@ async def compute_signals(
     This is the testable core function (TDD target). SignalEngineAgent wraps this.
 
     Args:
-        workspace_id: Workspace ID (Phase 2+: AlloyDB scoping, not read in Phase 1).
+        workspace_id: Workspace ID (Phase 2+: AlloyDB scoping).
         bet: The bet being monitored.
-        linear_mcp: MockLinearMCP (Phase 1) or real McpToolset (Phase 2+).
+        linear_mcp: RealLinearMCP live client.
         monitoring_period_days: Always 14. Parameter exists for Replay Mode only.
 
     Returns:
@@ -220,7 +221,7 @@ async def compute_signals(
     try:
         project_ids = set(bet.linear_project_ids)
 
-        # Read issues — bounded to 14 days
+        # Fetching active issues from live Linear workspace
         issues = await linear_mcp.list_issues(
             project_ids=list(project_ids),
             days=monitoring_period_days,
@@ -241,6 +242,18 @@ async def compute_signals(
         placebo_score = _placebo_productivity_score(issues, project_ids)
         scope_change_count = sum(1 for i in issues if "refactor" in i.title.lower() or "migrate" in i.title.lower())
 
+        # Build evidence issues (top 10 based on rollovers)
+        sorted_issues = sorted(issues, key=lambda i: (not i.rolled_over, getattr(i, "roll_count", 0)), reverse=False)
+        evidence_issues = [
+            EvidenceIssue(
+                id=i.id,
+                title=i.title,
+                status=i.status,
+                url=f"https://linear.app/issue/{i.id}"
+            )
+            for i in sorted_issues[:10]
+        ]
+
         signals = LinearSignals(
             total_issues_analyzed=total,
             bet_mapped_issues=mapped,
@@ -256,6 +269,7 @@ async def compute_signals(
             scope_change_count=scope_change_count,
             read_window_days=_MONITORING_PERIOD_DAYS,  # always 14
             placebo_productivity_score=placebo_score,
+            evidence_issues=evidence_issues,
         )
 
         health_score = _compute_health_score(signals, bet.health_baseline)
@@ -416,24 +430,40 @@ class SignalEngineAgent(BaseAgent):
 
         bet = Bet.model_validate(bet_dict)
 
-        snapshot = await compute_signals(
-            workspace_id=workspace_id,
-            bet=bet,
-            linear_mcp=self._linear_mcp,
+        # Emit progress event before fetching data
+        yield Event(
+            invocation_id=ctx.invocation_id,
+            author=self.name,
+            content=types.Content(
+                role="model",
+                parts=[types.Part.from_text(text="[SignalEngine] Scanning Linear workspace...")],
+            ),
         )
 
-        # Write to session state — downstream agents read from here
-        ctx.session.state["linear_signals"] = snapshot.linear_signals.model_dump()
-        ctx.session.state["bet_snapshot"] = snapshot.model_dump()
-        ctx.session.state["pipeline_checkpoint"] = "signal_engine_complete"
+        try:
+            snapshot = await compute_signals(
+                workspace_id=workspace_id,
+                bet=bet,
+                linear_mcp=self._linear_mcp,
+            )
 
-        status_msg = (
-            f"[SignalEngine] OK — health={snapshot.health_score}, "
-            f"coverage={snapshot.linear_signals.bet_coverage_pct:.0%}, "
-            f"risks={snapshot.risk_types_present}"
-        )
-        if snapshot.status == "error":
-            status_msg = f"[SignalEngine] ERROR — {snapshot.error_code}"
+            # Write to session state — downstream agents read from here
+            ctx.session.state["linear_signals"] = snapshot.linear_signals.model_dump()
+            ctx.session.state["bet_snapshot"] = snapshot.model_dump()
+            ctx.session.state["pipeline_checkpoint"] = "signal_engine_complete"
+
+            status_msg = (
+                f"[SignalEngine] OK — health={snapshot.health_score}, "
+                f"coverage={snapshot.linear_signals.bet_coverage_pct:.0%}, "
+                f"risks={snapshot.risk_types_present}"
+            )
+            if snapshot.status == "error":
+                status_msg = f"[SignalEngine] {snapshot.error_code.replace('_', ' ').capitalize()}"
+                
+        except Exception as e:
+            status_msg = f"[SignalEngine] CRITICAL ERROR — {str(e)}"
+            # Ensure we don't crash the whole pipeline, but report the error
+            ctx.session.state["pipeline_checkpoint"] = "signal_engine_failed"
 
         yield Event(
             invocation_id=ctx.invocation_id,
