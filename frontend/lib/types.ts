@@ -42,18 +42,46 @@ export type ActionType =
 
 export type EscalationLevel = 1 | 2 | 3 | 4;
 
+export interface Metric {
+  name: string;
+  target_value: number | string;
+  current_value?: number | string | null;
+  unit: string;
+}
+
+export interface BetHealthBaseline {
+  expected_bet_coverage_pct: number;
+  expected_weekly_velocity: number;
+  hypothesis_required: boolean;
+  metric_linked_required: boolean;
+}
+
+export interface DeclarationSource {
+  type: "linear_project" | "agent_inferred" | "manual";
+  linear_project_id?: string | null;
+  raw_artifact_refs?: string[];
+}
+
 export interface Bet {
   id: string;
   workspace_id: string;
   name: string;
+  target_segment: string;
+  problem_statement: string;
   status: "active" | "paused" | "killed" | "completed";
   hypothesis: string;
-  success_metrics: string[];
+  success_metrics: Metric[];
   time_horizon: string;
+  declaration_source: DeclarationSource;
+  declaration_confidence: number;
+  health_baseline: BetHealthBaseline;
   acknowledged_risks: AcknowledgedRisk[];
   linear_project_ids: string[];
+  linear_issue_ids: string[];
+  doc_refs: string[];
   created_at: string;
-  last_monitored_at?: string;
+  last_monitored_at: string;
+  completed_at?: string | null;
 }
 
 export interface AcknowledgedRisk {

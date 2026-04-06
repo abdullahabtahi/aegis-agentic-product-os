@@ -356,12 +356,6 @@ class SignalEngineAgent(BaseAgent):
       "pipeline_checkpoint" → "signal_engine_complete" (crash recovery)
     """
 
-    # linear_mcp is not an ADK field — stored as a class attribute.
-    # get_linear_mcp() reads LINEAR_API_KEY at import time:
-    #   - no key or AEGIS_MOCK_LINEAR=true → MockLinearMCP (eval safe)
-    #   - key present → RealLinearMCP (live workspace scans)
-    _linear_mcp: LinearMCPClient = get_linear_mcp()
-
     def _parse_bet_from_user_message(
         self, ctx: InvocationContext
     ) -> tuple[dict | None, str]:
@@ -440,11 +434,14 @@ class SignalEngineAgent(BaseAgent):
             ),
         )
 
+        # Initialize Linear MCP dynamically to pick up environment variable changes (Real vs Mock)
+        linear_mcp = get_linear_mcp()
+
         try:
             snapshot = await compute_signals(
                 workspace_id=workspace_id,
                 bet=bet,
-                linear_mcp=self._linear_mcp,
+                linear_mcp=linear_mcp,
             )
 
             # Write to session state — downstream agents read from here
