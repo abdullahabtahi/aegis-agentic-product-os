@@ -37,7 +37,7 @@ export default function SuppressionPage() {
 
   const suppressed = [...pending, ...resolved].filter(
     (i) =>
-      i.status === "auto_suppressed" ||
+      i.status === "dismissed" ||
       (i.denial_reason && i.status !== "accepted" && i.status !== "rejected"),
   );
 
