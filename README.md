@@ -53,7 +53,7 @@ Full architecture spec: [`context/agent-architecture.md`](context/agent-architec
 | Tool | Version | Install |
 |------|---------|---------|
 | Python | ≥ 3.10 | [python.org](https://python.org) |
-| uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| uv | latest | `curl -LsSf https://astral.sh/uv/install.sh | sh` |
 | Node.js | ≥ 18 | [nodejs.org](https://nodejs.org) |
 | Google Cloud SDK | latest | [cloud.google.com/sdk](https://cloud.google.com/sdk/docs/install) |
 | Docker (optional) | latest | [docker.com](https://docker.com) |

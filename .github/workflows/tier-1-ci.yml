@@ -22,6 +22,8 @@ jobs:
   backend-fast:
     name: Backend — Lint, Type Check, Unit Tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v4
@@ -68,6 +70,8 @@ jobs:
   frontend-fast:
     name: Frontend — Lint & Type Check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
       - uses: actions/checkout@v4

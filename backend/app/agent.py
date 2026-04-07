@@ -55,7 +55,7 @@ if not os.environ.get("GOOGLE_CLOUD_PROJECT"):
     try:
         _, _project_id = google.auth.default()
         os.environ["GOOGLE_CLOUD_PROJECT"] = _project_id or ""
-    except Exception:
+    except google.auth.exceptions.DefaultCredentialsError:
         pass  # credentials not available; agent init will fail at runtime if needed
 os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "global")
 os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")

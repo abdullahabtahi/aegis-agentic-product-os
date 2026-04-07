@@ -200,7 +200,7 @@ class TestHypothesisPresent:
         assert _hypothesis_present(bet) is False
 
     def test_none_hypothesis_absent(self):
-        bet = self._make_bet("")
+        bet = self._make_bet("placeholder")
         bet = bet.model_copy(update={"hypothesis": None})
         assert _hypothesis_present(bet) is False
 
