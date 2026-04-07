@@ -28,7 +28,7 @@ export function HealthDisplay({ agentState }: HealthDisplayProps) {
             return null;
           }
         })()
-      : (agentState.risk_signal_draft as Record<string, unknown> | null);
+      : null;
 
   const confidence = riskDraft?.confidence ? Number(riskDraft.confidence) : 0;
 

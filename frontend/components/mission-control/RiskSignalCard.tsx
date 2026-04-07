@@ -17,21 +17,30 @@ import type { AegisPipelineState, EvidenceIssue } from "@/lib/types";
 
 interface RiskSignalCardProps {
   agentState: AegisPipelineState;
-  onApprove: () => void;
+  onApprove: (id: string) => void;
 }
 
 export function RiskSignalCard({ agentState, onApprove }: RiskSignalCardProps) {
+  // DEBUG: Log entire agent state to console
+  console.log('[RiskSignalCard] Full agent state:', JSON.stringify(agentState, null, 2));
+
   // Parse risk signal
   const riskDraft =
     typeof agentState.risk_signal_draft === "string"
       ? (() => {
           try {
-            return JSON.parse(agentState.risk_signal_draft) as Record<string, unknown>;
-          } catch {
+            const parsed = JSON.parse(agentState.risk_signal_draft) as Record<string, unknown>;
+            console.log('[RiskSignalCard] Parsed risk_signal_draft:', parsed);
+            return parsed;
+          } catch (err) {
+            console.error('[RiskSignalCard] Failed to parse risk_signal_draft:', err);
             return null;
           }
         })()
-      : (agentState.risk_signal_draft as Record<string, unknown> | null);
+      : null;
+
+  console.log('[RiskSignalCard] riskDraft:', riskDraft);
+  console.log('[RiskSignalCard] intervention_proposal:', agentState.intervention_proposal);
 
   if (!riskDraft) {
     return (
@@ -131,7 +140,6 @@ export function RiskSignalCard({ agentState, onApprove }: RiskSignalCardProps) {
               </div>
               <div className={styles.evidenceMeta}>
                 <span>{issue.status}</span>
-                {issue.assignee && <span>• {issue.assignee}</span>}
               </div>
             </a>
           ))}
@@ -154,7 +162,15 @@ export function RiskSignalCard({ agentState, onApprove }: RiskSignalCardProps) {
         <div className={styles.interventionLabel}>
           Recommended Action • Escalation Level {intervention?.escalation_level || 1}
         </div>
-        <button className={styles.actionButton} onClick={onApprove}>
+        <button
+          className={styles.actionButton}
+          onClick={() => {
+            const interventionId = agentState.awaiting_approval_intervention?.id;
+            if (interventionId) {
+              onApprove(interventionId);
+            }
+          }}
+        >
           {actionType}
         </button>
         <div style={{

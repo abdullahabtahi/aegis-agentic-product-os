@@ -1,18 +1,26 @@
 # ruff: noqa
-"""Aegis Pipeline — SequentialAgent root entry point.
+"""Aegis Agent — Unified conversational entry point.
 
-Pipeline (CLAUDE.md — strictly sequential, no parallelism between stages):
-  Signal Engine → Product Brain → Coordinator → Governor
+ARCHITECTURE CHANGE (2026-04-07):
+- OLD: Separate router → pipeline OR conversational agent
+- NEW: Single conversational agent that triggers pipeline via tool
 
-Each stage reads from and writes to ctx.session.state.
-State flows: bet + workspace_id → linear_signals → risk_signal_draft → intervention_proposal → governor_decision
+The agent now handles BOTH:
+1. Natural conversation (questions, explanations, queries)
+2. Pipeline triggering (autonomous risk scans via run_pipeline_scan tool)
+
+No router needed - Gemini 3 Flash is smart enough to decide when to scan vs chat.
+
+Pipeline (CLAUDE.md — strictly sequential, triggered by conversational agent):
+  Signal Engine → Product Brain → Coordinator → Governor → Executor
 
 To test interactively:
   make playground      # adk web at localhost:8501
   make eval            # run adk eval against golden traces
 
-To trigger a scan, send a message with session state pre-loaded:
-  {"workspace_id": "ws-001", "bet": {...}, "workspace": {...}}
+To chat naturally or trigger scan:
+  User: "hi there" → Agent chats
+  User: "scan my bet" → Agent calls run_pipeline_scan() tool
 
 Phase 4: InMemoryArtifactService → swap to GcsArtifactService(bucket_name="aegis-artifacts")
 Phase 4: InMemorySessionService  → swap to VertexAiSessionService for production
@@ -31,6 +39,7 @@ from app.app_utils.telemetry import setup_telemetry
 setup_telemetry()
 
 # Import factories — always create fresh instances to avoid ADK eval parent-check errors
+from app.agents.conversational import create_conversational_agent
 from app.agents.coordinator import create_coordinator_agent
 from app.agents.executor import create_executor_agent
 from app.agents.governor import create_governor_agent
@@ -43,10 +52,10 @@ os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
 os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
 
 # ─────────────────────────────────────────────
-# AEGIS PIPELINE — Sequential, no parallelism
+# AEGIS PIPELINE — Sequential (triggered by conversational agent)
 # ─────────────────────────────────────────────
-# sub_agents run in order. Each agent's output_key writes to session state
-# which the next agent reads via {state_key} in its instruction.
+# This pipeline is now invoked as a tool by the conversational agent.
+# It's kept for backwards compatibility with evals and direct testing.
 
 aegis_pipeline = SequentialAgent(
     name="aegis_pipeline",
@@ -63,8 +72,17 @@ aegis_pipeline = SequentialAgent(
     ],
 )
 
-# root_agent is required by adk web / adk eval
-root_agent = aegis_pipeline
+# ─────────────────────────────────────────────
+# ROOT AGENT — Conversational entry point
+# ─────────────────────────────────────────────
+# This is the new primary agent. It handles both:
+# 1. Natural conversation (questions, explanations)
+# 2. Pipeline triggering (via run_pipeline_scan tool)
+
+root_agent = create_conversational_agent()
+
+# Legacy: Keep aegis_pipeline for eval tests
+# TODO: Update evals to use conversational agent instead
 
 # ─────────────────────────────────────────────
 # APP — entry point for adk web playground

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Providers } from "@/components/layout/Providers";
 import "./globals.css";
+import "@/styles/linear-theme.css";
 
 export const metadata: Metadata = {
   title: "Aegis — Agentic Product OS",
@@ -13,8 +14,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="h-full antialiased">
-      <body className="h-full bg-[#0A0A0F] text-white">
+    <html lang="en">
+      <body>
         <Providers>{children}</Providers>
       </body>
     </html>

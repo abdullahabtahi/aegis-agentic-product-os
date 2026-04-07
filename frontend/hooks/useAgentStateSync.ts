@@ -35,9 +35,15 @@ export function useAgentStateSync() {
       initialState: INITIAL_STATE,
     });
 
+  // DEBUG: Log agent state updates
+  console.log('[useAgentStateSync] CopilotKit agentState:', JSON.stringify(agentState, null, 2));
+  console.log('[useAgentStateSync] Local state:', JSON.stringify(localState, null, 2));
+
   // Merge CopilotKit agent state into local state when it changes
   // CopilotKit handles AG-UI protocol; we keep a local copy for React Flow
   const mergedState: AegisPipelineState = { ...agentState, ...localState };
+
+  console.log('[useAgentStateSync] Merged state:', JSON.stringify(mergedState, null, 2));
 
   return {
     state: mergedState,

@@ -30,22 +30,30 @@ export function Providers({ children }: ProvidersProps) {
   const queryClient = queryClientRef.current;
 
   // Global error handler for CopilotKit connection/agent issues
-  const handleCopilotError = (error: Error, errorInfo?: { componentStack?: string }) => {
+  const handleCopilotError = (errorEvent: {
+    type: string;
+    timestamp: number;
+    error?: any;
+    context?: any;
+  }) => {
     console.error('[CopilotKit Error]', {
-      message: error.message,
-      stack: error.stack,
-      componentStack: errorInfo?.componentStack,
+      type: errorEvent.type,
+      timestamp: errorEvent.timestamp,
+      error: errorEvent.error,
+      context: errorEvent.context,
     });
 
+    const errorMessage = errorEvent.error?.message || String(errorEvent.error);
+
     // Check for common error patterns
-    if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+    if (errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError')) {
       console.error('[CopilotKit] Backend connection failed. Check:');
       console.error('  1. Backend server running on port 8000');
       console.error('  2. BACKEND_URL environment variable');
       console.error('  3. CORS configuration');
     }
 
-    if (error.message.includes('timeout') || error.message.includes('ETIMEDOUT')) {
+    if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
       console.error('[CopilotKit] Request timeout. Backend agent may be slow or stuck.');
     }
 
