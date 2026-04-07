@@ -12,7 +12,7 @@ interface SuppressionLogProps {
 
 export function SuppressionLog({ interventions, className }: SuppressionLogProps) {
   const suppressed = interventions.filter(
-    (i) => i.status === "auto_suppressed" || i.denial_reason,
+    (i) => i.status === "dismissed" || i.denial_reason,
   );
 
   if (suppressed.length === 0) return null;
