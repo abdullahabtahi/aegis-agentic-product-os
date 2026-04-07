@@ -3,22 +3,24 @@
  * Source of truth: context/data-schema.ts (backend schema).
  */
 
+// Mirrors data-schema.ts RiskType exactly. EvidenceType values (missing_hypothesis,
+// missing_metric) are NOT risk types — they are signal subtypes inside strategy_unclear.
 export type RiskType =
   | "strategy_unclear"
-  | "missing_hypothesis"
-  | "missing_metric"
-  | "execution_issue"
   | "alignment_issue"
-  | "low_confidence";
+  | "execution_issue"
+  | "placebo_productivity";
 
 export type Severity = "low" | "medium" | "high" | "critical";
 
+// Mirrors data-schema.ts InterventionStatus exactly. "snoozed" is a local
+// UI state (stored in localStorage via useInterventionInbox), never persisted
+// to the backend. "auto_suppressed" maps to "dismissed" from Governor.
 export type InterventionStatus =
   | "pending"
   | "accepted"
   | "rejected"
-  | "auto_suppressed"
-  | "snoozed";
+  | "dismissed";
 
 export type ActionType =
   // L1
@@ -128,18 +130,24 @@ export interface Intervention {
   denial_reason?: string;
 }
 
+// Mirrors data-schema.ts BlastRadiusPreview and models/schema.py BlastRadiusPreview.
+// No "summary" field exists in the backend — removed. Blast radius details
+// are surfaced via affected_assignee_ids/project_ids in the approval card.
 export interface BlastRadius {
   affected_issue_count: number;
+  affected_assignee_ids: string[];
+  affected_project_ids: string[];
+  estimated_notification_count: number;
   reversible: boolean;
-  summary: string;
 }
 
+// Mirrors models/responses.py GovernorDecision exactly.
+// pipeline_status lives on AegisPipelineState, not inside GovernorDecision.
 export interface GovernorDecision {
   approved: boolean;
-  denial_reason?: string;
-  pipeline_status: string;
-  double_confirm_required?: boolean;
-  blast_radius?: BlastRadius;
+  denial_reason?: string;        // PolicyDenialReason value when approved=false
+  requires_double_confirm: boolean;
+  blast_radius_attached: boolean;
 }
 
 /** AG-UI pipeline state synced from backend via CopilotKit */

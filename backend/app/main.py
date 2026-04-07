@@ -13,6 +13,7 @@ import logging
 import google.auth
 from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from sqlalchemy import text
 
 # config.py loads .env before instantiating Config, so LINEAR_API_KEY etc. are
@@ -178,27 +179,43 @@ async def list_interventions(workspace_id: str = Query(...)):
         return []
 
 
+class RejectBody(BaseModel):
+    reason: str = "other"  # RejectionReasonCategory — default "other" is always valid
+
+
 @app.post("/interventions/{intervention_id}/approve")
 async def approve_intervention_endpoint(intervention_id: str):
-    """Mark an intervention accepted and trigger Executor."""
-    from app.approval_handler import approve_intervention
-    try:
-        await approve_intervention(intervention_id)
-        return {"status": "accepted", "intervention_id": intervention_id}
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    """Mark an intervention accepted.
+
+    Directly updates AlloyDB via update_intervention_status.
+    The approval_handler module handles ADK in-memory session state transitions
+    (two-invocation model); this REST endpoint is the founder-facing HTTP path.
+    """
+    from db.repository import update_intervention_status
+    if not is_db_configured():
+        return {"status": "accepted", "intervention_id": intervention_id, "persisted": False}
+    ok = await update_intervention_status(intervention_id, status="accepted")
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Intervention {intervention_id} not found or DB error")
+    return {"status": "accepted", "intervention_id": intervention_id}
 
 
 @app.post("/interventions/{intervention_id}/reject")
-async def reject_intervention_endpoint(intervention_id: str, body: dict = {}):
-    """Mark an intervention rejected."""
-    from app.approval_handler import reject_intervention
-    reason = body.get("reason", "founder_rejected")
-    try:
-        await reject_intervention(intervention_id, denial_reason=reason)
-        return {"status": "rejected", "intervention_id": intervention_id}
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+async def reject_intervention_endpoint(intervention_id: str, body: RejectBody = RejectBody()):
+    """Mark an intervention rejected.
+
+    body.reason must be a RejectionReasonCategory value:
+      evidence_too_weak | already_handled | not_a_priority | wrong_risk_type | other
+    """
+    from db.repository import update_intervention_status
+    _valid = {"evidence_too_weak", "already_handled", "not_a_priority", "wrong_risk_type", "other"}
+    reason = body.reason if body.reason in _valid else "other"
+    if not is_db_configured():
+        return {"status": "rejected", "intervention_id": intervention_id, "persisted": False}
+    ok = await update_intervention_status(intervention_id, status="rejected", rejection_reason=reason)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Intervention {intervention_id} not found or DB error")
+    return {"status": "rejected", "intervention_id": intervention_id}
 
 
 # Mounting ADK routes with the prefix expected by the frontend HttpAgent

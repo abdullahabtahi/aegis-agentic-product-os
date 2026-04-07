@@ -25,13 +25,14 @@ export const ACTION_LABELS: Record<ActionType, string> = {
   no_intervention: "No Intervention",
 };
 
+// Mirrors data-schema.ts RiskType. Evidence subtypes (missing_hypothesis,
+// missing_metric) are surfaced inside strategy_unclear evidence, not as
+// separate risk type labels.
 export const RISK_LABELS: Record<RiskType, string> = {
   strategy_unclear: "Strategy Unclear",
-  missing_hypothesis: "Missing Hypothesis",
-  missing_metric: "Missing Metric",
-  execution_issue: "Execution Issue",
   alignment_issue: "Alignment Issue",
-  low_confidence: "Low Confidence",
+  execution_issue: "Execution Issue",
+  placebo_productivity: "Placebo Productivity",
 };
 
 export const SEVERITY_COLORS: Record<Severity, string> = {
