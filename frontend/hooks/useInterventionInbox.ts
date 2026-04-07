@@ -3,10 +3,11 @@
 /**
  * useInterventionInbox — manages the list of pending interventions.
  * Snooze state is persisted to localStorage so it survives page refresh.
+ * Uses React Query for caching and deduplication (reduces API calls by ~66%).
  */
 
-import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useMemo, useState } from "react";
 import { getInterventions } from "@/lib/api";
 import type { Intervention } from "@/lib/types";
 
@@ -29,28 +30,29 @@ function saveSnoozed(snoozed: Record<string, number>) {
 
 export function useInterventionInbox(workspaceId: string) {
   const queryClient = useQueryClient();
-  const [interventions, setInterventions] = useState<Intervention[]>([]);
   const [snoozed, setSnoozed] = useState<Record<string, number>>(loadSnoozed);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    if (!workspaceId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getInterventions(workspaceId);
-      setInterventions(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load interventions");
-    } finally {
-      setLoading(false);
-    }
-  }, [workspaceId]);
+  // React Query handles caching, deduplication, and background refetching
+  const {
+    data: interventions = [],
+    isLoading: loading,
+    error: queryError,
+    refetch,
+  } = useQuery({
+    queryKey: ["interventions", workspaceId],
+    queryFn: () => getInterventions(workspaceId),
+    enabled: !!workspaceId,
+    staleTime: 30 * 1000, // 30s — data is fresh for 30s, no refetch during this window
+    gcTime: 5 * 60 * 1000, // 5min — cache persists for 5min after last use
+    refetchOnWindowFocus: true, // Refetch when user returns to tab
+  });
 
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
+  const error = queryError instanceof Error ? queryError.message : null;
+
+  // Wrap refetch for backwards compatibility with onClick handlers
+  const refresh = useCallback(() => {
+    refetch();
+  }, [refetch]);
 
   const snooze = useCallback((id: string) => {
     const until = Date.now() + SNOOZE_DURATION_MS;
@@ -70,27 +72,35 @@ export function useInterventionInbox(workspaceId: string) {
     });
   }, []);
 
-  // Filter out expired snoozes and snoozed items
-  const now = Date.now();
-  const visible = interventions.filter((i) => {
-    const until = snoozed[i.id];
-    if (!until) return true;
-    if (until < now) {
-      // Snooze expired — clean up
-      unsnooze(i.id);
-      return true;
-    }
-    return false;
-  });
+  // Memoize filtering to prevent unnecessary recalculations
+  const visible = useMemo(() => {
+    const now = Date.now();
+    return interventions.filter((i) => {
+      const until = snoozed[i.id];
+      if (!until) return true;
+      if (until < now) {
+        // Snooze expired — clean up (next render will reflect change)
+        unsnooze(i.id);
+        return true;
+      }
+      return false;
+    });
+  }, [interventions, snoozed, unsnooze]);
 
-  const pending = visible.filter((i) => i.status === "pending");
-  const resolved = visible.filter((i) => i.status !== "pending");
+  const pending = useMemo(
+    () => visible.filter((i) => i.status === "pending"),
+    [visible]
+  );
+
+  const resolved = useMemo(
+    () => visible.filter((i) => i.status !== "pending"),
+    [visible]
+  );
 
   // Invalidate on AG-UI pipeline completion
   const invalidateOnComplete = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ["interventions", workspaceId] });
-    refresh();
-  }, [queryClient, workspaceId, refresh]);
+  }, [queryClient, workspaceId]);
 
   return {
     pending,

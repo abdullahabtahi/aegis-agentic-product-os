@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { CopilotChat } from "@copilotkit/react-ui";
 import { useCopilotReadable, useCopilotAction } from "@copilotkit/react-core";
 import { cn } from "@/lib/utils";
@@ -34,26 +35,27 @@ export function CopilotChatRail({
   const isAwaitingApproval =
     agentState.pipeline_status === "awaiting_founder_approval";
 
-  // Defensively parse risk_signal_draft — typed as string but may carry JSON
-  const riskDraft =
-    typeof agentState.risk_signal_draft === "string" &&
-    agentState.risk_signal_draft.startsWith("{")
-      ? (() => {
-          try {
-            return JSON.parse(agentState.risk_signal_draft) as Record<
-              string,
-              unknown
-            >;
-          } catch {
-            return null;
-          }
-        })()
-      : null;
+  // Memoize risk_signal_draft parsing to avoid repeated JSON.parse on every render
+  const riskDraft = useMemo(() => {
+    if (
+      typeof agentState.risk_signal_draft === "string" &&
+      agentState.risk_signal_draft.startsWith("{")
+    ) {
+      try {
+        return JSON.parse(agentState.risk_signal_draft) as Record<
+          string,
+          unknown
+        >;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }, [agentState.risk_signal_draft]);
 
-  // Inject current agent state as grounded context for the co-pilot
-  useCopilotReadable({
-    description: "Current Aegis pipeline state and active bet context",
-    value: {
+  // Memoize copilot context to prevent unnecessary re-broadcasts
+  const copilotContext = useMemo(
+    () => ({
       bet_name: agentState.bet?.name ?? null,
       workspace_id: workspaceId,
       pipeline_status: agentState.pipeline_status ?? null,
@@ -66,6 +68,26 @@ export function CopilotChatRail({
         : null,
       intervention_action:
         agentState.intervention_proposal?.action_type ?? null,
+    }),
+    [
+      agentState.bet?.name,
+      workspaceId,
+      agentState.pipeline_status,
+      agentState.pipeline_checkpoint,
+      riskDraft,
+      agentState.intervention_proposal?.action_type,
+    ]
+  );
+
+  // Inject current agent state as grounded context for the co-pilot
+  // Simplified context to avoid overwhelming the chat
+  useCopilotReadable({
+    description: "Current pipeline status and bet information",
+    value: {
+      bet_name: copilotContext.bet_name,
+      status: copilotContext.pipeline_status,
+      risk_detected: copilotContext.risk_type || "none",
+      confidence: copilotContext.confidence,
     },
   });
 
@@ -90,6 +112,9 @@ export function CopilotChatRail({
           required: false,
         },
       ],
+      handler: async () => {
+        // No-op handler - UI rendering only via render prop
+      },
       render: ({ args, status }) => {
         if (status === "inProgress") return <></>;
         return (
@@ -146,6 +171,9 @@ export function CopilotChatRail({
           required: false,
         },
       ],
+      handler: async () => {
+        // No-op handler - UI rendering only via render prop
+      },
       render: ({ args, status }) => {
         if (status === "inProgress") return <></>;
         return (
@@ -194,6 +222,9 @@ export function CopilotChatRail({
           required: false,
         },
       ],
+      handler: async () => {
+        // No-op handler - UI rendering only via render prop
+      },
       render: ({ args, status }) => {
         if (status === "inProgress") return <></>;
         return (

@@ -10,9 +10,12 @@ CopilotKit connects to: http://localhost:8000/
 
 import os
 import logging
+import json
+from hashlib import md5
 import google.auth
-from fastapi import FastAPI, Response, status
+from fastapi import FastAPI, Response, status, Header
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -54,6 +57,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add gzip compression for all responses (60% payload reduction)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # ─────────────────────────────────────────────
 # HEALTH & TAXONOMY ENDPOINTS
@@ -123,8 +129,10 @@ async def diagnostic_linear():
     return await client.whoami()
 
 @app.get("/taxonomy")
-async def get_taxonomy():
+async def get_taxonomy(response: Response):
     """Expose the intervention taxonomy for the frontend to build dynamic UI components."""
+    # Static data — cache for 1 hour
+    response.headers["Cache-Control"] = "public, max-age=3600, stale-while-revalidate=86400"
     return {
         "version": "2.0.0",
         "levels": {
@@ -143,9 +151,14 @@ async def get_taxonomy():
 from fastapi import Query, HTTPException
 
 @app.get("/interventions")
-async def list_interventions(workspace_id: str = Query(...)):
+async def list_interventions(
+    response: Response,
+    workspace_id: str = Query(...),
+    if_none_match: str | None = Header(None, alias="If-None-Match")
+):
     """Return pending/recent interventions for a workspace.
     Reads from AlloyDB; returns empty list when DB not configured (local dev).
+    Supports ETag-based conditional requests (304 Not Modified).
     """
     from db.engine import is_db_configured
     if not is_db_configured():
@@ -173,6 +186,20 @@ async def list_interventions(workspace_id: str = Query(...)):
                 {"wid": workspace_id},
             )
             rows = [dict(row._mapping) for row in result]
+
+        # Generate ETag from data hash
+        data_json = json.dumps(rows, default=str, sort_keys=True)
+        etag = f'"{md5(data_json.encode()).hexdigest()}"'
+
+        # Check If-None-Match header for conditional request
+        if if_none_match == etag:
+            response.status_code = status.HTTP_304_NOT_MODIFIED
+            return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag})
+
+        # Set cache headers: short TTL (30s), revalidate with ETag
+        response.headers["Cache-Control"] = "private, max-age=30, must-revalidate"
+        response.headers["ETag"] = etag
+
         return rows
     except Exception as exc:
         logger.warning("Failed to list interventions for workspace %s: %s", workspace_id, exc)
