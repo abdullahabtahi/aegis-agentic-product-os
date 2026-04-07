@@ -12,7 +12,7 @@
  * Each pipeline checkpoint transition mounts a new FeedEntry.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import type { AegisPipelineState, EvidenceIssue } from "@/lib/types";
@@ -349,7 +349,18 @@ export function AgentWorkflowFeed({
   agentState,
   className,
 }: AgentWorkflowFeedProps) {
-  const entries = buildFeedFromState(agentState);
+  const entries = useMemo(
+    () => buildFeedFromState(agentState),
+    [
+      agentState.pipeline_checkpoint,
+      agentState.pipeline_status,
+      agentState.linear_signals,
+      agentState.risk_signal_draft,
+      agentState.governor_decision,
+      agentState.executor_result,
+      agentState.bet?.name,
+    ]
+  );
   const bottomRef = useRef<HTMLDivElement>(null);
   const [prevCheckpoint, setPrevCheckpoint] = useState<string | undefined>(
     undefined
