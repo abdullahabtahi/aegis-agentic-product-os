@@ -29,9 +29,11 @@ jobs:
       id: auth
       uses: google-github-actions/auth@v2
       with:
-        # Use Workload Identity Federation for production-grade security
+        # Option 1: Workload Identity Federation (Recommended)
         workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
         service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+        # Option 2: Service Account Key (Fallback)
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
 
     - name: Run Unit Tests
       run: cd backend && make test
