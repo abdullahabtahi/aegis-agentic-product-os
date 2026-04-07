@@ -31,7 +31,9 @@ import os
 import google.auth
 from google.adk.agents import SequentialAgent
 from google.adk.apps import App
-from google.adk.artifacts import InMemoryArtifactService  # Phase 4: swap to GcsArtifactService
+from google.adk.artifacts import (
+    InMemoryArtifactService,
+)  # Phase 4: swap to GcsArtifactService
 
 from app.app_utils.telemetry import setup_telemetry
 
@@ -46,10 +48,17 @@ from app.agents.governor import create_governor_agent
 from app.agents.product_brain import create_product_brain_debate
 from app.agents.signal_engine import create_signal_engine_agent
 
-_, project_id = google.auth.default()
-os.environ["GOOGLE_CLOUD_PROJECT"] = project_id
-os.environ["GOOGLE_CLOUD_LOCATION"] = "global"
-os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "True"
+# Resolve GCP project: prefer env var (set by CI/local .env), fall back to ADC.
+# Wrapped in try/except so modules that import from `app` (e.g. approval_handler,
+# override_teach) can be imported in unit tests without GCP credentials.
+if not os.environ.get("GOOGLE_CLOUD_PROJECT"):
+    try:
+        _, _project_id = google.auth.default()
+        os.environ["GOOGLE_CLOUD_PROJECT"] = _project_id or ""
+    except Exception:
+        pass  # credentials not available; agent init will fail at runtime if needed
+os.environ.setdefault("GOOGLE_CLOUD_LOCATION", "global")
+os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "True")
 
 # ─────────────────────────────────────────────
 # AEGIS PIPELINE — Sequential (triggered by conversational agent)
@@ -64,11 +73,11 @@ aegis_pipeline = SequentialAgent(
         "Runs: Signal Engine → Product Brain → Coordinator → Governor → Executor."
     ),
     sub_agents=[
-        create_signal_engine_agent(),   # Deterministic: reads Linear, computes LinearSignals
+        create_signal_engine_agent(),  # Deterministic: reads Linear, computes LinearSignals
         create_product_brain_debate(),  # Debate: Cynic (flash) → Optimist (flash) → Synthesis (pro)
-        create_coordinator_agent(),     # LLM: selects intervention
-        create_governor_agent(),        # Deterministic: 8 policy checks
-        create_executor_agent(),        # Deterministic: executes approved interventions
+        create_coordinator_agent(),  # LLM: selects intervention
+        create_governor_agent(),  # Deterministic: 8 policy checks
+        create_executor_agent(),  # Deterministic: executes approved interventions
     ],
 )
 

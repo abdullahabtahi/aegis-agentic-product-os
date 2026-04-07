@@ -27,10 +27,15 @@ playground:
 # Testing & Code Quality
 # ==============================================================================
 
-# Run unit and integration tests
+# Run unit tests only — no GCP or LLM required (used by Tier 1 CI)
 test:
 	uv sync --dev
-	uv run pytest tests/unit && uv run pytest tests/integration
+	uv run pytest tests/unit -v --tb=short
+
+# Run integration tests — requires GCP credentials and Gemini model access (Tier 2 CI)
+test-integration:
+	uv sync --dev
+	uv run pytest tests/integration -v --tb=short -m integration
 
 # ==============================================================================
 # Agent Evaluation

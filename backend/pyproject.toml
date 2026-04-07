@@ -101,6 +101,9 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 pythonpath = "."
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "integration: requires GCP credentials and Gemini model access (Tier 2 CI only)",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["app","frontend"]
