@@ -516,6 +516,66 @@ export interface ProductBrainAgentContext {
   strategy_doc_excerpts: string[]     // relevant excerpts from workspace strategy docs
 }
 
+// ─────────────────────────────────────────────
+// PIPELINE STATE (AG-UI real-time emission)
+// ─────────────────────────────────────────────
+
+export type PipelineStageStatus = "pending" | "running" | "complete" | "error"
+
+export type PipelineStageName =
+  | "signal_engine"
+  | "product_brain"
+  | "coordinator"
+  | "governor"
+  | "executor"
+
+export interface PipelineStage {
+  name: PipelineStageName
+  status: PipelineStageStatus
+  started_at: string | null   // ISO 8601
+  completed_at: string | null // ISO 8601
+}
+
+export type PipelineStatus =
+  | "idle"
+  | "scanning"
+  | "analyzing"
+  | "awaiting_approval"
+  | "executing"
+  | "complete"
+  | "error"
+
+export interface PipelineStagesState {
+  pipeline_status: PipelineStatus
+  current_stage: PipelineStageName | null
+  stages: PipelineStage[]
+}
+
+// ─────────────────────────────────────────────
+// SESSION & ARTIFACT (frontend history/artifacts UI)
+// ─────────────────────────────────────────────
+
+export interface SessionSummary {
+  session_id: string
+  session_title: string | null       // derived from session state["session_title"]
+  last_update_time: number           // epoch float from ADK Session.last_update_time
+  created_at: string                 // ISO 8601 (derived from last_update_time on first touch)
+  pipeline_status: PipelineStatus    // last known pipeline status
+  tags: string[]                     // derived from state (e.g., bet name, risk types found)
+}
+
+export interface ArtifactEntry {
+  filename: string
+  session_id: string | null          // null for user-scoped (cross-session) artifacts
+  versions: number[]
+  latest_version: number
+  mime_type: string                  // from types.Part inline_data
+}
+
+// ─────────────────────────────────────────────
+// AGENT CONTEXT OBJECTS (runtime-assembled, never stored)
+// ─────────────────────────────────────────────
+
 export interface CoordinatorAgentContext {
   // Narrowed to intervention-relevant fields only.
   // Excludes: declaration_source, linear_issue_ids (can be hundreds), doc_refs — not needed for intervention selection.

@@ -22,13 +22,24 @@ from sqlalchemy import text
 # config.py loads .env before instantiating Config, so LINEAR_API_KEY etc. are
 # available in os.environ for all downstream modules (agent.py, linear_tools.py).
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
+from google.adk.sessions import InMemorySessionService
+from google.adk.artifacts import InMemoryArtifactService
 
 from app.agent import root_agent
 from app.config import config  # singleton — resolves secrets after env is loaded
 from db.engine import get_session, is_db_configured
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
+# ─────────────────────────────────────────────
+# SHARED ADK SERVICES (externalized for /sessions & /artifacts endpoints)
+# ─────────────────────────────────────────────
+
+session_service = InMemorySessionService()
+artifact_service = InMemoryArtifactService()
+
+ADK_APP_NAME = "app"
 
 # ─────────────────────────────────────────────
 # AG-UI ADK AGENT WRAPPER
@@ -36,8 +47,10 @@ logger = logging.getLogger(__name__)
 
 adk_agent = ADKAgent(
     adk_agent=root_agent,
-    app_name="app",
-    use_in_memory_services=True,
+    app_name=ADK_APP_NAME,
+    session_service=session_service,
+    artifact_service=artifact_service,
+    use_in_memory_services=False,
 )
 
 # ─────────────────────────────────────────────
@@ -243,6 +256,140 @@ async def reject_intervention_endpoint(intervention_id: str, body: RejectBody = 
     if not ok:
         raise HTTPException(status_code=404, detail=f"Intervention {intervention_id} not found or DB error")
     return {"status": "rejected", "intervention_id": intervention_id}
+
+
+# ─────────────────────────────────────────────
+# SESSION & ARTIFACT ENDPOINTS (frontend history/artifacts UI)
+# ─────────────────────────────────────────────
+
+@app.get("/sessions")
+async def list_sessions(user_id: str = Query("default_user")):
+    """List ADK sessions for a user. Returns SessionSummary[] matching data-schema.ts."""
+    result = await session_service.list_sessions(
+        app_name=ADK_APP_NAME, user_id=user_id,
+    )
+    summaries = []
+    for s in result.sessions:
+        state = s.state or {}
+        summaries.append({
+            "session_id": s.id,
+            "session_title": state.get("session_title") or state.get("bet", {}).get("name"),
+            "last_update_time": s.last_update_time,
+            "created_at": s.last_update_time,  # InMemorySessionService has no created_at
+            "pipeline_status": state.get("pipeline_status", "idle"),
+            "tags": _derive_session_tags(state),
+        })
+    return summaries
+
+
+def _derive_session_tags(state: dict) -> list[str]:
+    """Derive display tags from session state for the session history UI."""
+    tags: list[str] = []
+    if state.get("pipeline_status") and state["pipeline_status"] != "idle":
+        tags.append("pipeline")
+    if state.get("bet"):
+        tags.append("bet")
+    if state.get("risk_signal_draft"):
+        tags.append("risk")
+    if state.get("intervention_proposal"):
+        tags.append("intervention")
+    return tags
+
+
+@app.get("/artifacts")
+async def list_artifacts(
+    user_id: str = Query("default_user"),
+    session_id: str | None = Query(None),
+):
+    """List artifact keys and metadata. Returns ArtifactEntry[] matching data-schema.ts."""
+    keys = await artifact_service.list_artifact_keys(
+        app_name=ADK_APP_NAME, user_id=user_id, session_id=session_id,
+    )
+    entries = []
+    for filename in keys:
+        versions = await artifact_service.list_versions(
+            app_name=ADK_APP_NAME, user_id=user_id,
+            filename=filename, session_id=session_id,
+        )
+        entries.append({
+            "filename": filename,
+            "session_id": session_id,
+            "versions": versions,
+            "latest_version": max(versions) if versions else 0,
+            "mime_type": "application/octet-stream",  # InMemoryArtifactService doesn't track MIME
+        })
+    return entries
+
+
+@app.get("/artifacts/{filename}")
+async def get_artifact(
+    filename: str,
+    user_id: str = Query("default_user"),
+    session_id: str | None = Query(None),
+    version: int | None = Query(None),
+):
+    """Download a specific artifact by filename."""
+    part = await artifact_service.load_artifact(
+        app_name=ADK_APP_NAME, user_id=user_id,
+        filename=filename, session_id=session_id, version=version,
+    )
+    if part is None:
+        raise HTTPException(status_code=404, detail=f"Artifact '{filename}' not found")
+    # Return as JSON with inline_data if available, or text
+    if hasattr(part, "inline_data") and part.inline_data:
+        return Response(
+            content=part.inline_data.data,
+            media_type=part.inline_data.mime_type or "application/octet-stream",
+        )
+    if hasattr(part, "text") and part.text:
+        return Response(content=part.text, media_type="text/plain")
+    return {"artifact": filename, "version": version, "data": str(part)}
+
+
+# ─────────────────────────────────────────────
+# DEBUG ENDPOINT — diagnose agent connectivity issues
+# ─────────────────────────────────────────────
+
+@app.get("/debug/ping")
+async def debug_ping():
+    """Quick connectivity test for frontend health indicator."""
+    return {"ok": True, "backend": "aegis"}
+
+
+@app.get("/debug/agent-test")
+async def debug_agent_test():
+    """Test that the ADK agent + Gemini auth is working without CopilotKit.
+    Returns ok=True if the agent can be invoked, with any error details.
+    """
+    from google.adk.sessions import InMemorySessionService
+    from google.adk.runners import Runner
+    try:
+        test_session_service = InMemorySessionService()
+        session = await test_session_service.create_session(
+            app_name="debug", user_id="debug"
+        )
+        runner = Runner(
+            agent=root_agent,
+            app_name="debug",
+            session_service=test_session_service,
+        )
+        from google.genai import types as genai_types
+        events = []
+        async for event in runner.run_async(
+            user_id="debug",
+            session_id=session.id,
+            new_message=genai_types.Content(
+                role="user",
+                parts=[genai_types.Part(text="hello, reply with just 'ok'")]
+            ),
+        ):
+            events.append(event.__class__.__name__)
+            if len(events) > 5:
+                break
+        return {"ok": True, "events": events, "agent": root_agent.name}
+    except Exception as e:
+        logger.error("[debug/agent-test] Failed: %s", e, exc_info=True)
+        return {"ok": False, "error": str(e), "hint": "Check GCP auth and GOOGLE_CLOUD_PROJECT env var"}
 
 
 # Mounting ADK routes with the prefix expected by the frontend HttpAgent

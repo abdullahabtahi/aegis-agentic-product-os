@@ -150,6 +150,60 @@ export interface GovernorDecision {
   blast_radius_attached: boolean;
 }
 
+// ─────────────────────────────────────────────
+// PIPELINE STATE (AG-UI real-time emission)
+// ─────────────────────────────────────────────
+
+export type PipelineStageStatus = "pending" | "running" | "complete" | "error";
+
+export type PipelineStageName =
+  | "signal_engine"
+  | "product_brain"
+  | "coordinator"
+  | "governor"
+  | "executor";
+
+export interface PipelineStage {
+  name: PipelineStageName;
+  status: PipelineStageStatus;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export type PipelineStatus =
+  | "idle"
+  | "scanning"
+  | "analyzing"
+  | "awaiting_approval"
+  | "executing"
+  | "complete"
+  | "error";
+
+// ─────────────────────────────────────────────
+// SESSION & ARTIFACT (frontend history/artifacts UI)
+// ─────────────────────────────────────────────
+
+export interface SessionSummary {
+  session_id: string;
+  session_title: string | null;
+  last_update_time: number;
+  created_at: string;
+  pipeline_status: PipelineStatus;
+  tags: string[];
+}
+
+export interface ArtifactEntry {
+  filename: string;
+  session_id: string | null;
+  versions: number[];
+  latest_version: number;
+  mime_type: string;
+}
+
+// ─────────────────────────────────────────────
+// AG-UI PIPELINE STATE (synced via CopilotKit)
+// ─────────────────────────────────────────────
+
 /** AG-UI pipeline state synced from backend via CopilotKit */
 export interface AegisPipelineState {
   bet?: Bet;
@@ -169,9 +223,13 @@ export interface AegisPipelineState {
   };
   governor_decision?: GovernorDecision;
   awaiting_approval_intervention?: Intervention;
-  pipeline_status?: string;
+  pipeline_status?: PipelineStatus;
   pipeline_checkpoint?: string;
   executor_result?: Record<string, unknown>;
+  // New: pipeline stage tracking for inline progress card
+  current_stage?: PipelineStageName;
+  stages?: PipelineStage[];
+  session_title?: string;
 }
 
 export interface WorkspaceStats {

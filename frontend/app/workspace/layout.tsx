@@ -1,9 +1,9 @@
-import { LinearLayout } from "@/components/layout/LinearLayout";
+import { GlassmorphicLayout } from "@/components/layout/GlassmorphicLayout";
 
 export default function WorkspaceLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return <LinearLayout>{children}</LinearLayout>;
+  return <GlassmorphicLayout>{children}</GlassmorphicLayout>;
 }

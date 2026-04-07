@@ -4,7 +4,7 @@
  */
 
 import { BACKEND_URL } from "./constants";
-import type { Intervention } from "./types";
+import type { Intervention, SessionSummary, ArtifactEntry } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BACKEND_URL}${path}`, {
@@ -36,4 +36,33 @@ export function rejectIntervention(
     method: "POST",
     body: JSON.stringify({ reason }),
   });
+}
+
+// ─── Session & Artifact endpoints ───
+
+export function getSessions(
+  userId = "default_user",
+): Promise<SessionSummary[]> {
+  return request<SessionSummary[]>(`/sessions?user_id=${encodeURIComponent(userId)}`);
+}
+
+export function getArtifacts(
+  userId = "default_user",
+  sessionId?: string,
+): Promise<ArtifactEntry[]> {
+  const params = new URLSearchParams({ user_id: userId });
+  if (sessionId) params.set("session_id", sessionId);
+  return request<ArtifactEntry[]>(`/artifacts?${params}`);
+}
+
+export function getArtifactUrl(
+  filename: string,
+  userId = "default_user",
+  sessionId?: string,
+  version?: number,
+): string {
+  const params = new URLSearchParams({ user_id: userId });
+  if (sessionId) params.set("session_id", sessionId);
+  if (version != null) params.set("version", String(version));
+  return `${BACKEND_URL}/artifacts/${encodeURIComponent(filename)}?${params}`;
 }

@@ -224,9 +224,11 @@ SequentialAgent("aegis_pipeline") wraps 5 agents:
    writes: executor_result, pipeline_status
 ```
 
-Entry point: `backend/app/agent.py` (root SequentialAgent).
+Entry point: `backend/app/agent.py` → `create_conversational_agent()`.
 
-**Two-invocation model:**
+**Conversational agent (unified):** A single LlmAgent wraps the pipeline. It handles natural conversation and triggers the sequential pipeline via a `run_pipeline_scan` tool. No router needed — the agent decides when to chat vs. scan based on context.
+
+**Two-invocation model (within pipeline):**
 1. Pipeline halts at Governor → `awaiting_founder_approval`
 2. External call to `approve_intervention()` / `reject_intervention()` (in `approval_handler.py`)
 3. Re-run pipeline → prior agents skip via checkpoint → Executor runs
@@ -322,32 +324,41 @@ aegis-agentic-product-os/
 │   │   └── eval/evalsets/           ← 5 golden traces (.evalset.json)
 │   └── Dockerfile                   ← container for backend
 │
-├── frontend/                        ← Next.js + TypeScript
+├── frontend/                        ← Next.js 16 + TypeScript
 │   ├── package.json                 ← npm deps
 │   ├── tsconfig.json                ← TypeScript config
-│   ├── CLAUDE.md                    ← AGENTS.md pointer
-│   ├── AGENTS.md                    ← Next.js version notes
 │   ├── app/
 │   │   ├── layout.tsx               ← root layout (CopilotKit provider)
 │   │   ├── workspace/
-│   │   │   ├── page.tsx             ← Mission Control (main canvas)
+│   │   │   ├── layout.tsx           ← LinearLayout wrapper (sidebar + header)
+│   │   │   ├── page.tsx             ← Home overview (Linear-style, mock data)
+│   │   │   ├── Home.module.css      ← Home page styles
 │   │   │   ├── inbox/page.tsx       ← Intervention Inbox
-│   │   │   └── activity/page.tsx    ← Activity log (stub)
+│   │   │   ├── activity/page.tsx    ← Activity log (stub)
+│   │   │   ├── settings/page.tsx    ← Settings (stub)
+│   │   │   └── suppression/page.tsx ← Suppression log (stub)
 │   ├── components/
-│   │   ├── canvas/                  ← React Flow nodes (BetNode, AgentActivityNode, RiskEdge)
-│   │   ├── interventions/           ← HITL surfaces (ApprovalCard, SeverityBadge, SuppressionLog)
-│   │   ├── providers.tsx            ← CopilotKit + React Query setup
-│   │   └── error-boundary.tsx       ← error handling
-│   ├── hooks/                       ← 6 state hooks (useWorkspaceState, useAgentStateSync, etc.)
-│   ├── lib/                         ← types.ts, api.ts, delta.ts (fast-json-patch)
-│   ├── styles/globals.css           ← Tailwind v4, design tokens
+│   │   ├── layout/                  ← LinearLayout, AppShell, Providers
+│   │   │   ├── LinearLayout.tsx     ← sidebar + header + search + chat toggle
+│   │   │   ├── LinearLayout.module.css ← Linear-style CSS (Inter, 8px grid)
+│   │   │   ├── AppShell.tsx
+│   │   │   └── Providers.tsx        ← CopilotKit + React Query setup
+│   │   ├── canvas/                  ← React Flow nodes (BetNode, AgentActivityNode, RiskEdge) — NOT WIRED
+│   │   ├── chat/                    ← Chat components (needs wiring to conversational agent)
+│   │   ├── interventions/           ← HITL surfaces (ApprovalCard, SuppressionLog, InterventionInbox)
+│   │   └── ui/                      ← shadcn primitives
+│   ├── hooks/                       ← 5 state hooks (useWorkspaceState, useAgentStateSync, etc.)
+│   ├── lib/                         ← types.ts, constants.ts, api.ts, delta.ts, utils.ts
+│   ├── styles/
+│   │   ├── globals.css              ← Tailwind v4, design tokens
+│   │   └── linear-theme.css         ← Linear design tokens (CSS custom properties)
 │   ├── Dockerfile                   ← container for frontend
 │   └── playwright.config.ts         ← E2E test config
 ```
 
 ---
 
-## Build State (as of 2026-04-07)
+## Build State (as of 2026-04-07, end of day)
 
 | Phase | Status | Gate |
 |-------|--------|------|
@@ -355,8 +366,9 @@ aegis-agentic-product-os/
 | 2 | ✅ Complete | Product Brain debate, ADK SkillToolset, eval ≥ 0.8 |
 | 3 | ✅ Complete | Coordinator, Governor (8 checks), Escalation Ladder, E2E dry-run |
 | 4 | ✅ Complete | Executor, Override & Teach, approval_handler, override_teach |
-| 5 | ✅ Scaffold done | Frontend: Next.js 16, CopilotKit, React Flow, HITL surfaces, 6 hooks |
-| 6 | 🚧 In progress | Bet Declaration flow, BetOutcomeRecord corpus, Jules Subject Hygiene |
+| 5 | ✅ UI rewrite done | Linear-style UI (LinearLayout, Home w/ mock data, Inbox, HITL surfaces) |
+| 5b | 🚧 Not wired | Frontend ↔ Backend not connected; chat panel not wired; mock data only |
+| 6 | — | Bet Declaration flow, BetOutcomeRecord corpus, Jules Subject Hygiene |
 | 7 | — | HeuristicVersion canary rollout, EvalSynthesisJob, deployment hardening |
 
 ### Bugs fixed 2026-04-07
@@ -376,48 +388,42 @@ aegis-agentic-product-os/
 
 ## Next Steps (80/20 — production impact order)
 
-### Priority 1 — Gate for Phase 5 demo (must fix before showing to anyone)
+### Priority 1 — Wire frontend ↔ backend (Phase 5b gate)
 
-1. **Wire `useJulesPlanApproval` to the corrected `requires_double_confirm` field.**
-   Any component that reads `governor_decision.double_confirm_required` must be updated to `requires_double_confirm`. Search: `grep -r "double_confirm_required" frontend/`.
+1. **Wire chat panel to conversational agent.**
+   `LinearLayout.tsx` has a chat toggle but no chat component connected. Need to build a chat panel that talks to the unified conversational agent (`backend/app/agents/conversational.py`) via CopilotKit.
 
-2. **Wire `snoozed` UI state to the new `dismissed` status.**
-   `useInterventionInbox` has a `snoozed` set (localStorage). The filter condition that previously checked `status === "auto_suppressed"` must now check `status === "dismissed"`. Ensure `ApprovalCard` and `SuppressionLog` render correctly for both `dismissed` and `snoozed` (local-only).
+2. **Replace mock data in Home page with real API calls.**
+   `frontend/app/workspace/page.tsx` uses hardcoded mock data. Wire to backend endpoints (`/health`, `/taxonomy`, pipeline state).
 
-3. **Add `NEXT_PUBLIC_BACKEND_URL` to `frontend/.env.local`.**
-   Default is `http://localhost:8000` (local uvicorn). Docker-compose backend is on `8080`. Mismatch causes silent 404s on all REST calls.
-   ```bash
-   echo "NEXT_PUBLIC_BACKEND_URL=http://localhost:8000" > frontend/.env.local
-   ```
+3. **Build additional pages:**
+   - Bets list (`/workspace/bets`) — list active bets
+   - Risk detail (`/workspace/risks/[id]`) — individual risk drill-down
 
-4. **Run `make test` + `make eval-all` on the backend** to confirm no regressions from the approval endpoint rewrite.
-   ```bash
-   cd backend && make test && make eval-all
-   ```
+4. **Backend: AG-UI state emission.**
+   Emit state updates after each pipeline stage so frontend receives real-time updates via CopilotKit.
+
+5. **Backend: L2 autonomous execution logic.**
+   Executor needs to check `control_level` + `escalation_level` to decide auto-execute vs. await approval.
 
 ### Priority 2 — Phase 6 build (high signal value, low coupling)
 
-5. **Bet Declaration flow** (`backend/app/agents/` + `frontend/app/workspace/`).
-   - Start monitoring scan fires immediately on confirmation (Phase 6 gate).
+6. **Bet Declaration flow** (`backend/app/agents/` + `frontend/app/workspace/`).
    - Add `/bets` POST endpoint → persists Bet → triggers first pipeline run.
-   - Frontend: simple form modal on Mission Control (not a new route).
+   - Frontend: simple form modal on Home page.
 
-6. **`build_jules_subject` (Subject Hygiene for Jules).**
-   - Coordinator currently writes `proposed_issue_title` + `proposed_issue_description` as free text.
-   - Add `build_jules_subject(bet, risk_signal, action_type) -> str` utility to normalize subject format for Jules L3 actions. Pure function, 100% testable.
+7. **`build_jules_subject` (Subject Hygiene for Jules).**
+   - Add `build_jules_subject(bet, risk_signal, action_type) -> str` utility to normalize subject format for Jules L3 actions.
 
 ### Priority 3 — Eval hardening (phase gate unlock)
 
-7. **Run `make eval-all` and check `tool_trajectory_avg_score` across all 5 traces.**
-   Phase 6 gate requires all traces ≥ 0.8. Any that fail need prompt iteration in `product_brain.py` or `coordinator.py`.
-
-8. **Add `classification_rationale` assertions to eval traces** (Phase 3 field — currently written but not evaluated).
-   Adds a natural-language audit trail to evals at zero prompt-cost.
+8. **Run `make eval-all` and check `tool_trajectory_avg_score` across all 5 traces.**
+   Phase 6 gate requires all traces ≥ 0.8.
 
 ### What to skip (YAGNI until Phase 7)
-- `BetOutcomeRecord` corpus — valuable for learning, but needs weeks of real data to matter.
-- HeuristicVersion canary rollout — zero bets in prod yet; premature.
-- PDF digest, mobile fallback, SSE reconnect banner — non-impact for Phase 6.
+- `BetOutcomeRecord` corpus — needs weeks of real data.
+- HeuristicVersion canary rollout — zero bets in prod yet.
+- PDF digest, mobile fallback, SSE reconnect banner.
 
 ---
 

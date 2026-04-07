@@ -8,6 +8,7 @@ No separate router needed - agent decides internally when to trigger pipeline vs
 """
 
 import logging
+import time
 from typing import Any
 
 from google.adk.agents import Agent
@@ -17,6 +18,45 @@ from app.agents.signal_engine import compute_signals
 from tools.linear_tools import get_linear_mcp
 
 logger = logging.getLogger(__name__)
+
+# Pipeline stage names matching data-schema.ts PipelineStageName
+STAGE_NAMES = ["signal_engine", "product_brain", "coordinator", "governor", "executor"]
+
+
+def _make_stages(current_idx: int, statuses: dict[str, str] | None = None) -> list[dict]:
+    """Build stages array for AG-UI state emission.
+
+    Args:
+        current_idx: Index of the currently running stage (0-based).
+        statuses: Optional overrides {stage_name: status}.
+    """
+    overrides = statuses or {}
+    now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    stages = []
+    for i, name in enumerate(STAGE_NAMES):
+        if name in overrides:
+            st = overrides[name]
+        elif i < current_idx:
+            st = "complete"
+        elif i == current_idx:
+            st = "running"
+        else:
+            st = "pending"
+        stages.append({
+            "name": name,
+            "status": st,
+            "started_at": now if st in ("running", "complete") else None,
+            "completed_at": now if st == "complete" else None,
+        })
+    return stages
+
+
+def _emit_stage(tool_context: ToolContext, stage_idx: int, pipeline_status: str,
+                overrides: dict[str, str] | None = None) -> None:
+    """Emit pipeline stage progress to frontend via AG-UI StateDeltaEvent."""
+    tool_context.state["current_stage"] = STAGE_NAMES[stage_idx]
+    tool_context.state["stages"] = _make_stages(stage_idx, overrides)
+    tool_context.state["pipeline_status"] = pipeline_status
 
 
 # ─────────────────────────────────────────────
@@ -54,13 +94,11 @@ async def run_pipeline_scan(
                           "Please provide bet details first."
             }
 
-        logger.info(f"[ConversationalAgent] Triggering pipeline scan for bet {bet_id}")
+        logger.info("[ConversationalAgent] Triggering pipeline scan for bet %s", bet_id)
 
-        # Emit state update: scanning started
-        tool_context.state["pipeline_status"] = "scanning"
-        tool_context.state["scan_started_at"] = tool_context.state.get("timestamp")
+        # ── Stage 0: Signal Engine ──
+        _emit_stage(tool_context, 0, "scanning")
 
-        # Run Signal Engine (deterministic)
         linear_mcp = get_linear_mcp()
         bet_snapshot = await compute_signals(
             workspace_id=workspace_id,
@@ -68,14 +106,16 @@ async def run_pipeline_scan(
             linear_mcp=linear_mcp,
         )
 
-        # Write to state for Product Brain to pick up
         tool_context.state["linear_signals"] = bet_snapshot.linear_signals.model_dump()
         tool_context.state["bet_snapshot"] = bet_snapshot.model_dump()
-        tool_context.state["pipeline_status"] = "analyzing"
+        _emit_stage(tool_context, 1, "analyzing")
 
-        # NOTE: Product Brain → Coordinator → Governor → Executor
-        # will run as sub-agents triggered by main pipeline.
-        # For now, Signal Engine is the entry point.
+        # ── Stages 1-4: Product Brain → Coordinator → Governor → Executor ──
+        # These run as sub-agents in the sequential pipeline.
+        # Each agent picks up state written by the previous stage.
+        # For now Signal Engine is the only inline stage; remaining stages
+        # emit their own state updates when wired into the SequentialAgent.
+        # The frontend will see stage progression via StateDeltaEvent.
 
         return {
             "status": "pipeline_triggered",
@@ -93,7 +133,12 @@ async def run_pipeline_scan(
         }
 
     except Exception as e:
-        logger.error(f"[ConversationalAgent] Pipeline scan failed: {e}", exc_info=True)
+        logger.error("[ConversationalAgent] Pipeline scan failed: %s", e, exc_info=True)
+        # Emit error state for frontend
+        tool_context.state["pipeline_status"] = "error"
+        tool_context.state["stages"] = _make_stages(0, {
+            STAGE_NAMES[0]: "error"
+        })
         return {
             "status": "error",
             "message": f"Scan failed: {str(e)}. Please check workspace configuration."
