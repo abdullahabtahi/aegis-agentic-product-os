@@ -12,12 +12,13 @@
 import { useState, useRef, useEffect } from "react";
 import { X, Target, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { createBet } from "@/lib/api";
+import type { Bet } from "@/lib/types";
 
 interface BetDeclarationModalProps {
   open: boolean;
   workspaceId: string;
   onClose: () => void;
-  onBetDeclared: (bet: Record<string, unknown>) => void;
+  onBetDeclared: (bet: Bet) => void;
 }
 
 const DEFAULT_WORKSPACE = "default_workspace";

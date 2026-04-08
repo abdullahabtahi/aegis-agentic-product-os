@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/Google_ADK-Gemini_3-4285F4?logo=google&logoColor=white" />
   <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" />
   <img src="https://img.shields.io/badge/CopilotKit-AG--UI-6366f1" />
-  <img src="https://img.shields.io/badge/Tests-118_passing-4ade80" />
+  <img src="https://img.shields.io/badge/Tests-122_passing-4ade80" />
 </p>
 
 ---

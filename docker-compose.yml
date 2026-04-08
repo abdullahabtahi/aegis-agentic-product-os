@@ -11,6 +11,14 @@ services:
       - ./backend/.env
     environment:
       - AEGIS_LOCAL_DEV=true
+      - ALLOWED_ORIGINS=http://localhost:3000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/debug/ping')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     networks:
       - aegis-network
 
@@ -24,8 +32,11 @@ services:
     environment:
       # backend refers to the service name in this network
       - BACKEND_URL=http://backend:8080/
+      - NEXT_PUBLIC_BACKEND_URL=http://localhost:8080
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
     networks:
       - aegis-network
 

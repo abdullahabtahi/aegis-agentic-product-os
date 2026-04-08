@@ -70,9 +70,13 @@ app = FastAPI(
     version="0.1.0",
 )
 
+# CORS origins: configurable via ALLOWED_ORIGINS env var (comma-separated).
+# Defaults to permissive for local dev; MUST be set in production.
+_allowed_origins = os.environ.get("ALLOWED_ORIGINS", "*").split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Open for development to avoid port mismatch (3000 vs 3001)
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
