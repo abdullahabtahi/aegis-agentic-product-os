@@ -1,55 +1,29 @@
-name: Agentic CI/CD
-# Triggering fresh run with GCP_SA_KEY configured
+name: Agentic CI/CD (legacy — superseded)
+
+# ⚠️  This workflow is kept for reference only.
+# It has been replaced by a two-tier pipeline:
+#
+#   tier-1-ci.yml  — fast checks on every push/PR (lint, type check, unit tests)
+#                    no GCP dependency; completes in ~2 min
+#
+#   tier-2-eval.yml — eval + integration on main / release / manual dispatch
+#                     requires GCP credentials (WIF or SA key)
+#
+# This file is intentionally disabled (no trigger) to avoid duplicate runs.
+# Delete it once you've confirmed the two-tier setup works end-to-end.
 
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why are you triggering the legacy workflow?"
+        required: false
 
 jobs:
-  test-and-eval:
+  notice:
     runs-on: ubuntu-latest
-    permissions:
-      contents: 'read'
-      id-token: 'write'
-
     steps:
-    - uses: actions/checkout@v4
-
-    - name: Install uv
-      run: curl -LsSf https://astral.sh/uv/install.sh | sh
-
-    - name: Set up Python
-      run: uv python install 3.10
-
-    - name: Install dependencies
-      run: cd backend && make install
-
-    - name: Authenticate to Google Cloud
-      id: auth
-      uses: google-github-actions/auth@v2
-      with:
-        # Option 1: Workload Identity Federation (Recommended)
-        workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
-        service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
-        # Option 2: Service Account Key (Fallback)
-        credentials_json: ${{ secrets.GCP_SA_KEY }}
-
-    - name: Run Unit Tests
-      run: cd backend && make test
-      env:
-        GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
-        GOOGLE_CLOUD_LOCATION: global
-        GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
-        # Mock Linear for tests
-        AEGIS_MOCK_LINEAR: "true"
-
-    - name: Run Agent Evaluations
-      run: cd backend && make eval-all
-      env:
-        GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
-        GOOGLE_CLOUD_LOCATION: global
-        # Requires GCP credentials for Gemini model calls
-        # We assume a service account key is stored in GitHub Secrets
-        GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}
+      - name: Legacy workflow notice
+        run: |
+          echo "This workflow is superseded by tier-1-ci.yml and tier-2-eval.yml."
+          echo "Please use those instead."

@@ -1,0 +1,97 @@
+name: Tier 1 — Fast Checks
+
+# Runs on every push and PR. No GCP dependency.
+# Purpose: catch regressions quickly (lint, type check, unit tests).
+# Completes in ~2 min so contributors get immediate feedback.
+#
+# What is NOT here (by design):
+#   - GCP authentication        → only in tier-2-eval.yml
+#   - Agent evaluations (ADK)   → only in tier-2-eval.yml
+#   - Integration tests (LLM)   → only in tier-2-eval.yml
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  # ──────────────────────────────────────────────────────────
+  # Backend: lint + type check + unit tests (no GCP needed)
+  # ──────────────────────────────────────────────────────────
+  backend-fast:
+    name: Backend — Lint, Type Check, Unit Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Install uv (Astral package manager — same tool used locally)
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Set up Python 3.10
+        run: uv python install 3.10
+
+      # Install runtime + dev + lint extras in one pass
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --dev --extra lint
+
+      # codespell checks spelling in source; ruff enforces style + imports
+      - name: Lint (codespell + ruff)
+        working-directory: backend
+        run: |
+          uv run codespell
+          uv run ruff check . --diff
+          uv run ruff format . --check --diff
+
+      # ty is Astral's Rust-based type checker (fast, same team as ruff/uv)
+      - name: Type check (ty)
+        working-directory: backend
+        run: uv run ty check .
+
+      # Unit tests are fully deterministic — MockLinearMCP, no GCP, no LLM
+      - name: Unit tests
+        working-directory: backend
+        env:
+          AEGIS_MOCK_LINEAR: "true"
+          # These are consumed by config.py; set dummy values so the module
+          # initialises without requiring real GCP credentials.
+          GOOGLE_CLOUD_PROJECT: "local-dev"
+          GOOGLE_CLOUD_LOCATION: "global"
+        run: uv run pytest tests/unit -v --tb=short
+
+  # ──────────────────────────────────────────────────────────
+  # Frontend: type check + lint (no build needed for fast feedback)
+  # ──────────────────────────────────────────────────────────
+  frontend-fast:
+    name: Frontend — Lint & Type Check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # TypeScript compiler in noEmit mode — catches type errors without building
+      - name: Type check (tsc)
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: Lint (ESLint)
+        working-directory: frontend
+        run: npm run lint

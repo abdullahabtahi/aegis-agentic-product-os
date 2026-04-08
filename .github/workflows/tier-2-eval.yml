@@ -1,0 +1,159 @@
+name: Tier 2 — Eval & Integration
+
+# Runs only on main, release branches, or manual trigger.
+# Purpose: full pipeline validation (ADK evals, integration tests) that require
+# GCP credentials and Gemini model access.
+#
+# Why separate from Tier 1:
+#   - These tests cost money (Gemini API calls) and take 5–15 minutes.
+#   - Running on every PR branch is wasteful and adds unnecessary latency.
+#   - Keeping them here makes the cost/trigger intentional.
+#
+# GCP Authentication strategy:
+#   Option 1 (recommended): Workload Identity Federation — no long-lived key stored in GitHub.
+#     Set secrets: WIF_PROVIDER, WIF_SERVICE_ACCOUNT
+#   Option 2 (fallback): Service Account JSON key.
+#     Set secret: GCP_SA_KEY
+#   If NEITHER is set, the auth step will fail with a clear message (see below).
+
+on:
+  push:
+    branches:
+      - main
+      - "release/**"
+  workflow_dispatch:
+    # Allow manual trigger from GitHub UI / CLI for any branch
+
+jobs:
+  # ──────────────────────────────────────────────────────────
+  # Validate required secrets before doing any expensive work
+  # ──────────────────────────────────────────────────────────
+  check-secrets:
+    name: Validate GCP Secrets
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      # Expose which auth method is available so the next job can branch
+      use_wif: ${{ steps.detect.outputs.use_wif }}
+    steps:
+      - name: Detect available auth method
+        id: detect
+        run: |
+          # WIF: provider must look like a GCP workloadIdentityPools resource name
+          WIF_OK=false
+          SA_OK=false
+
+          if [ -n "$WIF_PROVIDER" ] && [ -n "$WIF_SERVICE_ACCOUNT" ]; then
+            # Validate rough format: projects/.../workloadIdentityPools/...
+            if echo "$WIF_PROVIDER" | grep -qE '^projects/.+/locations/.+/workloadIdentityPools/.+'; then
+              WIF_OK=true
+            else
+              echo "⚠️  WIF_PROVIDER format looks wrong (expected projects/*/locations/*/workloadIdentityPools/*)"
+            fi
+          fi
+
+          if [ -n "$GCP_SA_KEY" ]; then
+            # Validate it is base64-decodable JSON
+            if echo "$GCP_SA_KEY" | base64 --decode 2>/dev/null | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+              SA_OK=true
+            else
+              echo "⚠️  GCP_SA_KEY does not appear to be valid base64-encoded JSON"
+            fi
+          fi
+
+          if [ "$WIF_OK" = "true" ]; then
+            echo "use_wif=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Will use Workload Identity Federation"
+          elif [ "$SA_OK" = "true" ]; then
+            echo "use_wif=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️  Will use Service Account key (consider migrating to WIF)"
+          else
+            echo "❌ No valid GCP credentials found."
+            echo ""
+            echo "To fix, add ONE of the following secret pairs to this repository:"
+            echo "  Option 1 (recommended — Workload Identity Federation):"
+            echo "    WIF_PROVIDER        e.g. projects/123/locations/global/workloadIdentityPools/my-pool/providers/my-provider"
+            echo "    WIF_SERVICE_ACCOUNT e.g. ci-runner@my-project.iam.gserviceaccount.com"
+            echo ""
+            echo "  Option 2 (fallback — Service Account JSON key):"
+            echo "    GCP_SA_KEY          base64-encoded service account JSON key"
+            echo "                        Encode with: base64 -w0 service-account.json"
+            echo ""
+            echo "See TROUBLESHOOTING.md for detailed instructions."
+            exit 1
+          fi
+        env:
+          WIF_PROVIDER: ${{ secrets.WIF_PROVIDER }}
+          WIF_SERVICE_ACCOUNT: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+
+  # ──────────────────────────────────────────────────────────
+  # Integration tests + ADK agent evaluations
+  # ──────────────────────────────────────────────────────────
+  eval-and-integration:
+    name: Integration Tests & Agent Evals
+    runs-on: ubuntu-latest
+    needs: check-secrets
+    permissions:
+      contents: "read"
+      id-token: "write"   # Required for Workload Identity Federation
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh && echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Set up Python 3.10
+        run: uv python install 3.10
+
+      # Install all extras including eval (google-adk[eval])
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --dev --extra eval
+
+      # ── Auth: Workload Identity Federation (preferred) ──
+      - name: Authenticate to GCP (WIF)
+        id: auth_wif
+        if: needs.check-secrets.outputs.use_wif == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      # ── Auth: Service Account Key (fallback) ──
+      - name: Authenticate to GCP (SA key)
+        id: auth_sa
+        if: needs.check-secrets.outputs.use_wif == 'false'
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # ── Resolve credential file path from whichever auth step ran ──
+      - name: Set GOOGLE_APPLICATION_CREDENTIALS
+        run: |
+          if [ "${{ needs.check-secrets.outputs.use_wif }}" = "true" ]; then
+            echo "GOOGLE_APPLICATION_CREDENTIALS=${{ steps.auth_wif.outputs.credentials_file_path }}" >> "$GITHUB_ENV"
+          else
+            echo "GOOGLE_APPLICATION_CREDENTIALS=${{ steps.auth_sa.outputs.credentials_file_path }}" >> "$GITHUB_ENV"
+          fi
+
+      # Integration tests require GCP auth (LLM calls via Vertex AI)
+      - name: Integration tests
+        working-directory: backend
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+          GOOGLE_CLOUD_LOCATION: global
+          AEGIS_MOCK_LINEAR: "true"
+        run: uv run pytest tests/integration -v --tb=short -m integration
+
+      # ADK agent evaluations against all 5 golden traces
+      # Phase gate: all traces must score ≥ 0.8 (enforced by eval_config.json)
+      - name: Agent evaluations (all 5 traces)
+        working-directory: backend
+        env:
+          GOOGLE_CLOUD_PROJECT: ${{ secrets.GOOGLE_CLOUD_PROJECT }}
+          GOOGLE_CLOUD_LOCATION: global
+          AEGIS_MOCK_LINEAR: "true"
+        run: make eval-all

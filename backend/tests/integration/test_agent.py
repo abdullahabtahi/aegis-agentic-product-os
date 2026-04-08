@@ -12,6 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# This test makes a live Gemini model call via Vertex AI.
+# It is marked `integration` so Tier 1 CI (no GCP) skips it.
+# Run locally with: uv run pytest tests/integration -m integration
+
+import pytest
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
@@ -20,6 +25,7 @@ from google.genai import types
 from app.agent import root_agent
 
 
+@pytest.mark.integration
 def test_agent_stream() -> None:
     """
     Integration test for the agent stream functionality.
