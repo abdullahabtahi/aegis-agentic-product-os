@@ -35,6 +35,7 @@ def _new_id() -> str:
 # BET SNAPSHOTS
 # ─────────────────────────────────────────────
 
+
 async def save_bet_snapshot(snapshot: dict) -> str | None:
     """Persist a BetSnapshot dict to bet_snapshots table. Returns ID or None."""
     if not is_db_configured():
@@ -68,11 +69,17 @@ async def save_bet_snapshot(snapshot: dict) -> str | None:
                     "risk_types_present": snapshot.get("risk_types_present", []),
                     "status": snapshot.get("status", "ok"),
                     "error_code": snapshot.get("error_code"),
-                    "hypothesis_staleness_days": snapshot.get("hypothesis_staleness_days"),
-                    "hypothesis_experiment_count": snapshot.get("hypothesis_experiment_count", 0),
+                    "hypothesis_staleness_days": snapshot.get(
+                        "hypothesis_staleness_days"
+                    ),
+                    "hypothesis_experiment_count": snapshot.get(
+                        "hypothesis_experiment_count", 0
+                    ),
                     "last_experiment_outcome": snapshot.get("last_experiment_outcome"),
                     "similar_bet_outcome_pct": snapshot.get("similar_bet_outcome_pct"),
-                    "outcome_pattern_source_count": snapshot.get("outcome_pattern_source_count", 0),
+                    "outcome_pattern_source_count": snapshot.get(
+                        "outcome_pattern_source_count", 0
+                    ),
                 },
             )
         return snapshot.get("id")
@@ -84,6 +91,7 @@ async def save_bet_snapshot(snapshot: dict) -> str | None:
 # ─────────────────────────────────────────────
 # AGENT TRACES
 # ─────────────────────────────────────────────
+
 
 async def save_agent_trace(trace: dict) -> str | None:
     """Persist an AgentTrace dict. Returns ID or None."""
@@ -135,6 +143,7 @@ async def save_agent_trace(trace: dict) -> str | None:
 # POLICY DENIED EVENTS
 # ─────────────────────────────────────────────
 
+
 async def save_policy_denied_event(
     bet_id: str,
     intervention_id: str,
@@ -169,6 +178,7 @@ async def save_policy_denied_event(
 # INTERVENTIONS
 # ─────────────────────────────────────────────
 
+
 async def save_intervention(intervention: dict) -> str | None:
     """Persist an Intervention dict. Returns ID or None."""
     if not is_db_configured():
@@ -201,9 +211,13 @@ async def save_intervention(intervention: dict) -> str | None:
                     "escalation_level": intervention.get("escalation_level", 1),
                     "title": intervention.get("title", ""),
                     "rationale": intervention.get("rationale", ""),
-                    "product_principle_refs": intervention.get("product_principle_refs", []),
+                    "product_principle_refs": intervention.get(
+                        "product_principle_refs", []
+                    ),
                     "confidence": intervention.get("confidence", 0.0),
-                    "proposed_linear_action": _json_str(intervention.get("proposed_linear_action")),
+                    "proposed_linear_action": _json_str(
+                        intervention.get("proposed_linear_action")
+                    ),
                     "blast_radius": _json_str(intervention.get("blast_radius")),
                     "status": intervention.get("status", "pending"),
                     "created_at": intervention.get("created_at", _now_iso()),
@@ -223,14 +237,14 @@ async def update_intervention_status(
     founder_note: str | None = None,
 ) -> bool:
     """Update intervention status after founder decision. Returns success.
-    
+
     Also updates the human_accepted field on the associated AgentTrace records
     to complete the feedback flywheel (data mining for AutoResearch).
     """
     if not is_db_configured():
         return False
     try:
-        accepted = (status == "accepted")
+        accepted = status == "accepted"
         async with get_session() as session:
             # 1. Update the intervention
             await session.execute(
@@ -250,12 +264,12 @@ async def update_intervention_status(
                     "founder_note": founder_note,
                 },
             )
-            
+
             # 2. Backfill human_accepted for tracing/eval feedback
             # Find the risk_signal_id linked to this intervention
             res = await session.execute(
                 text("SELECT risk_signal_id FROM interventions WHERE id = :id"),
-                {"id": intervention_id}
+                {"id": intervention_id},
             )
             risk_id = res.scalar()
             if risk_id:
@@ -267,7 +281,7 @@ async def update_intervention_status(
                         SET human_accepted = :accepted
                         WHERE :risk_id = ANY(output_ids)
                     """),
-                    {"risk_id": risk_id, "accepted": accepted}
+                    {"risk_id": risk_id, "accepted": accepted},
                 )
 
         return True
@@ -279,6 +293,7 @@ async def update_intervention_status(
 # ─────────────────────────────────────────────
 # READS — for Governor + Coordinator context
 # ─────────────────────────────────────────────
+
 
 async def get_recent_interventions(
     bet_id: str,
@@ -349,6 +364,7 @@ async def get_workspace_intervention_stats(workspace_id: str) -> dict:
 # WORKSPACES
 # ─────────────────────────────────────────────
 
+
 async def upsert_workspace(workspace: dict) -> str | None:
     """Insert workspace if not exists (by id). Returns id or None."""
     if not is_db_configured():
@@ -404,6 +420,7 @@ async def get_workspace(workspace_id: str) -> dict | None:
 # BETS
 # ─────────────────────────────────────────────
 
+
 async def save_bet(bet: dict) -> str | None:
     """Persist a Bet dict. Returns id or None."""
     if not is_db_configured():
@@ -439,18 +456,28 @@ async def save_bet(bet: dict) -> str | None:
                     "hypothesis": bet.get("hypothesis", ""),
                     "success_metrics": _json_str(bet.get("success_metrics", [])),
                     "time_horizon": bet.get("time_horizon", ""),
-                    "declaration_source": _json_str(bet.get("declaration_source", {
-                        "type": "manual",
-                        "raw_artifact_refs": [],
-                    })),
+                    "declaration_source": _json_str(
+                        bet.get(
+                            "declaration_source",
+                            {
+                                "type": "manual",
+                                "raw_artifact_refs": [],
+                            },
+                        )
+                    ),
                     "declaration_confidence": bet.get("declaration_confidence", 1.0),
                     "status": bet.get("status", "active"),
-                    "health_baseline": _json_str(bet.get("health_baseline", {
-                        "expected_bet_coverage_pct": 0.5,
-                        "expected_weekly_velocity": 3,
-                        "hypothesis_required": True,
-                        "metric_linked_required": True,
-                    })),
+                    "health_baseline": _json_str(
+                        bet.get(
+                            "health_baseline",
+                            {
+                                "expected_bet_coverage_pct": 0.5,
+                                "expected_weekly_velocity": 3,
+                                "hypothesis_required": True,
+                                "metric_linked_required": True,
+                            },
+                        )
+                    ),
                     "acknowledged_risks": _json_str(bet.get("acknowledged_risks", [])),
                     "linear_project_ids": bet.get("linear_project_ids", []),
                     "linear_issue_ids": bet.get("linear_issue_ids", []),
@@ -536,9 +563,11 @@ async def get_bet(bet_id: str) -> dict | None:
 # HELPERS
 # ─────────────────────────────────────────────
 
+
 def _json_str(obj: dict | list | None) -> str | None:
     """Serialize to JSON string for JSONB columns. None → None."""
     if obj is None:
         return None
     import json
+
     return json.dumps(obj)

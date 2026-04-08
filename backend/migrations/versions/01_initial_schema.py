@@ -34,15 +34,15 @@ Design notes:
     are lightly constrained to allow independent testing
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
 
 revision: str = "001"
-down_revision: Union[str, None] = None
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | None = None
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
@@ -55,10 +55,19 @@ def upgrade() -> None:
         "workspaces",
         sa.Column("id", sa.Text(), nullable=False),
         sa.Column("linear_team_id", sa.Text(), nullable=False),
-        sa.Column("strategy_doc_refs", sa.ARRAY(sa.Text()), nullable=False, server_default="{}"),
-        sa.Column("active_bet_ids", sa.ARRAY(sa.Text()), nullable=False, server_default="{}"),
+        sa.Column(
+            "strategy_doc_refs",
+            sa.ARRAY(sa.Text()),
+            nullable=False,
+            server_default="{}",
+        ),
+        sa.Column(
+            "active_bet_ids", sa.ARRAY(sa.Text()), nullable=False, server_default="{}"
+        ),
         # ControlLevel: 'draft_only' | 'require_approval' | 'autonomous_low_risk'
-        sa.Column("control_level", sa.Text(), nullable=False, server_default="draft_only"),
+        sa.Column(
+            "control_level", sa.Text(), nullable=False, server_default="draft_only"
+        ),
         # Phase 6: github_repo — Governor jules_gate (check #4) reads this.
         # NULL until founder connects GitHub via Settings UI.
         sa.Column("github_repo", sa.Text(), nullable=True),
@@ -89,14 +98,23 @@ def upgrade() -> None:
         sa.Column("health_baseline", sa.JSON(), nullable=False),
         # AcknowledgedRisk[]: [{risk_type, acknowledged_at, founder_note}]
         sa.Column("acknowledged_risks", sa.JSON(), nullable=False, server_default="[]"),
-        sa.Column("linear_project_ids", sa.ARRAY(sa.Text()), nullable=False, server_default="{}"),
-        sa.Column("linear_issue_ids", sa.ARRAY(sa.Text()), nullable=False, server_default="{}"),
+        sa.Column(
+            "linear_project_ids",
+            sa.ARRAY(sa.Text()),
+            nullable=False,
+            server_default="{}",
+        ),
+        sa.Column(
+            "linear_issue_ids", sa.ARRAY(sa.Text()), nullable=False, server_default="{}"
+        ),
         sa.Column("doc_refs", sa.ARRAY(sa.Text()), nullable=False, server_default="{}"),
         sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False),
         sa.Column("last_monitored_at", sa.TIMESTAMP(timezone=True), nullable=False),
         sa.Column("completed_at", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id", name="pk_bets"),
-        sa.ForeignKeyConstraint(["workspace_id"], ["workspaces.id"], name="fk_bets_workspace_id"),
+        sa.ForeignKeyConstraint(
+            ["workspace_id"], ["workspaces.id"], name="fk_bets_workspace_id"
+        ),
     )
     op.create_index("ix_bets_workspace_id", "bets", ["workspace_id"])
     op.create_index("ix_bets_status", "bets", ["status"])
@@ -114,22 +132,39 @@ def upgrade() -> None:
         sa.Column("linear_signals", sa.JSON(), nullable=False),
         sa.Column("health_score", sa.Float(), nullable=False),
         # risk_types_present: list of detected risk types (pre-filter, not classification)
-        sa.Column("risk_types_present", sa.ARRAY(sa.Text()), nullable=False, server_default="{}"),
+        sa.Column(
+            "risk_types_present",
+            sa.ARRAY(sa.Text()),
+            nullable=False,
+            server_default="{}",
+        ),
         # ScanStatus: 'ok' | 'error'
         sa.Column("status", sa.Text(), nullable=False, server_default="ok"),
         # ScanErrorCode: 'rate_limit' | 'auth_expired' | 'api_timeout' | 'empty_workspace'
         sa.Column("error_code", sa.Text(), nullable=True),
         # Phase 2: null = not computed. 0 = tested today. NEVER default to 0.
         sa.Column("hypothesis_staleness_days", sa.Integer(), nullable=True),
-        sa.Column("hypothesis_experiment_count", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column(
+            "hypothesis_experiment_count",
+            sa.Integer(),
+            nullable=False,
+            server_default="0",
+        ),
         sa.Column("last_experiment_outcome", sa.Text(), nullable=True),
         # Phase 3: cross-workspace outcome signals
         sa.Column("similar_bet_outcome_pct", sa.Float(), nullable=True),
-        sa.Column("outcome_pattern_source_count", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column(
+            "outcome_pattern_source_count",
+            sa.Integer(),
+            nullable=False,
+            server_default="0",
+        ),
         # Phase 2: between-cycle cache invalidation
         sa.Column("cache_valid_until", sa.TIMESTAMP(timezone=True), nullable=True),
         sa.PrimaryKeyConstraint("id", name="pk_bet_snapshots"),
-        sa.ForeignKeyConstraint(["bet_id"], ["bets.id"], name="fk_bet_snapshots_bet_id"),
+        sa.ForeignKeyConstraint(
+            ["bet_id"], ["bets.id"], name="fk_bet_snapshots_bet_id"
+        ),
     )
     op.create_index("ix_bet_snapshots_bet_id", "bet_snapshots", ["bet_id"])
     op.create_index("ix_bet_snapshots_captured_at", "bet_snapshots", ["captured_at"])
@@ -155,7 +190,12 @@ def upgrade() -> None:
         sa.Column("headline", sa.Text(), nullable=False),
         sa.Column("explanation", sa.Text(), nullable=False),
         sa.Column("evidence_summary", sa.Text(), nullable=False, server_default=""),
-        sa.Column("product_principle_refs", sa.ARRAY(sa.Text()), nullable=False, server_default="{}"),
+        sa.Column(
+            "product_principle_refs",
+            sa.ARRAY(sa.Text()),
+            nullable=False,
+            server_default="{}",
+        ),
         # Status: 'open' | 'actioned' | 'resolved' | 'dismissed'
         sa.Column("status", sa.Text(), nullable=False, server_default="open"),
         sa.Column("detected_by", sa.Text(), nullable=False),  # agent name
@@ -176,7 +216,9 @@ def upgrade() -> None:
     op.create_table(
         "interventions",
         sa.Column("id", sa.Text(), nullable=False),
-        sa.Column("risk_signal_id", sa.Text(), nullable=True),  # nullable: no-intervention records
+        sa.Column(
+            "risk_signal_id", sa.Text(), nullable=True
+        ),  # nullable: no-intervention records
         sa.Column("bet_id", sa.Text(), nullable=False),
         sa.Column("workspace_id", sa.Text(), nullable=False),
         # ActionType — full taxonomy (L1/L2/L3/L4 + special)
@@ -185,7 +227,12 @@ def upgrade() -> None:
         sa.Column("escalation_level", sa.Integer(), nullable=False),
         sa.Column("title", sa.Text(), nullable=False),
         sa.Column("rationale", sa.Text(), nullable=False),
-        sa.Column("product_principle_refs", sa.ARRAY(sa.Text()), nullable=False, server_default="{}"),
+        sa.Column(
+            "product_principle_refs",
+            sa.ARRAY(sa.Text()),
+            nullable=False,
+            server_default="{}",
+        ),
         sa.Column("confidence", sa.Float(), nullable=False),
         # LinearAction: {add_label, add_comment, create_issue, update_status, draft_document}
         sa.Column("proposed_linear_action", sa.JSON(), nullable=True),
@@ -199,7 +246,9 @@ def upgrade() -> None:
         sa.Column("rejection_reason", sa.Text(), nullable=True),
         sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_interventions"),
-        sa.ForeignKeyConstraint(["bet_id"], ["bets.id"], name="fk_interventions_bet_id"),
+        sa.ForeignKeyConstraint(
+            ["bet_id"], ["bets.id"], name="fk_interventions_bet_id"
+        ),
         sa.ForeignKeyConstraint(
             ["workspace_id"], ["workspaces.id"], name="fk_interventions_workspace_id"
         ),
@@ -229,7 +278,9 @@ def upgrade() -> None:
         sa.Column("measured_at", sa.TIMESTAMP(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_outcomes"),
         sa.ForeignKeyConstraint(
-            ["intervention_id"], ["interventions.id"], name="fk_outcomes_intervention_id"
+            ["intervention_id"],
+            ["interventions.id"],
+            name="fk_outcomes_intervention_id",
         ),
         sa.ForeignKeyConstraint(["bet_id"], ["bets.id"], name="fk_outcomes_bet_id"),
     )
@@ -249,7 +300,9 @@ def upgrade() -> None:
         #   sort_keys=True)) — never includes timestamps, workspace_id, or session metadata.
         sa.Column("input_context_hash", sa.Text(), nullable=False),
         sa.Column("output_summary", sa.Text(), nullable=False),
-        sa.Column("output_ids", sa.ARRAY(sa.Text()), nullable=False, server_default="{}"),
+        sa.Column(
+            "output_ids", sa.ARRAY(sa.Text()), nullable=False, server_default="{}"
+        ),
         # Phase 3: chain-of-thought before classification
         sa.Column("classification_rationale", sa.Text(), nullable=True),
         sa.Column("heuristic_version_id", sa.Text(), nullable=False),
@@ -262,8 +315,12 @@ def upgrade() -> None:
     )
     op.create_index("ix_agent_traces_workspace_id", "agent_traces", ["workspace_id"])
     op.create_index("ix_agent_traces_trace_type", "agent_traces", ["trace_type"])
-    op.create_index("ix_agent_traces_input_context_hash", "agent_traces", ["input_context_hash"])
-    op.create_index("ix_agent_traces_heuristic_version_id", "agent_traces", ["heuristic_version_id"])
+    op.create_index(
+        "ix_agent_traces_input_context_hash", "agent_traces", ["input_context_hash"]
+    )
+    op.create_index(
+        "ix_agent_traces_heuristic_version_id", "agent_traces", ["heuristic_version_id"]
+    )
     op.create_index("ix_agent_traces_created_at", "agent_traces", ["created_at"])
 
     # 8. heuristic_versions (Versioned Constitution)
@@ -277,14 +334,26 @@ def upgrade() -> None:
         sa.Column("risk_thresholds", sa.JSON(), nullable=False),
         sa.Column("classification_prompt_fragment", sa.Text(), nullable=False),
         # InterventionWeight[]: [{action_type, weight}]
-        sa.Column("intervention_ranking_weights", sa.JSON(), nullable=False, server_default="[]"),
+        sa.Column(
+            "intervention_ranking_weights",
+            sa.JSON(),
+            nullable=False,
+            server_default="[]",
+        ),
         sa.Column("eval_score", sa.Float(), nullable=False, server_default="0.0"),
         sa.Column("acceptance_rate", sa.Float(), nullable=False, server_default="0.0"),
         sa.Column("resolution_rate", sa.Float(), nullable=False, server_default="0.0"),
-        sa.Column("false_positive_rate", sa.Float(), nullable=False, server_default="0.0"),
+        sa.Column(
+            "false_positive_rate", sa.Float(), nullable=False, server_default="0.0"
+        ),
         # VersionType: 'MAJOR' | 'MINOR' | 'PATCH' — MAJOR never auto-promoted
         sa.Column("version_type", sa.Text(), nullable=False, server_default="MINOR"),
-        sa.Column("requires_manual_review", sa.Boolean(), nullable=False, server_default="false"),
+        sa.Column(
+            "requires_manual_review",
+            sa.Boolean(),
+            nullable=False,
+            server_default="false",
+        ),
         sa.Column("git_commit_sha", sa.Text(), nullable=True),
         sa.Column("parent_version_id", sa.Text(), nullable=True),
         sa.Column("change_summary", sa.Text(), nullable=False),
@@ -308,10 +377,18 @@ def upgrade() -> None:
         sa.Column("denial_reason", sa.Text(), nullable=False),
         sa.Column("created_at", sa.TIMESTAMP(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_policy_denied_events"),
-        sa.ForeignKeyConstraint(["bet_id"], ["bets.id"], name="fk_policy_denied_events_bet_id"),
+        sa.ForeignKeyConstraint(
+            ["bet_id"], ["bets.id"], name="fk_policy_denied_events_bet_id"
+        ),
     )
-    op.create_index("ix_policy_denied_events_bet_id", "policy_denied_events", ["bet_id"])
-    op.create_index("ix_policy_denied_events_denial_reason", "policy_denied_events", ["denial_reason"])
+    op.create_index(
+        "ix_policy_denied_events_bet_id", "policy_denied_events", ["bet_id"]
+    )
+    op.create_index(
+        "ix_policy_denied_events_denial_reason",
+        "policy_denied_events",
+        ["denial_reason"],
+    )
 
     # ─────────────────────────────────────────────
     # PHASE 2 STUBS — created now, populated Phase 2
@@ -323,7 +400,9 @@ def upgrade() -> None:
         sa.Column("id", sa.Text(), nullable=False),
         # Source: 'lenny' | 'shreyas' | 'tigers_elephants' | 'pmf_patterns' | 'custom'
         sa.Column("source", sa.Text(), nullable=False),
-        sa.Column("risk_types", sa.ARRAY(sa.Text()), nullable=False, server_default="{}"),
+        sa.Column(
+            "risk_types", sa.ARRAY(sa.Text()), nullable=False, server_default="{}"
+        ),
         sa.Column("principle", sa.Text(), nullable=False),
         sa.Column("example_pattern", sa.Text(), nullable=False),
         sa.Column("suggested_action", sa.Text(), nullable=False),
@@ -337,7 +416,12 @@ def upgrade() -> None:
         "bet_rejections",
         sa.Column("id", sa.Text(), nullable=False),
         sa.Column("workspace_id", sa.Text(), nullable=False),
-        sa.Column("raw_artifact_refs", sa.ARRAY(sa.Text()), nullable=False, server_default="{}"),
+        sa.Column(
+            "raw_artifact_refs",
+            sa.ARRAY(sa.Text()),
+            nullable=False,
+            server_default="{}",
+        ),
         sa.Column("proposed_name", sa.Text(), nullable=False),
         sa.Column("rejection_reason", sa.Text(), nullable=True),
         sa.Column("rejected_at", sa.TIMESTAMP(timezone=True), nullable=False),
@@ -346,7 +430,9 @@ def upgrade() -> None:
             ["workspace_id"], ["workspaces.id"], name="fk_bet_rejections_workspace_id"
         ),
     )
-    op.create_index("ix_bet_rejections_workspace_id", "bet_rejections", ["workspace_id"])
+    op.create_index(
+        "ix_bet_rejections_workspace_id", "bet_rejections", ["workspace_id"]
+    )
 
     # 12. hypothesis_experiments (Phase 2: staleness detection)
     op.create_table(
@@ -365,10 +451,16 @@ def upgrade() -> None:
         # created_by: 'founder' | 'agent_draft'
         sa.Column("created_by", sa.Text(), nullable=False),
         sa.PrimaryKeyConstraint("id", name="pk_hypothesis_experiments"),
-        sa.ForeignKeyConstraint(["bet_id"], ["bets.id"], name="fk_hypothesis_experiments_bet_id"),
+        sa.ForeignKeyConstraint(
+            ["bet_id"], ["bets.id"], name="fk_hypothesis_experiments_bet_id"
+        ),
     )
-    op.create_index("ix_hypothesis_experiments_bet_id", "hypothesis_experiments", ["bet_id"])
-    op.create_index("ix_hypothesis_experiments_outcome", "hypothesis_experiments", ["outcome"])
+    op.create_index(
+        "ix_hypothesis_experiments_bet_id", "hypothesis_experiments", ["bet_id"]
+    )
+    op.create_index(
+        "ix_hypothesis_experiments_outcome", "hypothesis_experiments", ["outcome"]
+    )
 
     # 13. rejection_reason_clusters (Phase 2: NLP extraction for AutoResearch)
     op.create_table(
@@ -376,14 +468,23 @@ def upgrade() -> None:
         sa.Column("id", sa.Text(), nullable=False),
         sa.Column("cluster_label", sa.Text(), nullable=False),
         sa.Column(
-            "intervention_types_affected", sa.ARRAY(sa.Text()), nullable=False, server_default="{}"
+            "intervention_types_affected",
+            sa.ARRAY(sa.Text()),
+            nullable=False,
+            server_default="{}",
         ),
         sa.Column(
-            "risk_types_affected", sa.ARRAY(sa.Text()), nullable=False, server_default="{}"
+            "risk_types_affected",
+            sa.ARRAY(sa.Text()),
+            nullable=False,
+            server_default="{}",
         ),
         sa.Column("frequency", sa.Integer(), nullable=False, server_default="0"),
         sa.Column(
-            "heuristic_change_candidates", sa.ARRAY(sa.Text()), nullable=False, server_default="{}"
+            "heuristic_change_candidates",
+            sa.ARRAY(sa.Text()),
+            nullable=False,
+            server_default="{}",
         ),
         sa.PrimaryKeyConstraint("id", name="pk_rejection_reason_clusters"),
     )
@@ -402,7 +503,12 @@ def upgrade() -> None:
         # failure_category: 'no_market_need' | 'cash' | 'team' | 'competition' | 'timing' | 'execution'
         sa.Column("failure_category", sa.Text(), nullable=False),
         # signal_fingerprint: list of EvidenceType values observed before failure
-        sa.Column("signal_fingerprint", sa.ARRAY(sa.Text()), nullable=False, server_default="{}"),
+        sa.Column(
+            "signal_fingerprint",
+            sa.ARRAY(sa.Text()),
+            nullable=False,
+            server_default="{}",
+        ),
         sa.Column("frequency_pct", sa.Float(), nullable=False),
         sa.Column("avg_time_to_failure_days", sa.Float(), nullable=True),
         # source: 'cb_insights' | 'failory' | 'ideaproof' | 'internal_corpus'

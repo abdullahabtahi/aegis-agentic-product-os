@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -300,7 +300,9 @@ class RealLinearMCP:
         # list_issues before list_issue_relations within the same pipeline cycle.
         self._relations_cache: dict[str, list[IssueRelation]] = {}
 
-    async def _graphql(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def _graphql(
+        self, query: str, variables: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         variables = variables or {}
         import httpx  # lazy import — only needed when LINEAR_API_KEY is set
 
@@ -313,9 +315,7 @@ class RealLinearMCP:
             response.raise_for_status()
             data = response.json()
             if "errors" in data:
-                raise RuntimeError(
-                    f"Linear GraphQL error: {data['errors']}"
-                )
+                raise RuntimeError(f"Linear GraphQL error: {data['errors']}")
             return data["data"]
 
     async def list_issues(
@@ -334,9 +334,7 @@ class RealLinearMCP:
                 f"Signal Engine must never read more than 14 days. Got days={days}. "
                 "This is a hard constraint (CLAUDE.md)."
             )
-        cutoff = (
-            datetime.now(timezone.utc) - timedelta(days=days)
-        ).isoformat()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
         issue_filter: dict[str, Any] = {"updatedAt": {"gte": cutoff}}
         if project_ids:
@@ -422,11 +420,19 @@ class RealLinearMCP:
               }
             }
             """
-            data = await self._graphql(mutation, {"issueId": issue_id, "body": comment_text})
+            data = await self._graphql(
+                mutation, {"issueId": issue_id, "body": comment_text}
+            )
             result = data.get("commentCreate", {})
             if result.get("success"):
-                return {"status": "success", "comment_id": result.get("comment", {}).get("id", "")}
-            return {"status": "failed", "reason": "commentCreate returned success=false"}
+                return {
+                    "status": "success",
+                    "comment_id": result.get("comment", {}).get("id", ""),
+                }
+            return {
+                "status": "failed",
+                "reason": "commentCreate returned success=false",
+            }
 
         # create_issue → Linear issueCreate mutation
         create_issue = action.get("create_issue")
@@ -443,7 +449,7 @@ class RealLinearMCP:
                 variables["projectId"] = project_id
                 project_clause = ", projectId: $projectId"
             mutation = f"""
-            mutation CreateIssue($title: String!, $description: String!{', $projectId: String' if project_id else ''}) {{
+            mutation CreateIssue($title: String!, $description: String!{", $projectId: String" if project_id else ""}) {{
               issueCreate(input: {{ title: $title, description: $description{project_clause} }}) {{
                 success
                 issue {{ id title }}
@@ -453,12 +459,15 @@ class RealLinearMCP:
             data = await self._graphql(mutation, variables)
             result = data.get("issueCreate", {})
             if result.get("success"):
-                return {"status": "success", "issue_id": result.get("issue", {}).get("id", "")}
+                return {
+                    "status": "success",
+                    "issue_id": result.get("issue", {}).get("id", ""),
+                }
             return {"status": "failed", "reason": "issueCreate returned success=false"}
 
     async def whoami(self) -> dict[str, str]:
         """Diagnostic helper: returns the authenticated user and organization.
-        
+
         Use this to verify LINEAR_API_KEY connectivity.
         """
         query = """
@@ -475,7 +484,7 @@ class RealLinearMCP:
                 "user": viewer.get("name", "Unknown"),
                 "email": viewer.get("email", "Unknown"),
                 "organization": org.get("name", "Unknown"),
-                "status": "connected"
+                "status": "connected",
             }
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -487,6 +496,7 @@ class RealLinearMCP:
 # ─────────────────────────────────────────────
 # FACTORY
 # ─────────────────────────────────────────────
+
 
 def get_linear_mcp() -> RealLinearMCP | MockLinearMCP:
     """Return the correct Linear client based on environment.

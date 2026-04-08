@@ -17,13 +17,13 @@ from __future__ import annotations
 
 import pytest
 
-from models.schema import BetHealthBaseline, BetStatus, DeclarationSource, Bet, Metric
+from models.schema import Bet, BetHealthBaseline, DeclarationSource, Metric
 from tools.linear_tools import MockLinearMCP
-
 
 # ─────────────────────────────────────────────
 # FIXTURES
 # ─────────────────────────────────────────────
+
 
 def make_bet(
     bet_id: str,
@@ -39,7 +39,8 @@ def make_bet(
         target_segment="founders",
         problem_statement="Problem",
         hypothesis=hypothesis,
-        success_metrics=success_metrics or [Metric(name="metric", target_value=0.5, unit="ratio")],
+        success_metrics=success_metrics
+        or [Metric(name="metric", target_value=0.5, unit="ratio")],
         time_horizon="2026-12-01",
         declaration_source=DeclarationSource(type="linear_project"),
         declaration_confidence=0.8,
@@ -60,13 +61,16 @@ def make_bet(
 # MOCK TESTS (no signal engine yet — tests MockLinearMCP fixture loading)
 # ─────────────────────────────────────────────
 
+
 class TestMockLinearMCP:
     @pytest.mark.asyncio
     async def test_loads_healthy_fixture(self):
         mock = MockLinearMCP()
         issues = await mock.list_issues(project_ids=["proj-healthy-001"], days=14)
         assert len(issues) > 0
-        assert all(i.project_id == "proj-healthy-001" or i.project_id is None for i in issues)
+        assert all(
+            i.project_id == "proj-healthy-001" or i.project_id is None for i in issues
+        )
 
     @pytest.mark.asyncio
     async def test_loads_messy_fixture(self):
@@ -81,7 +85,9 @@ class TestMockLinearMCP:
         mock = MockLinearMCP()
         relations = await mock.list_issue_relations(issue_ids=["API-02", "API-03"])
         cross_team = [r for r in relations if r.to_team is not None]
-        assert len(cross_team) >= 2, f"Expected ≥2 cross-team relations, got {len(cross_team)}"
+        assert len(cross_team) >= 2, (
+            f"Expected ≥2 cross-team relations, got {len(cross_team)}"
+        )
 
     @pytest.mark.asyncio
     async def test_enforces_14_day_bound(self):
@@ -106,6 +112,7 @@ class TestMockLinearMCP:
 # ─────────────────────────────────────────────
 # SIGNAL ENGINE TESTS (import compute_signals — RED until implementation exists)
 # ─────────────────────────────────────────────
+
 
 class TestComputeSignals:
     """Contract tests for compute_signals(workspace_id, bet, linear_mcp, days=14) → BetSnapshot."""
@@ -192,7 +199,9 @@ class TestComputeSignals:
         bet = make_bet("bet-healthy-001", "ws-healthy-001", ["proj-healthy-001"])
         snapshot = await compute_signals("ws-healthy-001", bet, mock)
 
-        assert snapshot.health_score > 70, f"Expected health_score > 70, got {snapshot.health_score}"
+        assert snapshot.health_score > 70, (
+            f"Expected health_score > 70, got {snapshot.health_score}"
+        )
 
     @pytest.mark.asyncio
     async def test_health_score_messy_is_low(self):
@@ -200,10 +209,18 @@ class TestComputeSignals:
         from app.agents.signal_engine import compute_signals
 
         mock = MockLinearMCP()
-        bet = make_bet("bet-messy-001", "ws-messy-001", ["proj-messy-001"], hypothesis="", success_metrics=[])
+        bet = make_bet(
+            "bet-messy-001",
+            "ws-messy-001",
+            ["proj-messy-001"],
+            hypothesis="",
+            success_metrics=[],
+        )
         snapshot = await compute_signals("ws-messy-001", bet, mock)
 
-        assert snapshot.health_score < 40, f"Expected health_score < 40, got {snapshot.health_score}"
+        assert snapshot.health_score < 40, (
+            f"Expected health_score < 40, got {snapshot.health_score}"
+        )
 
     @pytest.mark.asyncio
     async def test_hypothesis_staleness_is_none_phase1(self):

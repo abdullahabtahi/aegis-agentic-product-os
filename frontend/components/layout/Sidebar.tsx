@@ -8,7 +8,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Radar, History, Settings } from "lucide-react";
+import { Home, Radar, Target, History, Settings } from "lucide-react";
 
 interface SidebarProps {
   onSessionHistoryToggle: () => void;
@@ -18,6 +18,7 @@ interface SidebarProps {
 const NAV_ITEMS = [
   { href: "/workspace", icon: Home, label: "Home" },
   { href: "/workspace/mission-control", icon: Radar, label: "Mission Control" },
+  { href: "/workspace/directions", icon: Target, label: "Directions" },
   { href: "/workspace/settings", icon: Settings, label: "Settings" },
 ] as const;
 

@@ -14,7 +14,6 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-
 # ─────────────────────────────────────────────
 # ENUM LITERALS  (mirror TypeScript union types)
 # ─────────────────────────────────────────────
@@ -67,7 +66,9 @@ RejectionReasonCategory = Literal[
 # L1: founder earns trust first (draft only). L2: require approval (default). L3: low-risk auto-actions.
 ControlLevel = Literal["draft_only", "require_approval", "autonomous_low_risk"]
 
-ExperimentType = Literal["interview", "ab_test", "fake_door", "prototype", "analytics", "survey"]
+ExperimentType = Literal[
+    "interview", "ab_test", "fake_door", "prototype", "analytics", "survey"
+]
 
 ExperimentOutcome = Literal["confirmed", "refuted", "inconclusive", "abandoned"]
 
@@ -108,6 +109,7 @@ PolicyDenialReason = Literal[
 # ─────────────────────────────────────────────
 # VALUE OBJECTS
 # ─────────────────────────────────────────────
+
 
 class Metric(BaseModel):
     name: str
@@ -212,6 +214,7 @@ class LinearActionDraftDocument(BaseModel):
 
 class LinearAction(BaseModel):
     """Bounded write operations — only these 5 are permitted. Nothing else."""
+
     add_label: str | None = None
     add_comment: str | None = None
     create_issue: LinearActionCreateIssue | None = None
@@ -225,6 +228,7 @@ class LinearAction(BaseModel):
 # ─────────────────────────────────────────────
 # CORE ENTITIES  (map 1:1 to AlloyDB tables)
 # ─────────────────────────────────────────────
+
 
 class Workspace(BaseModel):
     id: str
@@ -359,6 +363,7 @@ class Outcome(BaseModel):
 # AUTORESEARCH + EVAL LAYER
 # ─────────────────────────────────────────────
 
+
 class AgentTrace(BaseModel):
     id: str
     workspace_id: str
@@ -430,13 +435,14 @@ class HeuristicVersion(BaseModel):
 
 class SuppressionRule(BaseModel):
     """Override & Teach: auto-suppress matching (risk_type, action_type, reason) after 2 rejections in 30d."""
+
     risk_type: RiskType
     action_type: ActionType
     rejection_reason: RejectionReasonCategory
     rejection_count: int
     first_rejected_at: str  # ISO 8601
-    last_rejected_at: str   # ISO 8601
-    suppressed_until: str   # ISO 8601 (last_rejected_at + auto_suppress_days)
+    last_rejected_at: str  # ISO 8601
+    suppressed_until: str  # ISO 8601 (last_rejected_at + auto_suppress_days)
     workspace_id: str
 
     model_config = {"frozen": True}
@@ -469,6 +475,7 @@ class ProductHeuristic(BaseModel):
 # PHASE 2 ENTITIES
 # ─────────────────────────────────────────────
 
+
 class HypothesisExperiment(BaseModel):
     id: str
     bet_id: str
@@ -497,7 +504,9 @@ class RejectionReasonCluster(BaseModel):
 
 class StartupFailurePattern(BaseModel):
     id: str
-    failure_category: Literal["no_market_need", "cash", "team", "competition", "timing", "execution"]
+    failure_category: Literal[
+        "no_market_need", "cash", "team", "competition", "timing", "execution"
+    ]
     signal_fingerprint: list[str] = Field(default_factory=list)
     frequency_pct: float
     avg_time_to_failure_days: float | None = None
@@ -510,6 +519,7 @@ class StartupFailurePattern(BaseModel):
 # ─────────────────────────────────────────────
 # PHASE 3 ENTITIES
 # ─────────────────────────────────────────────
+
 
 class SignalStep(BaseModel):
     type: EvidenceType

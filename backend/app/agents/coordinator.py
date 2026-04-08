@@ -20,10 +20,10 @@ from google.genai import types
 
 from models.schema import DEFAULT_HEURISTIC_VERSION
 
-
 # ─────────────────────────────────────────────
 # TOOL: propose_intervention
 # ─────────────────────────────────────────────
+
 
 def propose_intervention(
     action_type: str,
@@ -84,14 +84,16 @@ def propose_intervention(
 # ─────────────────────────────────────────────
 
 # Checkpoints at or past Coordinator stage — skip LLM call on re-invocation
-_COORD_SKIP_CHECKPOINTS = frozenset({
-    "coordinator_complete",
-    "governor_complete",
-    "awaiting_founder_approval",
-    "founder_approved",
-    "founder_rejected",
-    "executor_complete",
-})
+_COORD_SKIP_CHECKPOINTS = frozenset(
+    {
+        "coordinator_complete",
+        "governor_complete",
+        "awaiting_founder_approval",
+        "founder_approved",
+        "founder_rejected",
+        "executor_complete",
+    }
+)
 
 
 async def before_coordinator(callback_context: CallbackContext) -> types.Content | None:
@@ -104,9 +106,12 @@ async def before_coordinator(callback_context: CallbackContext) -> types.Content
     if checkpoint in _COORD_SKIP_CHECKPOINTS:
         return types.Content(
             role="model",
-            parts=[types.Part.from_text(text="[Coordinator] Skipped — checkpoint exists")],
+            parts=[
+                types.Part.from_text(text="[Coordinator] Skipped — checkpoint exists")
+            ],
         )
     from app.app_utils.trace_logging import record_trace_start
+
     record_trace_start(callback_context)
 
     bet = callback_context.state.get("bet", {})
@@ -115,8 +120,10 @@ async def before_coordinator(callback_context: CallbackContext) -> types.Content
 
     # Fetch workspace-level calibration data (accepted/rejected counts)
     from db.repository import get_workspace_intervention_stats
+
     workspace_id = callback_context.state.get(
-        "workspace_id", bet.get("workspace_id", ""),
+        "workspace_id",
+        bet.get("workspace_id", ""),
     )
     workspace_stats = await get_workspace_intervention_stats(workspace_id)
 
@@ -133,7 +140,8 @@ async def before_coordinator(callback_context: CallbackContext) -> types.Content
         "workspace_stats": workspace_stats,
         "heuristic_version": DEFAULT_HEURISTIC_VERSION.version,
         "intervention_ranking_weights": [
-            w.model_dump() for w in DEFAULT_HEURISTIC_VERSION.intervention_ranking_weights
+            w.model_dump()
+            for w in DEFAULT_HEURISTIC_VERSION.intervention_ranking_weights
         ],
     }
     callback_context.state["coordinator_context"] = context
@@ -143,7 +151,9 @@ async def before_coordinator(callback_context: CallbackContext) -> types.Content
     callback_context.state["hypothesis"] = bet.get("hypothesis", "")
     callback_context.state["acknowledged_risks"] = bet.get("acknowledged_risks", [])
     callback_context.state["prior_interventions"] = prior_interventions
-    callback_context.state["intervention_ranking_weights"] = context["intervention_ranking_weights"]
+    callback_context.state["intervention_ranking_weights"] = context[
+        "intervention_ranking_weights"
+    ]
     callback_context.state["workspace_stats"] = workspace_stats
 
 
@@ -223,6 +233,7 @@ Special:
 # ─────────────────────────────────────────────
 # AGENT DEFINITION
 # ─────────────────────────────────────────────
+
 
 def create_coordinator_agent() -> Agent:
     """Factory — always returns a fresh instance with no pre-existing parent.

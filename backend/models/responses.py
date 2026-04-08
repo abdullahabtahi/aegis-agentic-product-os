@@ -17,7 +17,6 @@ from models.schema import (
     Evidence,
     LinearAction,
     PolicyDenialReason,
-    ProductHeuristic,
     RiskType,
     Severity,
 )
@@ -28,6 +27,7 @@ class RiskSignalDraft(BaseModel):
 
     Confidence < 0.6 → return None (no RiskSignal created, no intervention surfaced).
     """
+
     risk_type: RiskType
     severity: Severity
     confidence: float  # 0–1
@@ -46,6 +46,7 @@ class RiskSignalDraft(BaseModel):
 
 class InterventionProposal(BaseModel):
     """Produced by Coordinator's propose_intervention tool call."""
+
     action_type: ActionType
     escalation_level: EscalationLevel
     title: str
@@ -63,6 +64,7 @@ class GovernorDecision(BaseModel):
     approved=True → intervention proceeds to HITL approval surface.
     approved=False → PolicyDeniedEvent written to AlloyDB, nothing surfaced to founder.
     """
+
     approved: bool
     denial_reason: PolicyDenialReason | None = None  # None if approved
     requires_double_confirm: bool = False  # Level 3–4 or kill_bet
@@ -73,6 +75,7 @@ class GovernorDecision(BaseModel):
 
 class ExecutorResult(BaseModel):
     """Produced by Executor after executing (or skipping) a founder-approved intervention."""
+
     executed: bool
     action_type: str
     linear_write_result: dict | None = None
@@ -84,6 +87,7 @@ class ExecutorResult(BaseModel):
 
 class PolicyCheckResult(BaseModel):
     """Internal result of a single Governor policy check."""
+
     check_name: str
     passed: bool
     denial_reason: PolicyDenialReason | None = None

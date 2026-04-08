@@ -32,10 +32,10 @@ from google.genai import types
 from models.schema import DEFAULT_HEURISTIC_VERSION
 from tools.lenny_mcp import search_lenny_transcripts
 
-
 # ─────────────────────────────────────────────
 # TOOLS — each writes to session state via ToolContext
 # ─────────────────────────────────────────────
+
 
 def emit_cynic_assessment(
     risk_type: str,
@@ -151,6 +151,7 @@ def emit_risk_signal(
 # HELPERS
 # ─────────────────────────────────────────────
 
+
 def _compute_hypothesis_staleness_warning(bet: dict, bet_snapshot: dict) -> str:
     """Determine hypothesis/time_horizon staleness for prompt injection.
 
@@ -187,7 +188,11 @@ def _compute_hypothesis_staleness_warning(bet: dict, bet_snapshot: dict) -> str:
             "Surface this as evidence in strategy_unclear or execution_issue classification."
         )
 
-    return "\n".join(warnings) if warnings else "OK — hypothesis and time_horizon appear fresh."
+    return (
+        "\n".join(warnings)
+        if warnings
+        else "OK — hypothesis and time_horizon appear fresh."
+    )
 
 
 def _format_detected_signals(signals: dict) -> str:
@@ -213,15 +218,17 @@ def _format_detected_signals(signals: dict) -> str:
 # ─────────────────────────────────────────────
 
 # Checkpoints at or past Product Brain stage — skip LLM calls on re-invocation
-_PB_SKIP_CHECKPOINTS = frozenset({
-    "product_brain_complete",
-    "coordinator_complete",
-    "governor_complete",
-    "awaiting_founder_approval",
-    "founder_approved",
-    "founder_rejected",
-    "executor_complete",
-})
+_PB_SKIP_CHECKPOINTS = frozenset(
+    {
+        "product_brain_complete",
+        "coordinator_complete",
+        "governor_complete",
+        "awaiting_founder_approval",
+        "founder_approved",
+        "founder_rejected",
+        "executor_complete",
+    }
+)
 
 
 async def before_cynic(callback_context: CallbackContext) -> types.Content | None:
@@ -235,7 +242,9 @@ async def before_cynic(callback_context: CallbackContext) -> types.Content | Non
     if checkpoint in _PB_SKIP_CHECKPOINTS:
         return types.Content(
             role="model",
-            parts=[types.Part.from_text(text="[ProductBrain] Skipped — checkpoint exists")],
+            parts=[
+                types.Part.from_text(text="[ProductBrain] Skipped — checkpoint exists")
+            ],
         )
     signals = callback_context.state.get("linear_signals", {})
     bet = callback_context.state.get("bet", {})
@@ -249,6 +258,7 @@ async def before_cynic(callback_context: CallbackContext) -> types.Content | Non
     signals_str = _format_detected_signals(signals)
 
     from app.app_utils.trace_logging import record_trace_start
+
     record_trace_start(callback_context)
 
     callback_context.state["product_brain_context"] = {
@@ -264,20 +274,32 @@ async def before_cynic(callback_context: CallbackContext) -> types.Content | Non
     }
     callback_context.state["pb_bet_name"] = bet.get("name", "(unnamed bet)")
     callback_context.state["pb_hypothesis"] = bet.get("hypothesis") or "(no hypothesis)"
-    callback_context.state["pb_time_horizon"] = bet.get("time_horizon") or "(no deadline set)"
-    callback_context.state["pb_problem_statement"] = bet.get("problem_statement") or "(no problem statement)"
+    callback_context.state["pb_time_horizon"] = (
+        bet.get("time_horizon") or "(no deadline set)"
+    )
+    callback_context.state["pb_problem_statement"] = (
+        bet.get("problem_statement") or "(no problem statement)"
+    )
     callback_context.state["pb_signals_str"] = signals_str
-    callback_context.state["pb_prior_risk_types"] = str(list(set(prior_risk_types))) or "[]"
+    callback_context.state["pb_prior_risk_types"] = (
+        str(list(set(prior_risk_types))) or "[]"
+    )
     callback_context.state["pb_staleness_warning"] = staleness_warning
-    callback_context.state["pb_classification_fragment"] = DEFAULT_HEURISTIC_VERSION.classification_prompt_fragment
+    callback_context.state["pb_classification_fragment"] = (
+        DEFAULT_HEURISTIC_VERSION.classification_prompt_fragment
+    )
 
 
 async def before_synthesis(callback_context: CallbackContext) -> None:
     """Format Cynic and Optimist assessments as JSON strings for synthesis instruction."""
     cynic = callback_context.state.get("cynic_assessment", {})
     optimist = callback_context.state.get("optimist_assessment", {})
-    callback_context.state["pb_cynic_json"] = json.dumps(cynic, indent=2) if cynic else "(cynic did not respond)"
-    callback_context.state["pb_optimist_json"] = json.dumps(optimist, indent=2) if optimist else "(optimist did not respond)"
+    callback_context.state["pb_cynic_json"] = (
+        json.dumps(cynic, indent=2) if cynic else "(cynic did not respond)"
+    )
+    callback_context.state["pb_optimist_json"] = (
+        json.dumps(optimist, indent=2) if optimist else "(optimist did not respond)"
+    )
 
 
 def _synthesis_output_has_valid_tool_call(llm_response: LlmResponse) -> bool:
@@ -327,7 +349,9 @@ async def after_synthesis_model(
 
     # After 1 retry still invalid — silent skip, no risk signal surfaced
     # This is the safe path: no signal > bad signal
-    callback_context.state["product_brain_skip_reason"] = "validation_failed_after_retry"
+    callback_context.state["product_brain_skip_reason"] = (
+        "validation_failed_after_retry"
+    )
     return None
 
 
@@ -458,6 +482,7 @@ If the search fails or returns nothing, proceed without it — do not block on e
 # ─────────────────────────────────────────────
 # AGENT DEFINITIONS
 # ─────────────────────────────────────────────
+
 
 def create_product_brain_debate() -> SequentialAgent:
     """Factory — always returns fresh agent instances with no pre-existing parent.

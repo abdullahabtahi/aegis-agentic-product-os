@@ -24,8 +24,8 @@ Writes to session state:
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta, timezone
-from typing import AsyncGenerator
 
 from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
@@ -104,7 +104,11 @@ class ExecutorAgent(BaseAgent):
                 author=self.name,
                 content=types.Content(
                     role="model",
-                    parts=[types.Part.from_text(text="[Executor] Skipped — checkpoint exists")],
+                    parts=[
+                        types.Part.from_text(
+                            text="[Executor] Skipped — checkpoint exists"
+                        )
+                    ],
                 ),
             )
             return
@@ -117,9 +121,11 @@ class ExecutorAgent(BaseAgent):
                 author=self.name,
                 content=types.Content(
                     role="model",
-                    parts=[types.Part.from_text(
-                        text=f"[Executor] Skipped — pipeline_status='{pipeline_status}', need 'founder_approved'"
-                    )],
+                    parts=[
+                        types.Part.from_text(
+                            text=f"[Executor] Skipped — pipeline_status='{pipeline_status}', need 'founder_approved'"
+                        )
+                    ],
                 ),
             )
             return
@@ -142,7 +148,11 @@ class ExecutorAgent(BaseAgent):
                 author=self.name,
                 content=types.Content(
                     role="model",
-                    parts=[types.Part.from_text(text="[Executor] no_intervention — nothing to execute")],
+                    parts=[
+                        types.Part.from_text(
+                            text="[Executor] no_intervention — nothing to execute"
+                        )
+                    ],
                 ),
             )
             return
@@ -168,13 +178,18 @@ class ExecutorAgent(BaseAgent):
                 error=jules_result.get("error") if not executed else None,
             )
             ctx.session.state["executor_result"] = result.model_dump()
-            ctx.session.state["pipeline_status"] = "executed" if executed else "execution_failed"
+            ctx.session.state["pipeline_status"] = (
+                "executed" if executed else "execution_failed"
+            )
             ctx.session.state["pipeline_checkpoint"] = "executor_complete"
             if executed:
-                ctx.session.state["jules_session_id"] = jules_result.get("session_id", "")
+                ctx.session.state["jules_session_id"] = jules_result.get(
+                    "session_id", ""
+                )
                 ctx.session.state["jules_url"] = jules_result.get("jules_url", "")
                 ctx.session.state["outcome_check_scheduled_at"] = (
-                    datetime.now(timezone.utc) + timedelta(days=_OUTCOME_CHECK_DELAY_DAYS)
+                    datetime.now(timezone.utc)
+                    + timedelta(days=_OUTCOME_CHECK_DELAY_DAYS)
                 ).isoformat()
 
             status = jules_result.get("status", "error")
@@ -209,9 +224,11 @@ class ExecutorAgent(BaseAgent):
                 author=self.name,
                 content=types.Content(
                     role="model",
-                    parts=[types.Part.from_text(
-                        text=f"[Executor] {action_type} — no Linear action mapped, marked executed"
-                    )],
+                    parts=[
+                        types.Part.from_text(
+                            text=f"[Executor] {action_type} — no Linear action mapped, marked executed"
+                        )
+                    ],
                 ),
             )
             return

@@ -358,20 +358,20 @@ aegis-agentic-product-os/
 
 ---
 
-## Build State (as of 2026-04-07, end of day)
+## Build State (as of 2026-04-08, end of day)
 
 | Phase | Status | Gate |
 |-------|--------|------|
-| 1 | ✅ Complete | Signal Engine + 5 golden traces, 75/75 tests green |
+| 1 | ✅ Complete | Signal Engine + 5 golden traces, 122 tests green |
 | 2 | ✅ Complete | Product Brain debate, ADK SkillToolset, eval ≥ 0.8 |
 | 3 | ✅ Complete | Coordinator, Governor (8 checks), Escalation Ladder, E2E dry-run |
 | 4 | ✅ Complete | Executor, Override & Teach, approval_handler, override_teach |
-| 5 | ✅ UI rewrite done | Linear-style UI (LinearLayout, Home w/ mock data, Inbox, HITL surfaces) |
-| 5b | 🚧 Not wired | Frontend ↔ Backend not connected; chat panel not wired; mock data only |
-| 6 | — | Bet Declaration flow, BetOutcomeRecord corpus, Jules Subject Hygiene |
+| 5 | ✅ UI rewrite done | Glassmorphic UI, Sidebar, Mission Control, Home, Inbox, HITL surfaces |
+| 5b | ✅ Frontend wired | Chat + pipeline live; Mission Control live; Directions list + detail pages |
+| 6 | ✅ Bet Declaration | `POST /bets`, `GET /bets`, `GET /bets/{id}`; BetDeclarationModal; session persistence (SQLite) |
 | 7 | — | HeuristicVersion canary rollout, EvalSynthesisJob, deployment hardening |
 
-### Bugs fixed 2026-04-07
+### Key bugs fixed 2026-04-08 (session 4)
 
 | File | Bug | Fix |
 |------|-----|-----|

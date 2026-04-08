@@ -1,4 +1,4 @@
-import type { ActionType, EscalationLevel, RiskType, Severity } from "./types";
+import type { ActionType, BetStatus, EscalationLevel, RiskType, Severity } from "./types";
 
 export const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
 
@@ -48,6 +48,29 @@ export const SEVERITY_BG: Record<Severity, string> = {
   high: "bg-orange-400/10 text-orange-400 border-orange-400/20",
   critical: "bg-red-400/10 text-red-400 border-red-400/20",
 };
+
+export const BET_STATUS_LABELS: Record<BetStatus, string> = {
+  detecting: "Detecting",
+  active: "Active",
+  paused: "Paused",
+  validated: "Validated",
+  killed: "Killed",
+};
+
+export const BET_STATUS_STYLES: Record<BetStatus, string> = {
+  detecting: "bg-indigo-400/10 text-indigo-400 border-indigo-400/20",
+  active: "bg-emerald-400/10 text-emerald-400 border-emerald-400/20",
+  paused: "bg-amber-400/10 text-amber-400 border-amber-400/20",
+  validated: "bg-sky-400/10 text-sky-400 border-sky-400/20",
+  killed: "bg-slate-400/10 text-slate-400 border-slate-400/20",
+};
+
+/** Health score → colour class (for progress bars and indicators) */
+export function healthColor(score: number): string {
+  if (score >= 80) return "bg-emerald-500";
+  if (score >= 50) return "bg-amber-500";
+  return "bg-red-500";
+}
 
 /** Rate cap window — matches backend Governor */
 export const RATE_CAP_DAYS = 7;

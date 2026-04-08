@@ -21,15 +21,15 @@
  * - Execution Health chart: static sample (live metrics endpoint planned for Phase 6)
  */
 
-import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import Link from "next/link";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Network, Brain, GitBranch, Gavel, Terminal,
   AlertTriangle, CheckCircle2, ArrowRight, Zap
 } from "lucide-react";
 import { getInterventions, approveIntervention, rejectIntervention, listBets } from "@/lib/api";
 import { useAgentStateSync } from "@/hooks/useAgentStateSync";
-import type { Intervention, PipelineStage, PipelineStageName } from "@/lib/types";
+import type { PipelineStage, PipelineStageName } from "@/lib/types";
 
 // ─── Live stage display derivation ───────────────────────────────────────────
 
@@ -134,16 +134,13 @@ const WORKSPACE_ID = "default_workspace";
 
 export default function MissionControlPage() {
   const { state: pipelineState } = useAgentStateSync();
-  const [interventions, setInterventions] = useState<Intervention[]>([]);
-  // Start as true — fetch begins immediately on mount
-  const [loadingInterventions, setLoadingInterventions] = useState(true);
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    getInterventions(WORKSPACE_ID)
-      .then(setInterventions)
-      .catch(() => setInterventions([]))
-      .finally(() => setLoadingInterventions(false));
-  }, []);
+  const { data: interventions = [], isLoading: loadingInterventions } = useQuery({
+    queryKey: ["interventions", WORKSPACE_ID],
+    queryFn: () => getInterventions(WORKSPACE_ID),
+    staleTime: 15_000,
+  });
 
   // Live bets from /bets API (gracefully empty when DB not configured)
   const { data: liveBets = [], isLoading: loadingBets } = useQuery({
@@ -155,19 +152,15 @@ export default function MissionControlPage() {
 
   const pendingInterventions = interventions.filter((i) => i.status === "pending");
 
-  const handleApprove = async (id: string) => {
-    await approveIntervention(id);
-    setInterventions((prev) =>
-      prev.map((i) => (i.id === id ? { ...i, status: "accepted" as const } : i))
-    );
-  };
+  const approveMutation = useMutation({
+    mutationFn: (id: string) => approveIntervention(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["interventions", WORKSPACE_ID] }),
+  });
 
-  const handleReject = async (id: string) => {
-    await rejectIntervention(id, "other");
-    setInterventions((prev) =>
-      prev.map((i) => (i.id === id ? { ...i, status: "rejected" as const } : i))
-    );
-  };
+  const rejectMutation = useMutation({
+    mutationFn: (id: string) => rejectIntervention(id, "other"),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["interventions", WORKSPACE_ID] }),
+  });
 
   return (
     <div className="flex flex-col gap-6 pb-4">
@@ -218,9 +211,9 @@ export default function MissionControlPage() {
                 <h2 className="font-heading text-base font-semibold text-[#1a1c1d]">Active Strategic Directions</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">High-conviction product trajectories</p>
               </div>
-              <button className="flex items-center gap-1 text-xs font-semibold text-[#112478] transition-opacity hover:opacity-70">
+              <Link href="/workspace/directions" className="flex items-center gap-1 text-xs font-semibold text-[#112478] transition-opacity hover:opacity-70">
                 View All <ArrowRight size={13} />
-              </button>
+              </Link>
             </div>
             <div className="grid grid-cols-2 gap-4">
               {loadingBets ? (
@@ -237,9 +230,10 @@ export default function MissionControlPage() {
                   const desc = String(bet.problem_statement ?? bet.hypothesis ?? "");
                   const segment = String(bet.target_segment ?? "");
                   return (
-                    <div
+                    <Link
                       key={String(bet.id)}
-                      className="rounded-xl border border-white/40 bg-white/40 p-5 transition-all cursor-pointer hover:bg-white/60 hover:shadow-sm"
+                      href={`/workspace/directions/${String(bet.id)}`}
+                      className="rounded-xl border border-white/40 bg-white/40 p-5 transition-all cursor-pointer hover:bg-white/60 hover:shadow-sm block"
                     >
                       <div className="mb-4 flex items-start justify-between">
                         <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-900/80">
@@ -258,7 +252,7 @@ export default function MissionControlPage() {
                           </span>
                         </div>
                       )}
-                    </div>
+                    </Link>
                   );
                 })
               )}
@@ -320,53 +314,11 @@ export default function MissionControlPage() {
               {loadingInterventions ? (
                 <p className="text-xs text-muted-foreground text-center py-4">Loading...</p>
               ) : pendingInterventions.length === 0 ? (
-                /* Empty state — show 2 mock cards to match Stitch design in local dev */
-                <>
-                  <div className="rounded-xl border border-red-200/40 bg-white/60 p-4 transition-all hover:border-red-300/50">
-                    <div className="flex gap-3">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
-                        <AlertTriangle size={14} />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold text-[#1a1c1d]">Governor Halt: Auth Refactor</p>
-                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                          Conflict detected in session logic. Needs manual verify.
-                        </p>
-                        <div className="mt-2.5 flex gap-2">
-                          <button className="rounded-lg bg-[#112478] px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-80">
-                            Approve
-                          </button>
-                          <button className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200">
-                            Details
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="rounded-xl border border-indigo-200/40 bg-white/60 p-4 transition-all hover:border-indigo-300/50">
-                    <div className="flex gap-3">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-[#112478]">
-                        <CheckCircle2 size={14} />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold text-[#1a1c1d]">Rollout Threshold Alert</p>
-                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                          Tier-2 rollout reached 15% without regression. Authorize 50%?
-                        </p>
-                        <div className="mt-2.5 flex gap-2">
-                          <button className="rounded-lg bg-[#112478] px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-80">
-                            Expand
-                          </button>
-                          <button className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200">
-                            Pause
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </>
+                <div className="flex flex-col items-center gap-2 py-8 text-center">
+                  <CheckCircle2 size={20} className="text-emerald-500/60" />
+                  <p className="text-xs text-muted-foreground">No pending interventions</p>
+                </div>
               ) : (
-                /* Live interventions from AlloyDB */
                 pendingInterventions.map((intervention) => (
                   <div
                     key={intervention.id}
@@ -385,14 +337,16 @@ export default function MissionControlPage() {
                         </p>
                         <div className="mt-2.5 flex gap-2">
                           <button
-                            onClick={() => handleApprove(intervention.id)}
-                            className="rounded-lg bg-[#112478] px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-80"
+                            onClick={() => approveMutation.mutate(intervention.id)}
+                            disabled={approveMutation.isPending || rejectMutation.isPending}
+                            className="rounded-lg bg-[#112478] px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-80 disabled:opacity-50"
                           >
                             Approve
                           </button>
                           <button
-                            onClick={() => handleReject(intervention.id)}
-                            className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200"
+                            onClick={() => rejectMutation.mutate(intervention.id)}
+                            disabled={approveMutation.isPending || rejectMutation.isPending}
+                            className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200 disabled:opacity-50"
                           >
                             Reject
                           </button>
@@ -432,7 +386,7 @@ export default function MissionControlPage() {
                           <div className={`h-1.5 w-1.5 rounded-full ${isPrimary ? "bg-[#112478]" : "bg-slate-300"}`} />
                         </div>
                         <p className="text-[10px] font-medium uppercase tracking-tight text-muted-foreground">
-                          {action.status === "accepted" ? "APPROVED" : action.status.toUpperCase()} — {(action.action_type ?? "INTERVENTION").replace(/_/g, " ").toUpperCase()}
+                          {({ accepted: "APPROVED", rejected: "REJECTED", dismissed: "DISMISSED" } as Record<string, string>)[action.status] ?? action.status.toUpperCase()} — {(action.action_type ?? "INTERVENTION").replace(/_/g, " ").toUpperCase()}
                         </p>
                         <p className="mt-0.5 text-xs text-[#1a1c1d] line-clamp-2">
                           {action.rationale ?? "Intervention resolved."}

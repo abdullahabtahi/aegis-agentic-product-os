@@ -4,7 +4,7 @@
  */
 
 import { BACKEND_URL } from "./constants";
-import type { Intervention, SessionSummary, ArtifactEntry } from "./types";
+import type { Bet, Intervention, SessionSummary, ArtifactEntry } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BACKEND_URL}${path}`, {
@@ -87,8 +87,16 @@ export function createBet(body: BetCreateRequest): Promise<Record<string, unknow
   });
 }
 
-export function listBets(workspaceId: string, status?: string): Promise<Record<string, unknown>[]> {
+export function listBets(workspaceId: string, status?: string): Promise<Bet[]> {
   const params = new URLSearchParams({ workspace_id: workspaceId });
   if (status) params.set("status", status);
-  return request(`/bets?${params}`);
+  return request<Bet[]>(`/bets?${params}`);
+}
+
+export function getBet(betId: string): Promise<Bet> {
+  return request<Bet>(`/bets/${encodeURIComponent(betId)}`);
+}
+
+export function getInterventionsByBet(workspaceId: string, betId: string): Promise<Intervention[]> {
+  return request<Intervention[]>(`/interventions?workspace_id=${workspaceId}&bet_id=${encodeURIComponent(betId)}`);
 }

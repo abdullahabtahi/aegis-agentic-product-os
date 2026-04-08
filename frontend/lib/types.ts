@@ -64,16 +64,18 @@ export interface DeclarationSource {
   raw_artifact_refs?: string[];
 }
 
+export type BetStatus = "detecting" | "active" | "paused" | "validated" | "killed";
+
 export interface Bet {
   id: string;
   workspace_id: string;
   name: string;
-  target_segment: string;
-  problem_statement: string;
-  status: "active" | "paused" | "killed" | "completed";
-  hypothesis: string;
-  success_metrics: Metric[];
-  time_horizon: string;
+  target_segment: string | null;
+  problem_statement: string | null;
+  status: BetStatus;
+  hypothesis: string | null;
+  success_metrics: Metric[] | null;
+  time_horizon: string | null;
   declaration_source: DeclarationSource;
   declaration_confidence: number;
   health_baseline: BetHealthBaseline;
@@ -82,7 +84,7 @@ export interface Bet {
   linear_issue_ids: string[];
   doc_refs: string[];
   created_at: string;
-  last_monitored_at: string;
+  last_monitored_at: string | null;
   completed_at?: string | null;
 }
 
@@ -99,12 +101,22 @@ export interface EvidenceIssue {
   url: string;
 }
 
+export interface ProductPrincipleRef {
+  id: string;
+  name: string;
+  source?: string | null;  // e.g. "Shreyas Doshi", "Lenny Rachitsky"
+  excerpt?: string | null;
+}
+
 export interface RiskSignal {
   risk_type: RiskType;
   severity: Severity;
   confidence: number;
+  headline?: string | null;
+  explanation?: string | null;
   evidence_summary: string;
   linear_evidence: Record<string, unknown>;
+  product_principle_refs?: ProductPrincipleRef[] | null;
 }
 
 export interface Intervention {
