@@ -121,7 +121,7 @@ function BetCard({ bet }: { bet: Bet }) {
               No hypothesis
             </span>
           )}
-          {bet.success_metrics?.length > 0 && (
+          {bet.success_metrics && bet.success_metrics.length > 0 && (
             <span className="flex items-center gap-1 text-sky-700">
               <Target className="h-3 w-3" />
               {bet.success_metrics.length} metric{bet.success_metrics.length !== 1 ? "s" : ""}
