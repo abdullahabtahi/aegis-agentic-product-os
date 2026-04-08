@@ -388,6 +388,68 @@ async def get_bet_endpoint(bet_id: str):
     return bet
 
 
+# ─────────────────────────────────────────────
+# BET DISCOVERY (auto-detect from Linear issues)
+# ─────────────────────────────────────────────
+
+from app.services.bet_discovery import discover_bets_from_linear
+
+
+class DiscoverBody(BaseModel):
+    workspace_id: str
+
+
+@app.post("/bets/discover")
+async def discover_bets_endpoint(body: DiscoverBody):
+    """Scan recent Linear issues and auto-detect strategic directions.
+
+    Uses Gemini Flash to cluster up to 50 issues into 2-5 proposed Bets
+    with status=detecting. Deduplicates against existing bets by name.
+    Falls back to in-memory store when DB is not configured (local dev).
+    """
+    from db.repository import list_bets, save_bet
+
+    # Load existing bet names for dedup
+    if is_db_configured():
+        existing = await list_bets(body.workspace_id)
+    else:
+        existing = [b for b in _inmemory_bets if b["workspace_id"] == body.workspace_id]
+
+    existing_names = {b["name"].lower() for b in existing}
+
+    new_bets = await discover_bets_from_linear(body.workspace_id, existing_names)
+
+    created = []
+    skipped = 0
+    for bet in new_bets:
+        # Double-check dedup (race condition guard)
+        if bet["name"].lower() in existing_names:
+            skipped += 1
+            continue
+        if is_db_configured():
+            from db.repository import upsert_workspace
+            import uuid
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).isoformat()
+            await upsert_workspace({
+                "id": body.workspace_id,
+                "linear_team_id": "",
+                "control_level": "draft_only",
+                "created_at": now,
+            })
+            saved_id = await save_bet(bet)
+            if saved_id:
+                created.append(bet)
+            else:
+                skipped += 1
+        else:
+            _inmemory_bets.append(bet)
+            created.append(bet)
+        existing_names.add(bet["name"].lower())
+
+    return {"created": created, "skipped_duplicates": skipped}
+
+
 class RejectBody(BaseModel):
     reason: str = "other"  # RejectionReasonCategory — default "other" is always valid
 
@@ -468,11 +530,14 @@ async def list_sessions(user_id: str = Query("default_user")):
     summaries = []
     for s in result.sessions:
         state = s.state or {}
+        # Priority: explicit title → bet name → first user message
+        title = state.get("session_title") or (state.get("bet") or {}).get("name")
+        if not title:
+            title = _derive_title_from_events(getattr(s, "events", None) or [])
         summaries.append(
             {
                 "session_id": s.id,
-                "session_title": state.get("session_title")
-                or state.get("bet", {}).get("name"),
+                "session_title": title,
                 "last_update_time": s.last_update_time,
                 "created_at": s.last_update_time,
                 "pipeline_status": state.get("pipeline_status", "idle"),
@@ -480,6 +545,22 @@ async def list_sessions(user_id: str = Query("default_user")):
             }
         )
     return summaries
+
+
+def _derive_title_from_events(events: list) -> str | None:
+    """Extract the first user message from session events as a fallback session title."""
+    for event in events:
+        if getattr(event, "author", None) != "user":
+            continue
+        content = getattr(event, "content", None)
+        if not content or not getattr(content, "parts", None):
+            continue
+        text = "".join(
+            p.text for p in content.parts if hasattr(p, "text") and p.text
+        ).strip()
+        if text:
+            return text[:55] + ("…" if len(text) > 55 else "")
+    return None
 
 
 def _derive_session_tags(state: dict) -> list[str]:
