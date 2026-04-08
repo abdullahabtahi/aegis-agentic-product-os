@@ -77,21 +77,13 @@ def _init_engine_connector() -> None:
             "Run: uv add 'google-cloud-alloydb-connector[asyncpg]'"
         ) from exc
 
-    import asyncio
-
-    # Connector must be created inside a running event loop, but _init_engine
-    # may be called from sync context.  We create it lazily on first use via
-    # async_creator instead.
-    loop = None
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        pass
-
     instance_uri = _ALLOYDB_INSTANCE_URI
     user = _DB_USER
     password = _DB_PASS
     db_name = _DB_NAME
+
+    # Connector is created lazily inside the async creator — no need to
+    # check whether a running loop exists at init time.
 
     async def _getconn():
         """Open a new asyncpg connection via the connector."""

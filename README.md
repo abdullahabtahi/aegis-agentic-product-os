@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/Google_ADK-Gemini_3-4285F4?logo=google&logoColor=white" />
   <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" />
   <img src="https://img.shields.io/badge/CopilotKit-AG--UI-6366f1" />
-  <img src="https://img.shields.io/badge/Tests-118_passing-4ade80" />
+  <img src="https://img.shields.io/badge/Tests-127_passing-4ade80" />
 </p>
 
 ---
@@ -105,13 +105,13 @@ This positions Aegis in the upper-right quadrant of Shneiderman's Human-Centered
 
 ## Evidence It Works
 
-### 118 Unit Tests, 5 Golden Traces
+### 127 Unit Tests, 5 Golden Traces
 
 Every deterministic function is tested. Every agent path has an eval trace.
 
 ```
 $ cd backend && make test
-118 passed in 1.20s
+127 passed in 1.87s
 
 $ cd backend && make eval-all
 trace_01_strategy_unclear     ✅
@@ -133,7 +133,7 @@ trace_05_acknowledged_risk    ✅
 
 | Tier | Trigger | Time | Cost |
 |------|---------|------|------|
-| **Tier 1** — Lint, type check, 118 unit tests | Every push | ~2 min | $0 |
+| **Tier 1** — Lint, type check, 127 unit tests | Every push | ~2 min | $0 |
 | **Tier 2** — Integration tests, 5 ADK evals | Merge to main | ~10 min | Gemini API calls |
 
 ---
@@ -164,6 +164,17 @@ npm run dev                     # → http://localhost:3000
 docker-compose up               # Backend :8080 + Frontend :3000
 ```
 
+### 4. Deploy to Cloud Run
+
+```bash
+export PROJECT_ID=your-gcp-project
+export DB_PASS=choose-a-strong-password
+export LINEAR_API_KEY=lin_api_xxx   # optional — omit for mock mode
+bash deploy/deploy.sh
+```
+
+The script: provisions Cloud SQL PostgreSQL (g1-small, ~$26/month), builds both images (frontend after backend so `NEXT_PUBLIC_BACKEND_URL` is baked correctly), runs Alembic migrations via Cloud Run Job, and deploys with `--timeout=3600` for long SSE streams.
+
 ### Environment Variables
 
 | Variable | Required | What It Does |
@@ -172,6 +183,7 @@ docker-compose up               # Backend :8080 + Frontend :3000
 | `GOOGLE_CLOUD_LOCATION` | Yes | Must be `global` (not us-central1) |
 | `LINEAR_API_KEY` | No | Live workspace reads. Omit = mock data |
 | `AEGIS_MOCK_LINEAR` | No | Force mock even with API key set |
+| `DATABASE_URL` | Cloud Run | Set automatically by deploy.sh via Cloud SQL unix socket |
 
 ---
 
@@ -179,16 +191,21 @@ docker-compose up               # Backend :8080 + Frontend :3000
 
 | Layer | Choice | Why |
 |-------|--------|-----|
-| **Agent framework** | Google ADK | Native sequential pipelines, built-in eval, Vertex AI integration |
-| **LLM** | Gemini 3 Flash + Pro | Flash for speed (debate agents), Pro for synthesis (Product Brain final) |
-| **Backend** | Python 3.10, FastAPI | ADK ecosystem, async SSE streaming, Pydantic validation |
-| **Frontend** | Next.js 16, React 19, TypeScript | App Router, Server Components, streaming |
+| **Agent framework** | Google ADK ≥1.15 | Native sequential pipelines, built-in eval, Vertex AI integration |
+| **LLM** | Gemini 3-flash-preview + gemini-3.1-pro-preview | Flash for speed (debate agents, temperature=0.0), Pro for synthesis (temperature=0.2) |
+| **Backend** | Python 3.12, FastAPI, Uvicorn | ADK ecosystem, async SSE streaming, Pydantic v2 validation |
+| **Frontend** | Next.js 16, React 19, TypeScript 5 | App Router, Server Components, streaming |
 | **Agent-UI bridge** | CopilotKit + AG-UI protocol | Real-time SSE streaming from ADK → React, HITL approval surfaces |
-| **UI framework** | Tailwind v4, shadcn/ui | Glassmorphic design, Linear-inspired dark theme |
-| **State** | Zustand + immer | Immutable state updates, devtools |
-| **Testing** | pytest + ADK evals | Unit tests (deterministic), golden traces (agent behavior) |
+| **UI framework** | Tailwind v4, shadcn/ui | Linear-inspired dark theme, 8px grid |
+| **State** | Zustand + immer (frontend), SQLAlchemy 2 async (backend) | Immutable updates; async DB sessions |
+| **Database** | Cloud SQL PostgreSQL 16 g1-small (~$26/month) | pgvector enabled, upgrade path to AlloyDB at Phase 4+ vector scale |
+| **Artifacts** | GcsArtifactService (production) / InMemoryArtifactService (local) | GCS survives Cloud Run scale-out; in-memory fine for dev |
+| **Sessions** | DatabaseSessionService — SQLite (local), Cloud SQL (production) | Persistent sessions across restarts |
+| **Linear client** | httpx.AsyncClient with http2=True, connection reuse | One TLS handshake per pipeline cycle (two API calls reuse connection) |
+| **Testing** | pytest + ADK evals | 127 unit tests (deterministic); 5 golden traces (agent behavior) |
 | **CI/CD** | GitHub Actions (two-tier) | Tier 1: no-GCP fast checks. Tier 2: Gemini evals on main |
 | **Package mgmt** | `uv` (backend), `npm` (frontend) | Fast, deterministic installs |
+| **Deploy** | Cloud Run (backend + frontend), Cloud SQL | Automated via `deploy/deploy.sh` |
 
 ---
 
@@ -222,7 +239,7 @@ docker-compose up               # Backend :8080 + Frontend :3000
 │  │      └── Executor ────────── writes to Linear (if approved)      │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────────────┐   │
-│  │ MockLinearMCP│ │ RealLinearMCP│ │ AlloyDB (Phase 2+)           │   │
+│  │ MockLinearMCP│ │ RealLinearMCP│ │ Cloud SQL PostgreSQL 16      │   │
 │  └──────────────┘ └──────────────┘ └──────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -279,12 +296,13 @@ Full data schema: [`context/data-schema.ts`](context/data-schema.ts)
 
 ## Honest Limitations
 
-- **Cold-start problem.** A new workspace with no Linear history gets no useful signals. Aegis needs 2+ weeks of ticket data to detect patterns.
-- **Linear only.** No Jira, Asana, Notion, or GitHub Projects integration yet. Linear's API quality made it the right v1 target.
-- **LLM confidence is not probability.** A `0.81 confidence` from Product Brain is a model's self-assessment, not a calibrated statistical measure. Treat it as a ranking signal.
-- **Mock data in demo.** Mission Control dashboard currently shows mock pipeline data. Real-time AG-UI stage emissions are wired for stages 1-2; stages 3-5 are next.
-- **In-memory state.** No persistent storage yet — data is lost on restart. AlloyDB integration is Phase 7.
-- **Advisory, not prescriptive.** Aegis surfaces findings; the founder decides. It will never auto-close a ticket or auto-reassign work.
+- **Cold-start problem.** A new workspace with no Linear history gets no useful signals. Aegis needs 2+ weeks of ticket data to detect patterns. The Governor's duplicate suppression and rate cap are also less meaningful on the first 1–2 cycles.
+- **Linear only.** No Jira, Asana, Notion, or GitHub Projects integration. Linear's API quality (typed GraphQL, cycle data, relations graph) made it the right v1 target.
+- **LLM confidence is not probability.** A `0.81 confidence` from Product Brain is the model's self-assessment, not a calibrated statistical measure. Treat it as a ranking signal, not a p-value.
+- **Session history re-hydration is incomplete.** After a page revisit, the chat history component does not yet re-hydrate from stored sessions. Pipeline state is persisted correctly in PostgreSQL; the UI rendering of prior conversation is a known gap.
+- **No real-time Linear webhooks.** Scans are triggered manually or on a cron schedule — not on every issue update. Signal latency is up to 7 days between scans.
+- **Eval scores measure tool trajectory only.** `tool_trajectory_avg_score ≥ 0.8` measures whether the right tools were called in the right order. It does not measure the quality of the risk classification headline or intervention rationale — those require human review.
+- **Advisory, not prescriptive.** Aegis surfaces findings; the founder decides. It will never auto-close a ticket, auto-reassign work, or take any action without explicit approval.
 
 ---
 
@@ -292,34 +310,31 @@ Full data schema: [`context/data-schema.ts`](context/data-schema.ts)
 
 | Phase | What | Status |
 |-------|------|--------|
-| 1 | Signal Engine + 5 golden eval traces | Done |
-| 2 | Product Brain debate (Cynic + Optimist + Pro synthesis) | Done |
-| 3 | Coordinator + Governor (8 deterministic policy checks) | Done |
-| 4 | Executor + Override & Teach + approval handler | Done |
-| 5 | Glassmorphic UI (Mission Control, Inbox, Chat, HITL surfaces) | Done |
-| 5b | Frontend ↔ Backend wiring (chat works, dashboard data pending) | In progress |
-| 6 | Bet Declaration flow + Jules Subject Hygiene | Next |
-| 7 | AlloyDB persistence + deployment hardening | Planned |
+| 1 | Signal Engine + 5 golden eval traces, 127 unit tests | ✅ Done |
+| 2 | Product Brain debate (Cynic + Optimist + Pro synthesis) | ✅ Done |
+| 3 | Coordinator + Governor (8 deterministic policy checks) | ✅ Done |
+| 4 | Executor + Override & Teach + approval handler | ✅ Done |
+| 5 | Linear-inspired UI (Mission Control, Inbox, Chat, HITL surfaces) | ✅ Done |
+| 5b | Frontend ↔ Backend wiring — chat, pipeline, Directions live | ✅ Done |
+| 6 | Bet Declaration API + modal, SQLite session persistence | ✅ Done |
+| 7 | Cloud SQL PostgreSQL, GCS artifacts, Cloud Run deploy hardening | ✅ Done |
 
 ---
 
 ## Running Tests
 
 ```bash
-# Backend — 118 unit tests, no GCP required
+# Backend — 127 unit tests, no GCP required
 cd backend && make test
 
-# Backend — integration tests (needs GCP credentials)
-cd backend && make test-integration
-
-# Backend — all 5 agent eval traces
+# Backend — all 5 agent eval traces (needs GCP credentials)
 cd backend && make eval-all
 
 # Backend — lint + type check
 cd backend && make lint
 
-# Frontend — type check + lint
-cd frontend && npx tsc --noEmit && npm run lint
+# Frontend — lint
+cd frontend && npm run lint
 ```
 
 ---
@@ -332,34 +347,49 @@ aegis-agentic-product-os/
 │   ├── app/
 │   │   ├── agent.py                 # Root pipeline entry point
 │   │   ├── main.py                  # FastAPI + AG-UI SSE endpoint
-│   │   ├── agents/                  # 5 pipeline agents
-│   │   │   ├── signal_engine.py     # Deterministic metrics
-│   │   │   ├── product_brain.py     # LLM debate (Cynic/Optimist/Pro)
-│   │   │   ├── coordinator.py       # Intervention selection
-│   │   │   ├── governor.py          # 8 policy checks
-│   │   │   ├── executor.py          # Linear writes
+│   │   ├── config.py                # Env-based config (no Secret Manager overhead)
+│   │   ├── approval_handler.py      # approve/reject intervention
+│   │   ├── session_store.py         # SQLite (local) / Cloud SQL (prod)
+│   │   ├── agents/
+│   │   │   ├── signal_engine.py     # Deterministic metrics (no LLM)
+│   │   │   ├── product_brain.py     # Debate: Cynic → Optimist → Synthesis
+│   │   │   ├── coordinator.py       # Intervention selection (taxonomy-constrained)
+│   │   │   ├── governor.py          # 8 deterministic policy checks (no LLM)
+│   │   │   ├── executor.py          # Bounded Linear writes
 │   │   │   └── conversational.py    # Unified chat + pipeline trigger
-│   │   ├── tools/                   # MockLinearMCP + RealLinearMCP
-│   │   └── models/                  # Pydantic schemas
+│   │   └── app_utils/               # input_context_hash, trace_logging
+│   ├── db/
+│   │   ├── engine.py                # SQLAlchemy async engine
+│   │   └── repository.py            # Data access layer
+│   ├── models/                      # Pydantic schemas (mirrors data-schema.ts)
+│   ├── tools/
+│   │   ├── linear_tools.py          # MockLinearMCP + RealLinearMCP (http2, connection reuse)
+│   │   ├── jules_service.py         # Jules API integration
+│   │   └── lenny_mcp.py             # Lenny MCP client
+│   ├── migrations/                  # Alembic versions
 │   ├── tests/
-│   │   ├── unit/                    # 118 deterministic tests
+│   │   ├── unit/                    # 127 deterministic tests
 │   │   ├── integration/             # Live Gemini tests
-│   │   └── eval/evalsets/           # 5 golden traces
+│   │   └── eval/evalsets/           # 5 golden traces (.evalset.json)
 │   └── Makefile
 ├── frontend/
-│   ├── app/workspace/               # Pages: home, inbox, mission-control
-│   ├── components/layout/           # GlassmorphicLayout, Sidebar, HeaderBar
-│   ├── components/interventions/    # HITL approval surfaces
-│   ├── hooks/                       # useChatController, useAgentStateSync
-│   └── lib/                         # Types, API client, constants
-├── context/                         # Source-of-truth docs
-│   ├── data-schema.ts               # All entities and fields
-│   ├── agent-architecture.md        # Pipeline spec (576 lines)
-│   ├── DESIGN_SPEC.md               # Product spec
-│   └── product-principles.md        # UX and framing rules
+│   ├── app/workspace/               # Pages: home, inbox, mission-control, directions
+│   ├── components/
+│   │   ├── layout/                  # LinearLayout, Sidebar, Providers (CopilotKit)
+│   │   ├── interventions/           # ApprovalCard, InterventionInbox, SuppressionLog
+│   │   └── chat/                    # Conversational agent surface
+│   ├── hooks/                       # useWorkspaceState, useAgentStateSync, etc.
+│   └── lib/                         # types.ts, constants.ts, api.ts
+├── context/                         # Read before coding
+│   ├── data-schema.ts               # Source of truth for all entities and fields
+│   ├── agent-architecture.md        # Pipeline spec
+│   ├── DESIGN_SPEC.md               # Full product spec
+│   └── product-principles.md        # UX copy + risk classification rules
+├── deploy/
+│   └── deploy.sh                    # Cloud Run + Cloud SQL one-command deploy
 ├── .github/workflows/
-│   ├── tier-1-ci.yml                # Fast checks (every push)
-│   └── tier-2-eval.yml              # Evals + integration (main only)
+│   ├── agentic-ci.yml               # Unit tests + evals (Workload Identity Auth)
+│   └── gemini-review.yml            # PR code review via Gemini
 └── docker-compose.yml
 ```
 

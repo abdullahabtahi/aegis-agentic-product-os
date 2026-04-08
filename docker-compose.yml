@@ -18,12 +18,17 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # Baked into the client bundle at build time — browser reaches backend via host port
+        - NEXT_PUBLIC_BACKEND_URL=http://localhost:8080
     container_name: aegis-frontend
     ports:
       - "3000:3000"
     environment:
-      # backend refers to the service name in this network
-      - BACKEND_URL=http://backend:8080/
+      # Server-side (Next.js API route → ag_ui_adk SSE endpoint)
+      - BACKEND_URL=http://backend:8080/adk/v1/app
+      # Passed to browser as runtime fallback for workspace
+      - NEXT_PUBLIC_DEFAULT_WORKSPACE_ID=ws-demo
     depends_on:
       - backend
     networks:

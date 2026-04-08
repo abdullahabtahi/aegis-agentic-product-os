@@ -313,10 +313,19 @@ class RealLinearMCP:
     def __init__(self, api_key: str) -> None:
         # Linear personal API keys are sent without the "Bearer" prefix.
         # Bearer prefix → INPUT_ERROR 400 from Linear GraphQL API.
+        import httpx
+
         self._headers = {
             "Authorization": api_key,
             "Content-Type": "application/json",
         }
+        # Long-lived client for connection reuse across calls within a pipeline cycle.
+        # Signal Engine always calls list_issues then list_issue_relations — reusing
+        # the same TCP/TLS connection saves ~100–200ms per scan.
+        self._client = httpx.AsyncClient(
+            timeout=30.0,
+            http2=True,
+        )
         # Relations cache populated by list_issues; consumed by list_issue_relations.
         # This avoids a second round-trip since Signal Engine always calls
         # list_issues before list_issue_relations within the same pipeline cycle.
@@ -326,19 +335,16 @@ class RealLinearMCP:
         self, query: str, variables: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         variables = variables or {}
-        import httpx  # lazy import — only needed when LINEAR_API_KEY is set
-
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                self._GRAPHQL_URL,
-                headers=self._headers,
-                json={"query": query, "variables": variables},
-            )
-            response.raise_for_status()
-            data = response.json()
-            if "errors" in data:
-                raise RuntimeError(f"Linear GraphQL error: {data['errors']}")
-            return data["data"]
+        response = await self._client.post(
+            self._GRAPHQL_URL,
+            headers=self._headers,
+            json={"query": query, "variables": variables},
+        )
+        response.raise_for_status()
+        data = response.json()
+        if "errors" in data:
+            raise RuntimeError(f"Linear GraphQL error: {data['errors']}")
+        return data["data"]
 
     async def list_issues(
         self,

@@ -40,6 +40,7 @@ DATABASE_URL="postgresql+asyncpg://${DB_USER}:${DB_PASS}@/${DB_NAME}?host=/cloud
 BACKEND_SERVICE="${BACKEND_SERVICE:-aegis-backend}"
 FRONTEND_SERVICE="${FRONTEND_SERVICE:-aegis-frontend}"
 LINEAR_API_KEY="${LINEAR_API_KEY:-}"
+JULES_API_KEY="${JULES_API_KEY:-}"
 
 # If no Linear key is provided, run in mock mode so the backend doesn't
 # error-out on live Linear API calls in Cloud Run.
@@ -138,6 +139,15 @@ if [[ -n "${LINEAR_API_KEY}" ]]; then
   LINEAR_SECRET_EXISTS="true"
 fi
 
+JULES_SECRET_EXISTS="false"
+if [[ -n "${JULES_API_KEY}" ]]; then
+  echo -n "${JULES_API_KEY}" | gcloud secrets create aegis-jules-key \
+    --data-file=- --project="${PROJECT_ID}" --quiet 2>/dev/null || \
+    echo -n "${JULES_API_KEY}" | gcloud secrets versions add aegis-jules-key \
+      --data-file=- --project="${PROJECT_ID}" --quiet
+  JULES_SECRET_EXISTS="true"
+fi
+
 # ─── 6a. GCS artifact bucket ─────────────────────────────────────────────────
 # ADK GcsArtifactService needs a bucket. InMemoryArtifactService loses data
 # on Cloud Run scale-out (each instance has its own store).
@@ -198,6 +208,14 @@ if [[ "${LINEAR_SECRET_EXISTS}" == "true" ]]; then
     --project="${PROJECT_ID}" --quiet 2>/dev/null || true
 fi
 
+# Secret Manager — Jules key (only if the secret was created)
+if [[ "${JULES_SECRET_EXISTS}" == "true" ]]; then
+  gcloud secrets add-iam-policy-binding aegis-jules-key \
+    --member="serviceAccount:${DEFAULT_SA}" \
+    --role="roles/secretmanager.secretAccessor" \
+    --project="${PROJECT_ID}" --quiet 2>/dev/null || true
+fi
+
 # GCS artifact bucket — required for GcsArtifactService
 gcloud storage buckets add-iam-policy-binding "gs://${ARTIFACT_BUCKET}" \
   --member="serviceAccount:${DEFAULT_SA}" \
@@ -211,10 +229,14 @@ sleep 30
 
 echo "==> Deploying backend Cloud Run service..."
 
-# Build the --set-secrets flag only when the Linear secret exists.
+# Build the --set-secrets flag only when secrets exist.
 SECRET_FLAGS=""
 if [[ "${LINEAR_SECRET_EXISTS}" == "true" ]]; then
   SECRET_FLAGS="--set-secrets=LINEAR_API_KEY=aegis-linear-key:latest"
+fi
+if [[ "${JULES_SECRET_EXISTS}" == "true" ]]; then
+  JULES_SECRET_FLAG="--set-secrets=JULES_API_KEY=aegis-jules-key:latest"
+  SECRET_FLAGS="${SECRET_FLAGS:+${SECRET_FLAGS} }${JULES_SECRET_FLAG}"
 fi
 
 gcloud run deploy "${BACKEND_SERVICE}" \
@@ -232,6 +254,7 @@ gcloud run deploy "${BACKEND_SERVICE}" \
   --set-env-vars="\
 GOOGLE_CLOUD_PROJECT=${PROJECT_ID},\
 GOOGLE_CLOUD_LOCATION=global,\
+GOOGLE_GENAI_USE_VERTEXAI=true,\
 DATABASE_URL=${DATABASE_URL},\
 AEGIS_SESSION_DB=${DATABASE_URL},\
 AEGIS_MOCK_LINEAR=${MOCK_LINEAR},\

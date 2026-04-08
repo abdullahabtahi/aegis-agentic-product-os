@@ -469,19 +469,26 @@ async def get_intervention_history(
     if not workspace_id:
         return {"status": "error", "message": "No workspace configured"}
 
-    # TODO: Query AlloyDB interventions table
-    # For now, return placeholder
-    return {
-        "status": "success",
-        "interventions": [
-            {
-                "action": "add_success_metric",
-                "bet": "Ship v2 onboarding",
-                "timestamp": "2h ago",
-                "outcome": "Created Linear issue ENG-47",
-            }
-        ],
-    }
+    from db.repository import get_recent_interventions_for_workspace
+
+    rows = await get_recent_interventions_for_workspace(workspace_id, limit=limit)
+    if not rows:
+        return {"status": "success", "interventions": [], "total": 0}
+
+    interventions = [
+        {
+            "action": row.get("action_type"),
+            "bet": row.get("bet_name") or row.get("bet_id"),
+            "status": row.get("status"),
+            "escalation_level": row.get("escalation_level"),
+            "confidence": row.get("confidence"),
+            "rationale": row.get("rationale"),
+            "created_at": str(row.get("created_at", "")),
+            "decided_at": str(row.get("decided_at", "")) if row.get("decided_at") else None,
+        }
+        for row in rows
+    ]
+    return {"status": "success", "interventions": interventions, "total": len(interventions)}
 
 
 async def explain_risk_type(

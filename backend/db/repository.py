@@ -372,6 +372,39 @@ async def get_workspace_intervention_stats(workspace_id: str) -> dict:
         return {"accepted": 0, "rejected": 0}
 
 
+async def get_recent_interventions_for_workspace(
+    workspace_id: str,
+    limit: int = 10,
+) -> list[dict]:
+    """Get recent interventions across all bets for a workspace (newest first).
+    Used by the conversational agent to report what actions Aegis has taken.
+    """
+    if not is_db_configured():
+        return []
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                text("""
+                    SELECT i.id, i.bet_id, i.action_type, i.escalation_level,
+                           i.status, i.rationale, i.confidence,
+                           i.created_at, i.decided_at,
+                           b.name AS bet_name
+                    FROM interventions i
+                    LEFT JOIN bets b ON b.id = i.bet_id
+                    WHERE i.workspace_id = :wid
+                    ORDER BY i.created_at DESC
+                    LIMIT :limit
+                """),
+                {"wid": workspace_id, "limit": limit},
+            )
+            return [dict(row._mapping) for row in result]
+    except Exception as exc:
+        logger.warning(
+            "Failed to read interventions for workspace %s: %s", workspace_id, exc
+        )
+        return []
+
+
 # ─────────────────────────────────────────────
 # WORKSPACES
 # ─────────────────────────────────────────────

@@ -7,3 +7,11 @@ __pycache__
 frontend
 node_modules
 .next
+# Never bake secrets or local state into the image
+.env
+*.db
+*.log
+.adk/
+.pytest_cache/
+.ruff_cache/
+testsprite_tests/

@@ -241,6 +241,8 @@ def create_coordinator_agent() -> Agent:
 
     See signal_engine.py factory comment for why singletons break ADK eval.
     """
+    from google.genai import types
+
     return Agent(
         name="coordinator",
         model="gemini-3.1-pro-preview",
@@ -249,4 +251,8 @@ def create_coordinator_agent() -> Agent:
         tools=[propose_intervention],
         before_agent_callback=before_coordinator,
         after_agent_callback=after_coordinator,
+        generate_content_config=types.GenerateContentConfig(
+            temperature=0.2,
+            max_output_tokens=1024,
+        ),
     )

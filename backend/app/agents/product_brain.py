@@ -20,8 +20,11 @@ Key design decisions (CLAUDE.md):
 
 from __future__ import annotations
 
+import logging
 import json
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 from google.adk.agents import Agent, SequentialAgent
 from google.adk.agents.callback_context import CallbackContext
@@ -290,16 +293,41 @@ async def before_cynic(callback_context: CallbackContext) -> types.Content | Non
     )
 
 
-async def before_synthesis(callback_context: CallbackContext) -> None:
-    """Format Cynic and Optimist assessments as JSON strings for synthesis instruction."""
+async def before_synthesis(callback_context: CallbackContext) -> types.Content | None:
+    """Format Cynic and Optimist assessments as JSON strings for synthesis instruction.
+
+    Short-circuits synthesis if either debate agent failed to emit its assessment.
+    This prevents the pro-model from synthesising a risk signal from literally
+    '(cynic did not respond)' — which would be a hallucinated signal.
+    """
     cynic = callback_context.state.get("cynic_assessment", {})
     optimist = callback_context.state.get("optimist_assessment", {})
-    callback_context.state["pb_cynic_json"] = (
-        json.dumps(cynic, indent=2) if cynic else "(cynic did not respond)"
-    )
-    callback_context.state["pb_optimist_json"] = (
-        json.dumps(optimist, indent=2) if optimist else "(optimist did not respond)"
-    )
+
+    if not cynic or not optimist:
+        missing = []
+        if not cynic:
+            missing.append("cynic")
+        if not optimist:
+            missing.append("optimist")
+        logger.warning(
+            "[ProductBrain] Synthesis skipped — missing debate assessment(s): %s",
+            ", ".join(missing),
+        )
+        callback_context.state["pb_cynic_json"] = "(cynic did not respond)"
+        callback_context.state["pb_optimist_json"] = "(optimist did not respond)"
+        return types.Content(
+            role="model",
+            parts=[
+                types.Part.from_text(
+                    text="[ProductBrain] Synthesis skipped — incomplete debate data. "
+                    f"Missing: {', '.join(missing)}. No risk signal emitted."
+                )
+            ],
+        )
+
+    callback_context.state["pb_cynic_json"] = json.dumps(cynic, indent=2)
+    callback_context.state["pb_optimist_json"] = json.dumps(optimist, indent=2)
+    return None
 
 
 def _synthesis_output_has_valid_tool_call(llm_response: LlmResponse) -> bool:
@@ -508,6 +536,10 @@ def create_product_brain_debate() -> SequentialAgent:
                 # if only one tool is registered per agent.
                 tools=[emit_cynic_assessment, emit_optimist_assessment],
                 before_agent_callback=before_cynic,
+                generate_content_config=types.GenerateContentConfig(
+                    temperature=0.0,
+                    max_output_tokens=1024,
+                ),
             ),
             Agent(
                 name="product_brain_optimist",
@@ -515,6 +547,10 @@ def create_product_brain_debate() -> SequentialAgent:
                 instruction=_OPTIMIST_INSTRUCTION,
                 description="Optimistic risk analyst. Surfaces mitigating factors for Linear signals.",
                 tools=[emit_optimist_assessment, emit_cynic_assessment],
+                generate_content_config=types.GenerateContentConfig(
+                    temperature=0.0,
+                    max_output_tokens=1024,
+                ),
             ),
             Agent(
                 name="product_brain_synthesis",
@@ -524,6 +560,10 @@ def create_product_brain_debate() -> SequentialAgent:
                 tools=[emit_risk_signal, search_lenny_transcripts],
                 before_agent_callback=before_synthesis,
                 after_agent_callback=after_synthesis,
+                generate_content_config=types.GenerateContentConfig(
+                    temperature=0.2,
+                    max_output_tokens=2048,
+                ),
                 after_model_callback=after_synthesis_model,
             ),
         ],
