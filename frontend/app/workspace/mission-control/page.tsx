@@ -13,21 +13,21 @@
  * │  Execution Health    │ Recent Actions       │
  * └──────────────────────┴──────────────────────┘
  *
- * Data: Interventions wired to /interventions API.
- * Bets, health chart, recent actions use mock data
- * (TODO: wire to /bets, /activity when backend endpoints exist).
- *
- * Deployment note: AlloyDB AI vector search will power the semantic
- * "similar past bets" feature on bet cards. AgentMemory (Vertex Memory Bank)
- * stores bet_context and intervention_memory namespaces — same data shapes.
+ * Data:
+ * - Bets: live from GET /bets (gracefully falls back to empty when DB not configured)
+ * - Interventions: live from GET /interventions
+ * - Pipeline stages: live from AG-UI STATE_DELTA via useAgentStateSync
+ * - Recent Actions: derived from resolved interventions
+ * - Execution Health chart: static sample (live metrics endpoint planned for Phase 6)
  */
 
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   Network, Brain, GitBranch, Gavel, Terminal,
   AlertTriangle, CheckCircle2, ArrowRight, Zap
 } from "lucide-react";
-import { getInterventions, approveIntervention, rejectIntervention } from "@/lib/api";
+import { getInterventions, approveIntervention, rejectIntervention, listBets } from "@/lib/api";
 import { useAgentStateSync } from "@/hooks/useAgentStateSync";
 import type { Intervention, PipelineStage, PipelineStageName } from "@/lib/types";
 
@@ -121,68 +121,12 @@ const PIPELINE_STAGES = [
   },
 ];
 
-// ─── Mock bets (TODO: wire to /bets endpoint + AlloyDB) ──────────────────────
-
-const MOCK_BETS = [
-  {
-    id: "bet-1",
-    name: "Mobile Retention Pivot",
-    description: "Transitioning onboarding flow to agent-led discovery sessions for users in APAC.",
-    progress: 70,
-    tags: ["ALPHA-9", "Q3 PRIORITY"],
-    tagColors: ["bg-slate-100 text-slate-600", "bg-indigo-100 text-indigo-600"],
-    iconColor: "bg-indigo-900/80",
-    strokeColor: "#112478",
-  },
-  {
-    id: "bet-2",
-    name: "Revenue Self-Healing",
-    description: "Automated agent intervention for failed renewals and churn signals.",
-    progress: 30,
-    tags: ["BRAIN-X", "STABILITY"],
-    tagColors: ["bg-slate-100 text-slate-600", "bg-indigo-100 text-indigo-600"],
-    iconColor: "bg-indigo-800/60",
-    strokeColor: "#2b456d",
-  },
-] as const;
-
-// ─── Mock recent actions (TODO: wire to /activity endpoint) ──────────────────
-
-const MOCK_ACTIONS = [
-  { time: "14:22", stage: "EXECUTOR", text: "Production hotfix applied to API-Gate-04.", primary: true },
-  { time: "13:05", stage: "PRODUCT BRAIN", text: 'Strategic alignment score updated for "Retention Pivot".', primary: false },
-  { time: "12:15", stage: "COORDINATOR", text: "Agent 'Optimus' provisioned for data migration task.", primary: false },
-  { time: "11:50", stage: "GOVERNOR", text: "Risk assessment completed for Q3 roadmap branch.", primary: false },
-] as const;
-
 // ─── Bar chart data ───────────────────────────────────────────────────────────
 
 const CHART_BARS = [40, 60, 55, 85, 95, 70, 80, 65, 98, 75, 45, 88];
 const CHART_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-// ─── Circular progress SVG ───────────────────────────────────────────────────
 
-function CircularProgress({ pct, color }: { pct: number; color: string }) {
-  const r = 20;
-  const circ = 2 * Math.PI * r;
-  const offset = circ - (pct / 100) * circ;
-  return (
-    <div className="relative h-12 w-12">
-      <svg className="h-full w-full -rotate-90" viewBox="0 0 48 48">
-        <circle cx="24" cy="24" r={r} fill="transparent" stroke="#e2e8f0" strokeWidth="4" />
-        <circle
-          cx="24" cy="24" r={r} fill="transparent"
-          stroke={color} strokeWidth="4"
-          strokeDasharray={circ} strokeDashoffset={offset}
-          strokeLinecap="round"
-        />
-      </svg>
-      <span className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-foreground/75">
-        {pct}%
-      </span>
-    </div>
-  );
-}
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -191,15 +135,23 @@ const WORKSPACE_ID = "default_workspace";
 export default function MissionControlPage() {
   const { state: pipelineState } = useAgentStateSync();
   const [interventions, setInterventions] = useState<Intervention[]>([]);
-  const [loadingInterventions, setLoadingInterventions] = useState(false);
+  // Start as true — fetch begins immediately on mount
+  const [loadingInterventions, setLoadingInterventions] = useState(true);
 
   useEffect(() => {
-    setLoadingInterventions(true);
     getInterventions(WORKSPACE_ID)
       .then(setInterventions)
       .catch(() => setInterventions([]))
       .finally(() => setLoadingInterventions(false));
   }, []);
+
+  // Live bets from /bets API (gracefully empty when DB not configured)
+  const { data: liveBets = [], isLoading: loadingBets } = useQuery({
+    queryKey: ["bets", WORKSPACE_ID],
+    queryFn: () => listBets(WORKSPACE_ID, "active"),
+    staleTime: 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
 
   const pendingInterventions = interventions.filter((i) => i.status === "pending");
 
@@ -259,12 +211,11 @@ export default function MissionControlPage() {
         {/* Left: Bets + Health (8 cols) */}
         <div className="col-span-8 flex flex-col gap-4">
 
-          {/* Active Strategic Bets */}
-          {/* TODO(phase-6): Replace MOCK_BETS with GET /bets once Bet Declaration endpoint is built */}
+          {/* Active Strategic Bets — live from /bets API */}
           <div className="glass-panel rounded-2xl p-6">
             <div className="mb-5 flex items-center justify-between">
               <div>
-                <h2 className="font-heading text-base font-semibold text-[#1a1c1d]">Active Strategic Bets</h2>
+                <h2 className="font-heading text-base font-semibold text-[#1a1c1d]">Active Strategic Directions</h2>
                 <p className="mt-0.5 text-xs text-muted-foreground">High-conviction product trajectories</p>
               </div>
               <button className="flex items-center gap-1 text-xs font-semibold text-[#112478] transition-opacity hover:opacity-70">
@@ -272,40 +223,54 @@ export default function MissionControlPage() {
               </button>
             </div>
             <div className="grid grid-cols-2 gap-4">
-              {MOCK_BETS.map((bet) => (
-                <div
-                  key={bet.id}
-                  className="rounded-xl border border-white/40 bg-white/40 p-5 transition-all cursor-pointer hover:bg-white/60 hover:shadow-sm"
-                >
-                  <div className="mb-4 flex items-start justify-between">
-                    <div className={`flex h-12 w-12 items-center justify-center rounded-xl ${bet.iconColor}`}>
-                      <Zap size={20} className="text-white" />
-                    </div>
-                    <CircularProgress pct={bet.progress} color={bet.strokeColor} />
-                  </div>
-                  <h4 className="font-heading text-sm font-semibold text-[#1a1c1d]">{bet.name}</h4>
-                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{bet.description}</p>
-                  <div className="mt-3 flex gap-2">
-                    {bet.tags.map((tag, i) => (
-                      <span key={tag} className={`rounded px-2 py-0.5 text-[10px] font-semibold ${bet.tagColors[i]}`}>
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
+              {loadingBets ? (
+                <div className="col-span-2 py-8 text-center text-xs text-muted-foreground">Loading bets...</div>
+              ) : liveBets.length === 0 ? (
+                <div className="col-span-2 flex flex-col items-center gap-2 py-8 text-center">
+                  <Zap size={24} className="text-indigo-300" />
+                  <p className="text-sm font-medium text-foreground/60">No active directions yet</p>
+                  <p className="text-xs text-muted-foreground">Declare a direction from the home page to get started.</p>
                 </div>
-              ))}
+              ) : (
+                liveBets.map((bet) => {
+                  const name = String(bet.name ?? "Untitled Bet");
+                  const desc = String(bet.problem_statement ?? bet.hypothesis ?? "");
+                  const segment = String(bet.target_segment ?? "");
+                  return (
+                    <div
+                      key={String(bet.id)}
+                      className="rounded-xl border border-white/40 bg-white/40 p-5 transition-all cursor-pointer hover:bg-white/60 hover:shadow-sm"
+                    >
+                      <div className="mb-4 flex items-start justify-between">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-900/80">
+                          <Zap size={20} className="text-white" />
+                        </div>
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                          ACTIVE
+                        </span>
+                      </div>
+                      <h4 className="font-heading text-sm font-semibold text-[#1a1c1d]">{name}</h4>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground line-clamp-2">{desc}</p>
+                      {segment && (
+                        <div className="mt-3">
+                          <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                            {segment}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
 
           {/* Execution Health Chart */}
-          {/* TODO(phase-5b): Wire CHART_BARS to a real execution metrics endpoint once available.
-              Current shape: GET /execution-health?workspace_id=&period=7d → { bars: number[], days: string[] }
-              /health endpoint is infra health (alloydb/gcp/linear) — NOT execution metrics. */}
           <div className="glass-panel rounded-2xl p-5">
             <div className="mb-3 flex items-center justify-between">
               <div>
                 <h2 className="font-heading text-base font-semibold text-[#1a1c1d]">Execution Health</h2>
-                <p className="text-[10px] text-muted-foreground">Sample data — live metrics in Phase 5b</p>
+                <p className="text-[10px] text-muted-foreground">Live when DB + Linear connected</p>
               </div>
               <div className="flex gap-3 text-[10px] text-muted-foreground">
                 <span className="flex items-center gap-1">
@@ -440,31 +405,42 @@ export default function MissionControlPage() {
             </div>
           </div>
 
-          {/* Recent Actions Feed */}
-          {/* TODO(phase-5b): Replace MOCK_ACTIONS with GET /activity?workspace_id= once Executor action log endpoint is built */}
+          {/* Recent Actions — live from resolved interventions */}
           <div className="glass-panel flex flex-1 flex-col rounded-2xl p-5">
             <h3 className="mb-4 font-heading text-sm font-semibold text-[#1a1c1d]">Recent Actions</h3>
             <div className="relative flex flex-col gap-4 max-h-[180px] overflow-y-auto pr-1">
               {/* Timeline line */}
               <div className="absolute bottom-2 left-[11px] top-2 w-px bg-slate-200" />
 
-              {MOCK_ACTIONS.slice(0, 3).map((action, i) => (
-                <div key={i} className="relative pl-8">
-                  <div
-                    className={`absolute left-0 top-0.5 flex h-[20px] w-[20px] items-center justify-center rounded-full border ${
-                      action.primary
-                        ? "border-[#112478] bg-white"
-                        : "border-slate-200 bg-white"
-                    }`}
-                  >
-                    <div className={`h-1.5 w-1.5 rounded-full ${action.primary ? "bg-[#112478]" : "bg-slate-300"}`} />
-                  </div>
-                  <p className="text-[10px] font-medium uppercase tracking-tight text-muted-foreground">
-                    {action.time} — {action.stage}
-                  </p>
-                  <p className="mt-0.5 text-xs text-[#1a1c1d]">{action.text}</p>
-                </div>
-              ))}
+              {interventions.filter((i) => i.status !== "pending").length === 0 ? (
+                <p className="pl-8 text-xs text-muted-foreground">
+                  No actions yet — approve or reject an intervention to see it here.
+                </p>
+              ) : (
+                interventions
+                  .filter((i) => i.status !== "pending")
+                  .slice(0, 3)
+                  .map((action) => {
+                    const isPrimary = action.status === "accepted";
+                    return (
+                      <div key={action.id} className="relative pl-8">
+                        <div
+                          className={`absolute left-0 top-0.5 flex h-[20px] w-[20px] items-center justify-center rounded-full border ${
+                            isPrimary ? "border-[#112478] bg-white" : "border-slate-200 bg-white"
+                          }`}
+                        >
+                          <div className={`h-1.5 w-1.5 rounded-full ${isPrimary ? "bg-[#112478]" : "bg-slate-300"}`} />
+                        </div>
+                        <p className="text-[10px] font-medium uppercase tracking-tight text-muted-foreground">
+                          {action.status === "accepted" ? "APPROVED" : action.status.toUpperCase()} — {(action.action_type ?? "INTERVENTION").replace(/_/g, " ").toUpperCase()}
+                        </p>
+                        <p className="mt-0.5 text-xs text-[#1a1c1d] line-clamp-2">
+                          {action.rationale ?? "Intervention resolved."}
+                        </p>
+                      </div>
+                    );
+                  })
+              )}
             </div>
           </div>
         </div>

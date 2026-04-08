@@ -8,13 +8,17 @@ No separate router needed - agent decides internally when to trigger pipeline vs
 """
 
 import logging
+import os
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import httpx
 from google.adk.agents import Agent
 from google.adk.tools import ToolContext
 
 from app.agents.signal_engine import compute_signals
+from models.schema import Bet as BetModel
 from tools.linear_tools import get_linear_mcp
 
 logger = logging.getLogger(__name__)
@@ -93,6 +97,11 @@ async def run_pipeline_scan(
                 "message": "Missing workspace_id or bet in session state. "
                           "Please provide bet details first."
             }
+
+        # ADK session state serializes everything as dicts (JSON).
+        # compute_signals expects a Pydantic Bet model — normalize here.
+        if isinstance(bet, dict):
+            bet = BetModel.model_validate(bet)
 
         logger.info("[ConversationalAgent] Triggering pipeline scan for bet %s", bet_id)
 
@@ -179,25 +188,86 @@ async def query_linear_issues(
     Returns:
         List of matching issues with titles, status, URLs
     """
-    workspace_id = tool_context.state.get("workspace_id")
-    if not workspace_id:
-        return {"status": "error", "message": "No workspace configured"}
+    api_key = os.environ.get("LINEAR_API_KEY", "").strip()
+    if not api_key or os.environ.get("AEGIS_MOCK_LINEAR", "").lower() == "true":
+        return {
+            "status": "not_connected",
+            "message": "Linear is not connected.",
+            "setup_steps": [
+                "Add LINEAR_API_KEY to backend/.env (Linear → Settings → API → Personal API keys)",
+                "Set AEGIS_MOCK_LINEAR=false in backend/.env",
+                "Restart the backend with `make run`",
+            ],
+            "available_now": [
+                "Declare a direction and I'll scan it for strategy risks",
+                "Ask me to explain any risk type (strategy_unclear, alignment_issue, execution_issue)",
+            ],
+        }
 
-    # TODO: Implement actual Linear query via LinearMCP
-    # For now, return placeholder
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
+    workspace_id = tool_context.state.get("workspace_id")
+
+    issue_filter: dict[str, Any] = {"updatedAt": {"gte": cutoff}}
+    if workspace_id:
+        issue_filter["project"] = {"id": {"in": [workspace_id]}}
+
+    # Lightweight query — no history/rollover fields (those belong to Signal Engine only)
+    gql = """
+    query AegisConversationalIssues($filter: IssueFilter!, $first: Int!) {
+      issues(filter: $filter, first: $first) {
+        nodes {
+          id
+          title
+          state { name }
+          updatedAt
+          url
+        }
+      }
+    }
+    """
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as http:
+            resp = await http.post(
+                "https://api.linear.app/graphql",
+                headers={"Authorization": api_key, "Content-Type": "application/json"},
+                json={"query": gql, "variables": {"filter": issue_filter, "first": 20}},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if "errors" in data:
+                return {"status": "error", "message": str(data["errors"])}
+    except httpx.HTTPStatusError as e:
+        return {"status": "error", "message": f"Linear API error: {e.response.status_code}"}
+    except Exception as e:
+        return {"status": "error", "message": f"Request failed: {e}"}
+
+    nodes = data["data"]["issues"]["nodes"]
+
+    # Keyword filter when a specific query is provided
+    q = query.lower()
+    if q and q not in ("all", "recent", "latest", "issues"):
+        nodes = [n for n in nodes if q in n["title"].lower()]
+
     return {
         "status": "success",
-        "message": f"Searching Linear for: {query}",
+        "total": len(nodes),
         "issues": [
-            {"id": "ENG-47", "title": "Redesign onboarding", "status": "In Progress"},
-            {"id": "ENG-52", "title": "Add analytics", "status": "Backlog"},
-        ]
+            {
+                "id": n["id"],
+                "title": n["title"],
+                "status": n["state"]["name"] if n.get("state") else "Unknown",
+                "updated_at": n.get("updatedAt", ""),
+                "url": n.get("url", ""),
+            }
+            for n in nodes
+        ],
     }
 
 
 async def get_intervention_history(
     limit: int,
-    tool_context: ToolContext,
+    tool_context: ToolContext,  # noqa: ARG001 — reserved for AlloyDB query (Phase 6)
 ) -> dict[str, Any]:
     """
     Get recent autonomous interventions taken by Aegis.
@@ -231,7 +301,7 @@ async def get_intervention_history(
 
 async def explain_risk_type(
     risk_type: str,
-    tool_context: ToolContext,
+    tool_context: ToolContext,  # noqa: ARG001 — stateless lookup, no session state needed
 ) -> dict[str, Any]:
     """
     Explain what a risk type means and why it matters.
@@ -248,12 +318,12 @@ async def explain_risk_type(
         "strategy_unclear": {
             "meaning": "Missing hypothesis or success metric. Team is busy but doesn't know what winning looks like.",
             "why_matters": "Per Shreyas Doshi: This is strategy failure, not execution failure. Busy without metrics typically precedes missed quarters.",
-            "intervention": "Clarify bet hypothesis and define success metric before continuing work."
+            "intervention": "Clarify direction hypothesis and define success metric before continuing work."
         },
         "alignment_issue": {
-            "meaning": "Work doesn't map to stated bet. Cross-team thrash or priority confusion.",
+            "meaning": "Work doesn't map to the stated direction. Cross-team thrash or priority confusion.",
             "why_matters": "Team knows the plan but isn't executing it. Communication gap, not strategy gap.",
-            "intervention": "Align team priorities. Reprioritize or rescope to match bet."
+            "intervention": "Align team priorities. Reprioritize or rescope to match the direction."
         },
         "execution_issue": {
             "meaning": "Chronic rollovers, blockers piling up, scope creep.",
@@ -328,7 +398,7 @@ def create_conversational_agent() -> Agent:
     return Agent(
         name="aegis",
         model="gemini-3-flash-preview",
-        description="Autonomous product strategist that monitors bets and takes corrective action",
+        description="Autonomous product strategist that monitors strategic directions and takes corrective action",
         instruction="""
 You are Aegis, an autonomous strategist helping founders with continuous pre-mortems.
 
@@ -339,8 +409,8 @@ You are Aegis, an autonomous strategist helping founders with continuous pre-mor
 
 **WHEN TO TRIGGER PIPELINE:**
 Use run_pipeline_scan() when user:
-- Explicitly asks: "scan my bet", "check for risks", "analyze progress"
-- Provides bet context: "Here's my Q2 bet: [details]"
+- Explicitly asks: "scan my direction", "check for risks", "analyze progress"
+- Provides direction context: "Here's my Q2 direction: [details]"
 - Asks about current risk status: "What risks do I have?"
 
 **WHEN TO CHAT NATURALLY:**
@@ -372,7 +442,7 @@ When you take autonomous actions, ALWAYS explain what you did and why. Include a
 - explain_risk_type() → explain what risk means
 - adjust_autonomy() → change control level
 
-Be conversational. Don't mention "modes" or "routing" - just help naturally.
+Be conversational. Don't mention "modes", "routing", or any internal architecture — just help naturally.
 """,
         tools=[
             run_pipeline_scan,

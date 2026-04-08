@@ -1,20 +1,37 @@
-# frontend/Dockerfile
-FROM node:20-slim
+# frontend/Dockerfile — production build
+FROM node:20-slim AS deps
 
 WORKDIR /app
 
-# Copy package files
+# Copy package files and install all deps (needed for build)
 COPY package.json package-lock.json* ./
+RUN npm ci
 
-# Install dependencies (only required for runtime/dev)
-RUN npm install
+# ── Build stage ──────────────────────────────────────────────────────────────
+FROM node:20-slim AS builder
 
-# Copy application code (restricted by .dockerignore)
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Expose port (Next.js default 3000)
-EXPOSE 3000
+# Build Next.js for production (standalone output)
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN npm run build
 
-# Command to run the application in development mode
-# This enables hot-reloading for testing and and avoids build-time issues
-CMD ["npm", "run", "dev"]
+# ── Runtime stage ─────────────────────────────────────────────────────────────
+FROM node:20-slim AS runner
+
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Copy only what's needed to run
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+
+EXPOSE 3000
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+CMD ["node", "server.js"]

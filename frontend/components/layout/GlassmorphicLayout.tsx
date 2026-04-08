@@ -12,6 +12,7 @@
  */
 
 import { ReactNode, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { AmbientBackground } from "@/components/ui/AmbientBackground";
 import { Sidebar } from "./Sidebar";
 import { HeaderBar } from "./HeaderBar";
@@ -23,10 +24,16 @@ interface GlassmorphicLayoutProps {
 
 export function GlassmorphicLayout({ children }: GlassmorphicLayoutProps) {
   const [sessionDrawerOpen, setSessionDrawerOpen] = useState(false);
+  const router = useRouter();
 
   const handleSessionHistoryToggle = useCallback(() => {
     setSessionDrawerOpen((prev) => !prev);
   }, []);
+
+  const handleSessionSelect = useCallback((sessionId: string) => {
+    router.push(`/workspace?session=${sessionId}`);
+    setSessionDrawerOpen(false);
+  }, [router]);
 
   return (
     <div className="relative flex h-screen overflow-hidden p-4 gap-4">
@@ -42,6 +49,7 @@ export function GlassmorphicLayout({ children }: GlassmorphicLayoutProps) {
       <SessionDrawer
         open={sessionDrawerOpen}
         onClose={() => setSessionDrawerOpen(false)}
+        onSelect={handleSessionSelect}
       />
 
       {/* Main content column */}

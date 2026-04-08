@@ -25,7 +25,7 @@ from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 from google.adk.sessions import InMemorySessionService
 from google.adk.artifacts import InMemoryArtifactService
 
-from app.agent import root_agent
+from app.agent import conversational_agent
 from app.config import config  # singleton — resolves secrets after env is loaded
 from db.engine import get_session, is_db_configured
 
@@ -46,7 +46,7 @@ ADK_APP_NAME = "app"
 # ─────────────────────────────────────────────
 
 adk_agent = ADKAgent(
-    adk_agent=root_agent,
+    adk_agent=conversational_agent,
     app_name=ADK_APP_NAME,
     # Fix: ag_ui_adk default extractor uses f"thread_user_{thread_id}" but
     # frontend SessionDrawer calls GET /sessions?user_id=default_user.
@@ -469,7 +469,7 @@ async def debug_agent_test():
             app_name="debug", user_id="debug"
         )
         runner = Runner(
-            agent=root_agent,
+            agent=conversational_agent,
             app_name="debug",
             session_service=test_session_service,
         )
@@ -486,7 +486,7 @@ async def debug_agent_test():
             events.append(event.__class__.__name__)
             if len(events) > 5:
                 break
-        return {"ok": True, "events": events, "agent": root_agent.name}
+        return {"ok": True, "events": events, "agent": conversational_agent.name}
     except Exception as e:
         logger.error("[debug/agent-test] Failed: %s", e, exc_info=True)
         return {"ok": False, "error": str(e), "hint": "Check GCP auth and GOOGLE_CLOUD_PROJECT env var"}

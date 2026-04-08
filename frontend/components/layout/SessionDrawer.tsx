@@ -18,6 +18,7 @@ import type { SessionSummary, PipelineStatus } from "@/lib/types";
 interface SessionDrawerProps {
   open: boolean;
   onClose: () => void;
+  onSelect: (sessionId: string) => void;
 }
 
 const STATUS_DOT: Record<PipelineStatus, string> = {
@@ -40,7 +41,7 @@ function formatTime(ts: number | string): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-export function SessionDrawer({ open, onClose }: SessionDrawerProps) {
+export function SessionDrawer({ open, onClose, onSelect }: SessionDrawerProps) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -116,6 +117,7 @@ export function SessionDrawer({ open, onClose }: SessionDrawerProps) {
                 {sessions.map((session) => (
                   <button
                     key={session.session_id}
+                    onClick={() => { onSelect(session.session_id); onClose(); }}
                     className="glass-panel-subtle w-full cursor-pointer rounded-xl p-4 text-left transition-all hover:bg-white/35"
                   >
                     <div className="mb-2 flex items-start gap-2">

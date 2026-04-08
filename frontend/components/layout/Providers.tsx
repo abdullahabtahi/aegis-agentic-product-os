@@ -7,34 +7,57 @@
 
 import { CopilotKit } from "@copilotkit/react-core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { useRef } from "react";
+import { useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 
 interface ProvidersProps {
   children: React.ReactNode;
 }
 
+function CopilotKitWithSession({
+  children,
+  onError,
+}: {
+  children: React.ReactNode;
+  onError: Parameters<typeof CopilotKit>[0]["onError"];
+}) {
+  const searchParams = useSearchParams();
+  const threadId = searchParams.get("session") ?? undefined;
+
+  return (
+    <CopilotKit
+      runtimeUrl="/api/copilotkit"
+      agent="aegis_pipeline"
+      threadId={threadId}
+      showDevConsole={true}
+      onError={onError}
+    >
+      {children}
+    </CopilotKit>
+  );
+}
+
 export function Providers({ children }: ProvidersProps) {
-  // Stable QueryClient across renders
-  const queryClientRef = useRef<QueryClient | null>(null);
-  if (!queryClientRef.current) {
-    queryClientRef.current = new QueryClient({
-      defaultOptions: {
-        queries: {
-          // No polling — delta-driven invalidation from AG-UI events
-          staleTime: Infinity,
-          refetchOnWindowFocus: false,
+  // Stable QueryClient across renders — lazy initializer runs exactly once
+  const [queryClient] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: {
+          queries: {
+            // No polling — delta-driven invalidation from AG-UI events
+            staleTime: Infinity,
+            refetchOnWindowFocus: false,
+          },
         },
-      },
-    });
-  }
-  const queryClient = queryClientRef.current;
+      }),
+  );
 
   // Global error handler for CopilotKit connection/agent issues
   const handleCopilotError = (errorEvent: {
     type: string;
     timestamp: number;
-    error?: any;
-    context?: any;
+    error?: unknown;
+    context?: unknown;
   }) => {
     console.error('[CopilotKit Error]', {
       type: errorEvent.type,
@@ -43,7 +66,8 @@ export function Providers({ children }: ProvidersProps) {
       context: errorEvent.context,
     });
 
-    const errorMessage = errorEvent.error?.message || String(errorEvent.error);
+    const err = errorEvent.error;
+    const errorMessage = err instanceof Error ? err.message : String(err ?? "");
 
     // Check for common error patterns
     if (errorMessage.includes('Failed to fetch') || errorMessage.includes('NetworkError')) {
@@ -62,15 +86,12 @@ export function Providers({ children }: ProvidersProps) {
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* runtimeUrl points to the Next.js API route, which proxies to ag_ui_adk */}
-      <CopilotKit
-        runtimeUrl="/api/copilotkit"
-        agent="aegis_pipeline"
-        showDevConsole={true}
-        onError={handleCopilotError}
-      >
-        {children}
-      </CopilotKit>
+      {/* Suspense required because useSearchParams() suspends during SSR */}
+      <Suspense fallback={null}>
+        <CopilotKitWithSession onError={handleCopilotError}>
+          {children}
+        </CopilotKitWithSession>
+      </Suspense>
     </QueryClientProvider>
   );
 }

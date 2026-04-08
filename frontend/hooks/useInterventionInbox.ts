@@ -7,9 +7,9 @@
  */
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getInterventions } from "@/lib/api";
-import type { Intervention } from "@/lib/types";
+
 
 const SNOOZE_KEY = "aegis:snoozed_interventions";
 const SNOOZE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -31,6 +31,13 @@ function saveSnoozed(snoozed: Record<string, number>) {
 export function useInterventionInbox(workspaceId: string) {
   const queryClient = useQueryClient();
   const [snoozed, setSnoozed] = useState<Record<string, number>>(loadSnoozed);
+
+  // Stable timestamp updated every minute via setInterval (not setState-in-effect)
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   // React Query handles caching, deduplication, and background refetching
   const {
@@ -72,20 +79,14 @@ export function useInterventionInbox(workspaceId: string) {
     });
   }, []);
 
-  // Memoize filtering to prevent unnecessary recalculations
-  const visible = useMemo(() => {
-    const now = Date.now();
-    return interventions.filter((i) => {
+  // Filter visible interventions — snooze expiry uses `now` (updated by interval above)
+  const visible = useMemo(
+    () => interventions.filter((i) => {
       const until = snoozed[i.id];
-      if (!until) return true;
-      if (until < now) {
-        // Snooze expired — clean up (next render will reflect change)
-        unsnooze(i.id);
-        return true;
-      }
-      return false;
-    });
-  }, [interventions, snoozed, unsnooze]);
+      return !until || until < now;
+    }),
+    [interventions, snoozed, now],
+  );
 
   const pending = useMemo(
     () => visible.filter((i) => i.status === "pending"),

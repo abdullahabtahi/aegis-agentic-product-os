@@ -5,7 +5,7 @@
  * Single source of truth for workspace context passed to all child hooks.
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import type { Bet } from "@/lib/types";
 
 interface WorkspaceState {
@@ -48,15 +48,8 @@ const BOOTSTRAP_BET: Bet = {
 export function useWorkspaceState() {
   const [state, setState] = useState<WorkspaceState>({
     workspaceId: DEFAULT_WORKSPACE_ID,
-    activeBet: null,
+    activeBet: BOOTSTRAP_BET,
   });
-
-  useEffect(() => {
-    setState((prev) => ({
-      ...prev,
-      activeBet: prev.activeBet ?? BOOTSTRAP_BET,
-    }));
-  }, []);
 
   const setActiveBet = useCallback((bet: Bet | null) => {
     setState((prev) => ({ ...prev, activeBet: bet }));

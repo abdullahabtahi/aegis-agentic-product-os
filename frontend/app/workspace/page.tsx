@@ -11,7 +11,7 @@
  */
 
 import { useState } from "react";
-import { Shield, Radar, Brain, Zap, WifiOff, AlertTriangle, Sparkles, GitBranch, Plus } from "lucide-react";
+import { Shield, Radar, Brain, Zap, WifiOff, AlertTriangle, Sparkles, GitBranch } from "lucide-react";
 import { CommandBar } from "@/components/chat/CommandBar";
 import { ChatMessages } from "@/components/chat/ChatMessages";
 import { BetDeclarationModal } from "@/components/bets/BetDeclarationModal";
@@ -28,7 +28,7 @@ const FEATURE_CARDS = [
 ] as const;
 
 const QUICK_ACTIONS = [
-  "Scan my active bet for risks",
+  "Scan my active direction for risks",
   "What's the current strategy risk?",
   "Show recent interventions",
   "Explain strategy_unclear",
@@ -40,16 +40,16 @@ export default function HomePage() {
   const backendHealth = useBackendHealth();
   const [showBetModal, setShowBetModal] = useState(false);
 
-  // When a bet is declared, send it as context to the agent and trigger a scan
+  // When a direction is declared, send it as context to the agent and trigger a scan
   function handleBetDeclared(bet: Record<string, unknown>) {
     setShowBetModal(false);
-    const betName = String(bet.name ?? "");
+    const name = String(bet.name ?? "");
     const segment = String(bet.target_segment ?? "");
     const problem = String(bet.problem_statement ?? "");
     const hypothesis = String(bet.hypothesis ?? "");
     const horizon = String(bet.time_horizon ?? "");
     sendMessage(
-      `I've declared a new strategic bet:\n\n**${betName}**\n- Segment: ${segment}\n- Problem: ${problem}${hypothesis ? `\n- Hypothesis: ${hypothesis}` : ""}${horizon ? `\n- Time horizon: ${horizon}` : ""}\n\nPlease scan this bet for risks.`
+      `I've declared a new strategic direction:\n\n**${name}**\n- Segment: ${segment}\n- Problem: ${problem}${hypothesis ? `\n- Hypothesis: ${hypothesis}` : ""}${horizon ? `\n- Time horizon: ${horizon}` : ""}\n\nPlease scan this direction for risks.`
     );
   }
 
@@ -81,7 +81,7 @@ export default function HomePage() {
           </div>
           <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground/90">Aegis</h1>
           <p className="mt-1.5 max-w-md text-center text-sm text-muted-foreground">
-            Continuous pre-mortem for your strategic bets. Ask anything or trigger a scan.
+            Autonomous pre-mortem for your strategic directions. Declare one and I&apos;ll scan it for risks automatically.
           </p>
 
           {/* Feature cards */}
@@ -117,27 +117,15 @@ export default function HomePage() {
             ))}
           </div>
 
-          {/* Primary CTA — Declare a Bet */}
-          <div className="mt-4 flex justify-center">
-            <button
-              onClick={() => setShowBetModal(true)}
-              disabled={backendHealth === "offline"}
-              className="flex items-center gap-2 rounded-xl bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/30 transition-all hover:bg-indigo-600 hover:shadow-indigo-500/40 disabled:opacity-50"
-            >
-              <Plus size={15} />
-              Declare a Bet
-            </button>
-          </div>
-
-          {/* Command bar — centered in hero */}
+          {/* Command bar — + button opens Direction modal (Perplexity pattern) */}
           <div className="mt-6 w-full max-w-2xl">
             <CommandBar
               onSend={sendMessage}
               isLoading={isLoading}
               onStop={stopGeneration}
               disabled={backendHealth === "offline"}
+              onNewDirection={() => setShowBetModal(true)}
             />
-
           </div>
         </div>
       )}
@@ -161,7 +149,7 @@ export default function HomePage() {
             {backendHealth === "offline" && (
               <div className="mb-2 flex items-center gap-2 rounded-lg bg-amber-400/10 px-3 py-1.5 text-xs text-amber-700">
                 <AlertTriangle size={12} />
-                Backend offline — responses won't arrive until backend is running.
+                Backend offline — responses won&apos;t arrive until backend is running.
               </div>
             )}
             <CommandBar

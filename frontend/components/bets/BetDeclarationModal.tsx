@@ -99,7 +99,7 @@ export function BetDeclarationModal({
       resetForm();
       onBetDeclared(bet);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create bet. Is the backend running?");
+      setError(err instanceof Error ? err.message : "Failed to create direction. Is the backend running?");
     } finally {
       setIsLoading(false);
     }
@@ -118,7 +118,7 @@ export function BetDeclarationModal({
             <Target size={16} className="text-indigo-500" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-foreground/90">Declare a Bet</h2>
+            <h2 className="text-sm font-semibold text-foreground/90">Declare a Direction</h2>
             <p className="text-xs text-muted-foreground">Aegis will monitor it continuously</p>
           </div>
         </div>
@@ -134,10 +134,10 @@ export function BetDeclarationModal({
 
       {/* Form */}
       <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
-        {/* Bet name */}
+        {/* Direction name */}
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-foreground/70">
-            Bet name <span className="text-red-400">*</span>
+            Direction name <span className="text-red-400">*</span>
           </label>
           <input
             type="text"
@@ -265,7 +265,7 @@ export function BetDeclarationModal({
             className="flex items-center gap-1.5 rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-600 disabled:opacity-60"
           >
             {isLoading && <Loader2 size={13} className="animate-spin" />}
-            {isLoading ? "Declaring..." : "Declare Bet"}
+            {isLoading ? "Declaring..." : "Declare Direction"}
           </button>
         </div>
       </form>

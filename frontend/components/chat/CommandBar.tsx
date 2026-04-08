@@ -3,10 +3,14 @@
 /**
  * CommandBar — Pure glassmorphic input bar.
  * State is owned by the parent (Home page via useChatController).
+ *
+ * onNewDirection (optional): renders a small + button left of the input —
+ * the Perplexity/ChatGPT pattern for attaching context before sending.
+ * Only passed in hero mode (before first message).
  */
 
 import { useState, useRef, useCallback } from "react";
-import { Send, Loader2, Square } from "lucide-react";
+import { Send, Square, Plus } from "lucide-react";
 
 interface CommandBarProps {
   onSend: (text: string) => void;
@@ -14,6 +18,7 @@ interface CommandBarProps {
   onStop: () => void;
   placeholder?: string;
   disabled?: boolean;
+  onNewDirection?: () => void;
 }
 
 export function CommandBar({
@@ -22,6 +27,7 @@ export function CommandBar({
   onStop,
   placeholder = "Ask Aegis anything or trigger a scan...",
   disabled = false,
+  onNewDirection,
 }: CommandBarProps) {
   const [input, setInput] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -35,7 +41,21 @@ export function CommandBar({
   }, [input, isLoading, disabled, onSend]);
 
   return (
-    <div className="glass-input flex items-center gap-3 px-5 py-3">
+    <div className="glass-input flex items-center gap-2 px-3 py-3">
+      {/* + New Direction — left-side action, Perplexity/ChatGPT pattern */}
+      {onNewDirection && (
+        <button
+          type="button"
+          onClick={onNewDirection}
+          disabled={disabled}
+          title="Declare a new Direction"
+          aria-label="Declare a new Direction"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground/50 transition-all hover:bg-indigo-500/10 hover:text-indigo-500 disabled:opacity-30"
+        >
+          <Plus size={16} strokeWidth={2} />
+        </button>
+      )}
+
       <input
         ref={inputRef}
         type="text"
@@ -44,8 +64,9 @@ export function CommandBar({
         onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
         placeholder={placeholder}
         disabled={disabled || isLoading}
-        className="flex-1 bg-transparent text-sm text-foreground/90 placeholder:text-muted-foreground/60 focus:outline-none disabled:opacity-50"
+        className="flex-1 bg-transparent px-2 text-sm text-foreground/90 placeholder:text-muted-foreground/60 focus:outline-none disabled:opacity-50"
       />
+
       {isLoading ? (
         <button
           onClick={onStop}
@@ -61,7 +82,7 @@ export function CommandBar({
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-30"
           title="Send"
         >
-          {isLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+          <Send size={14} />
         </button>
       )}
     </div>

@@ -88,10 +88,19 @@ aegis_pipeline = SequentialAgent(
 # 1. Natural conversation (questions, explanations)
 # 2. Pipeline triggering (via run_pipeline_scan tool)
 
-root_agent = create_conversational_agent()
+# ─────────────────────────────────────────────
+# ROOT AGENT — Sequential pipeline (evals + ADK playground)
+# ─────────────────────────────────────────────
+# root_agent = aegis_pipeline so that:
+#   - `adk eval` scores the full debate+intervention rubrics correctly
+#   - `make playground` shows the sequential pipeline
+# The chatbot (main.py / AG-UI endpoint) uses create_conversational_agent()
+# directly and does NOT import root_agent, keeping the two paths independent.
 
-# Legacy: Keep aegis_pipeline for eval tests
-# TODO: Update evals to use conversational agent instead
+root_agent = aegis_pipeline
+
+# Expose conversational agent for main.py to import without going through root_agent
+conversational_agent = create_conversational_agent()
 
 # ─────────────────────────────────────────────
 # APP — entry point for adk web playground

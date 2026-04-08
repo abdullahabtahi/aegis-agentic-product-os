@@ -5,6 +5,8 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
+  // Standalone output for production Docker — copies only the minimal set of files
+  output: "standalone",
 };
 
 export default nextConfig;

@@ -8,7 +8,7 @@
  */
 
 import { useCoAgent } from "@copilotkit/react-core";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { applyStateDelta, mergeState } from "@/lib/delta";
 import type { AegisPipelineState } from "@/lib/types";
 
@@ -16,10 +16,6 @@ const INITIAL_STATE: AegisPipelineState = {};
 
 export function useAgentStateSync() {
   const [localState, setLocalState] = useState<AegisPipelineState>(INITIAL_STATE);
-
-  // Stable ref callbacks — prevents stale closures on delta handlers
-  const localStateRef = useRef(localState);
-  localStateRef.current = localState;
 
   const handleStateDelta = useCallback((delta: unknown[]) => {
     setLocalState((prev) => applyStateDelta(prev, delta as never));

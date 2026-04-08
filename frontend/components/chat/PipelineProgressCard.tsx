@@ -60,7 +60,6 @@ function StageIcon({ status }: { status: string }) {
 
 export function PipelineProgressCard({
   status,
-  currentStage,
   stages,
 }: PipelineProgressCardProps) {
   const [expanded, setExpanded] = useState(true);
