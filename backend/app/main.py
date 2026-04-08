@@ -109,7 +109,7 @@ async def health_check(response: Response):
                 await session.execute(text("SELECT 1"))
                 health["dependencies"]["alloydb"] = "connected"
         except Exception as e:
-            health["dependencies"]["alloydb"] = f"error: {e!s}"
+            health["dependencies"]["alloydb"] = f"error: {type(e).__name__}"
             health["status"] = "unhealthy"
 
     # 2. Check Google Cloud Auth
@@ -117,7 +117,7 @@ async def health_check(response: Response):
         _, project = google.auth.default()
         health["dependencies"]["google_cloud"] = f"connected (project: {project})"
     except Exception as e:
-        health["dependencies"]["google_cloud"] = f"error: {e!s}"
+        health["dependencies"]["google_cloud"] = f"error: {type(e).__name__}"
         health["status"] = "unhealthy"
 
     # 3. Check Linear API (use config singleton — it resolved from env/GCP Secret Manager)
@@ -192,6 +192,7 @@ async def get_taxonomy(response: Response):
 # ─────────────────────────────────────────────
 # INTERVENTION REST ENDPOINTS (read by frontend InboxHook)
 # ─────────────────────────────────────────────
+
 
 @app.get("/interventions")
 async def list_interventions(
@@ -363,9 +364,6 @@ class RejectBody(BaseModel):
     reason: str = "other"  # RejectionReasonCategory — default "other" is always valid
 
 
-_DEFAULT_REJECT_BODY = RejectBody()
-
-
 @app.post("/interventions/{intervention_id}/approve")
 async def approve_intervention_endpoint(intervention_id: str):
     """Mark an intervention accepted.
@@ -393,13 +391,15 @@ async def approve_intervention_endpoint(intervention_id: str):
 
 @app.post("/interventions/{intervention_id}/reject")
 async def reject_intervention_endpoint(
-    intervention_id: str, body: RejectBody = _DEFAULT_REJECT_BODY
+    intervention_id: str, body: RejectBody | None = None
 ):
     """Mark an intervention rejected.
 
     body.reason must be a RejectionReasonCategory value:
       evidence_too_weak | already_handled | not_a_priority | wrong_risk_type | other
     """
+    if body is None:
+        body = RejectBody()
     from db.repository import update_intervention_status
 
     _valid = {
@@ -575,10 +575,12 @@ async def debug_agent_test():
         return {"ok": True, "events": events, "agent": conversational_agent.name}
     except Exception as e:
         logger.error("[debug/agent-test] Failed: %s", e, exc_info=True)
+        # Sanitize error message to avoid leaking stack traces to external users
+        error_type = type(e).__name__
         return {
             "ok": False,
-            "error": str(e),
-            "hint": "Check GCP auth and GOOGLE_CLOUD_PROJECT env var",
+            "error": f"{error_type}: {e!s:.200}",
+            "hint": "Check GCP auth and GOOGLE_CLOUD_PROJECT env var. See server logs for details.",
         }
 
 
