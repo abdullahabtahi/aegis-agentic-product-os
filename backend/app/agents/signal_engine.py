@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
-from typing import AsyncGenerator
 
 from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
@@ -73,15 +73,16 @@ def _hypothesis_present(bet: Bet) -> bool:
 def _metric_linked(issues: list) -> tuple[bool, str | None]:
     """Detect metric pattern in any issue description. Returns (found, source_issue_id)."""
     import re
+
     # Look for numeric targets or hypothesis patterns
     patterns = [
-        r"\d+%",                         # percentage targets
-        r"target\s*[:=]\s*\d",           # target: N
-        r"goal\s*[:=]\s*\d",             # goal: N
-        r"we believe .+ will result in", # hypothesis pattern
-        r"success\s*[:=]",               # success: ...
-        r">= \d",                        # >= N
-        r"increase .+ by \d+",           # increase X by N
+        r"\d+%",  # percentage targets
+        r"target\s*[:=]\s*\d",  # target: N
+        r"goal\s*[:=]\s*\d",  # goal: N
+        r"we believe .+ will result in",  # hypothesis pattern
+        r"success\s*[:=]",  # success: ...
+        r">= \d",  # >= N
+        r"increase .+ by \d+",  # increase X by N
     ]
     combined = re.compile("|".join(patterns), re.IGNORECASE)
     for issue in issues:
@@ -112,7 +113,7 @@ def _compute_health_score(
     signals: LinearSignals,
     baseline: BetHealthBaseline,
 ) -> float:
-    """Health score 0–100. Higher = healthier bet execution.
+    """Health score 0-100. Higher = healthier bet execution.
 
     Weights are from HeuristicVersion v1.0.0 defaults.
     AutoResearch (Phase 4) will tune these per workspace.
@@ -181,7 +182,8 @@ def _detect_risk_types(
     # placebo_productivity: high closed rate but low bet-mapped
     if (
         signals.placebo_productivity_score is not None
-        and signals.placebo_productivity_score >= thresholds.placebo_productivity_threshold
+        and signals.placebo_productivity_score
+        >= thresholds.placebo_productivity_threshold
     ):
         detected.append("placebo_productivity")
 
@@ -240,16 +242,24 @@ async def compute_signals(
         cross_team_count = sum(1 for r in relations if r.to_team is not None)
         misc_pct = _misc_ticket_pct(issues, project_ids)
         placebo_score = _placebo_productivity_score(issues, project_ids)
-        scope_change_count = sum(1 for i in issues if "refactor" in i.title.lower() or "migrate" in i.title.lower())
+        scope_change_count = sum(
+            1
+            for i in issues
+            if "refactor" in i.title.lower() or "migrate" in i.title.lower()
+        )
 
         # Build evidence issues (top 10 based on rollovers)
-        sorted_issues = sorted(issues, key=lambda i: (not i.rolled_over, getattr(i, "roll_count", 0)), reverse=False)
+        sorted_issues = sorted(
+            issues,
+            key=lambda i: (not i.rolled_over, getattr(i, "roll_count", 0)),
+            reverse=False,
+        )
         evidence_issues = [
             EvidenceIssue(
                 id=i.id,
                 title=i.title,
                 status=i.status,
-                url=f"https://linear.app/issue/{i.id}"
+                url=f"https://linear.app/issue/{i.id}",
             )
             for i in sorted_issues[:10]
         ]
@@ -340,6 +350,7 @@ async def compute_signals(
 # ADK AGENT WRAPPER
 # ─────────────────────────────────────────────
 
+
 class SignalEngineAgent(BaseAgent):
     """ADK BaseAgent wrapper around compute_signals().
 
@@ -398,7 +409,11 @@ class SignalEngineAgent(BaseAgent):
                 author=self.name,
                 content=types.Content(
                     role="model",
-                    parts=[types.Part.from_text(text="[SignalEngine] Skipped — checkpoint exists")],
+                    parts=[
+                        types.Part.from_text(
+                            text="[SignalEngine] Skipped — checkpoint exists"
+                        )
+                    ],
                 ),
             )
             return
@@ -417,7 +432,11 @@ class SignalEngineAgent(BaseAgent):
                 author=self.name,
                 content=types.Content(
                     role="model",
-                    parts=[types.Part.from_text(text="[SignalEngine] ERROR: 'bet' missing from session state")],
+                    parts=[
+                        types.Part.from_text(
+                            text="[SignalEngine] ERROR: 'bet' missing from session state"
+                        )
+                    ],
                 ),
             )
             return
@@ -430,7 +449,11 @@ class SignalEngineAgent(BaseAgent):
             author=self.name,
             content=types.Content(
                 role="model",
-                parts=[types.Part.from_text(text="[SignalEngine] Scanning Linear workspace...")],
+                parts=[
+                    types.Part.from_text(
+                        text="[SignalEngine] Scanning Linear workspace..."
+                    )
+                ],
             ),
         )
 
@@ -456,9 +479,9 @@ class SignalEngineAgent(BaseAgent):
             )
             if snapshot.status == "error":
                 status_msg = f"[SignalEngine] {snapshot.error_code.replace('_', ' ').capitalize()}"
-                
+
         except Exception as e:
-            status_msg = f"[SignalEngine] CRITICAL ERROR — {str(e)}"
+            status_msg = f"[SignalEngine] CRITICAL ERROR — {e!s}"
             # Ensure we don't crash the whole pipeline, but report the error
             ctx.session.state["pipeline_checkpoint"] = "signal_engine_failed"
 

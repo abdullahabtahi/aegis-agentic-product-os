@@ -12,7 +12,6 @@ from pydantic import BaseModel, Field
 
 from models.schema import (
     AcknowledgedRisk,
-    Bet,
     BetSnapshot,
     HeuristicVersion,
     Intervention,
@@ -27,12 +26,13 @@ from models.schema import (
 
 class BetForSignalEngine(BaseModel):
     """Narrow Bet view for Signal Engine — only what's needed to read Linear."""
+
     id: str
     name: str
     hypothesis: str
     success_metrics: list[Metric] = Field(default_factory=list)
     time_horizon: str
-    health_baseline: "models.schema.BetHealthBaseline"  # noqa: F821
+    health_baseline: models.schema.BetHealthBaseline  # noqa: F821
     linear_project_ids: list[str] = Field(default_factory=list)
     linear_issue_ids: list[str] = Field(default_factory=list)
 
@@ -41,6 +41,7 @@ class BetForSignalEngine(BaseModel):
 
 class ExecutionAgentContext(BaseModel):
     """Context for Signal Engine (Component 1)."""
+
     bet: BetForSignalEngine
     recent_snapshots: list[BetSnapshot] = Field(default_factory=list)  # last 4 weeks
     acknowledged_risks: list[AcknowledgedRisk] = Field(default_factory=list)
@@ -51,6 +52,7 @@ class ExecutionAgentContext(BaseModel):
 
 class BetForProductBrain(BaseModel):
     """Narrow Bet view for Product Brain — classification context only."""
+
     id: str
     name: str
     target_segment: str
@@ -70,6 +72,7 @@ class ProductBrainAgentContext(BaseModel):
     detected_signals. Do not pre-classify risk here — that would anchor LLM reasoning
     via confirmation bias.
     """
+
     bet: BetForProductBrain
     detected_signals: LinearSignals
     # Risk types from last 2 BetSnapshots — labeled as historical, not hypothesis.
@@ -89,9 +92,10 @@ class BetForCoordinator(BaseModel):
     doc_refs, created_at — not needed for intervention selection.
     acknowledged_risks included for Governor acknowledged_risk check context.
     """
+
     id: str
     name: str
-    status: "models.schema.BetStatus"  # noqa: F821
+    status: models.schema.BetStatus  # noqa: F821
     hypothesis: str
     success_metrics: list[Metric] = Field(default_factory=list)
     time_horizon: str
@@ -108,7 +112,9 @@ class PriorIntervention(BaseModel):
 
 
 class WorkspaceContext(BaseModel):
-    other_active_bets: list[dict] = Field(default_factory=list)  # Pick<Bet, id|name|status>
+    other_active_bets: list[dict] = Field(
+        default_factory=list
+    )  # Pick<Bet, id|name|status>
     recent_accepted_interventions: int = 0
     recent_rejected_interventions: int = 0
 
@@ -117,6 +123,7 @@ class WorkspaceContext(BaseModel):
 
 class CoordinatorAgentContext(BaseModel):
     """Context for Coordinator Agent (Component 3)."""
+
     bet: BetForCoordinator
     risk_signal: RiskSignal
     prior_interventions: list[PriorIntervention] = Field(default_factory=list)
@@ -127,7 +134,6 @@ class CoordinatorAgentContext(BaseModel):
 
 
 # Fix forward references
-import models.schema as _schema  # noqa: E402
 
 BetForSignalEngine.model_rebuild()
 ExecutionAgentContext.model_rebuild()

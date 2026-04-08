@@ -2,20 +2,21 @@
 the request_founder_approval tool args are structured correctly."""
 
 from app.agents.governor import (
-    check_confidence_floor,
-    check_duplicate_suppression,
-    check_rate_cap,
-    check_jules_gate,
-    check_reversibility,
     check_acknowledged_risk,
+    check_confidence_floor,
     check_control_level,
+    check_duplicate_suppression,
     check_escalation_ladder,
+    check_jules_gate,
+    check_rate_cap,
+    check_reversibility,
 )
 
 
 def test_all_checks_pass_for_valid_proposal():
     """All 8 policy checks should pass for a clean proposal."""
     from models.schema import DEFAULT_HEURISTIC_VERSION
+
     thresholds = DEFAULT_HEURISTIC_VERSION.risk_thresholds
 
     checks = [
@@ -44,7 +45,14 @@ def test_request_founder_approval_tool_call_format():
         "risk_type": "execution_issue",
     }
 
-    required = ["intervention_title", "action_type", "escalation_level", "rationale", "confidence", "risk_type"]
+    required = [
+        "intervention_title",
+        "action_type",
+        "escalation_level",
+        "rationale",
+        "confidence",
+        "risk_type",
+    ]
     for field in required:
         assert field in tool_args, f"Missing required field: {field}"
 

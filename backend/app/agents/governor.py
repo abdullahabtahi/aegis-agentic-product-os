@@ -23,8 +23,8 @@ Writes to session state:
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta, timezone
-from typing import AsyncGenerator
 
 from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
@@ -33,8 +33,11 @@ from google.genai import types
 
 from app.override_teach import should_suppress
 from models.responses import GovernorDecision, PolicyCheckResult
-from models.schema import DEFAULT_HEURISTIC_VERSION, BlastRadiusPreview, PolicyDenialReason
-
+from models.schema import (
+    DEFAULT_HEURISTIC_VERSION,
+    BlastRadiusPreview,
+    PolicyDenialReason,
+)
 
 # ─────────────────────────────────────────────
 # POLICY CHECKS (deterministic functions — each returns PolicyCheckResult)
@@ -56,6 +59,7 @@ def _is_within_window(iso_timestamp: str, cutoff: datetime) -> bool:
         return dt >= cutoff
     except (ValueError, TypeError):
         return False
+
 
 def check_confidence_floor(
     confidence: float,
@@ -79,7 +83,8 @@ def check_duplicate_suppression(
     """No identical action_type on same bet in last window_days days."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
     recent_same = [
-        p for p in prior_interventions
+        p
+        for p in prior_interventions
         if p.get("action_type") == action_type
         and p.get("status") in ("accepted", "pending")
         and _is_within_window(p.get("created_at", ""), cutoff)
@@ -101,7 +106,8 @@ def check_rate_cap(
     """Max 1 surfaced intervention per bet per rate_cap_days."""
     cutoff = datetime.now(timezone.utc) - timedelta(days=rate_cap_days)
     recent = [
-        p for p in prior_interventions
+        p
+        for p in prior_interventions
         if p.get("status") in ("pending", "accepted")
         and _is_within_window(p.get("created_at", ""), cutoff)
     ]
@@ -139,9 +145,8 @@ def check_reversibility(
 
     These are not denied — they pass but require double-confirm in UI.
     """
-    needs_double_confirm = (
-        action_type == "kill_bet"
-        or (has_draft_document and escalation_level >= 3)
+    needs_double_confirm = action_type == "kill_bet" or (
+        has_draft_document and escalation_level >= 3
     )
     return PolicyCheckResult(
         check_name="reversibility_check",
@@ -219,12 +224,12 @@ def check_escalation_ladder(
     """
     # Find max accepted escalation level for this bet
     accepted = [p for p in prior_interventions if p.get("status") == "accepted"]
-    max_accepted_level = max((p.get("escalation_level", 0) for p in accepted), default=0)
+    max_accepted_level = max(
+        (p.get("escalation_level", 0) for p in accepted), default=0
+    )
 
     # Critical exception: skip to Level 3 allowed if severity critical + 3+ chronic rollovers
-    critical_exception = (
-        risk_severity == "critical" and chronic_rollover_count >= 3
-    )
+    critical_exception = risk_severity == "critical" and chronic_rollover_count >= 3
 
     if proposed_level > max_accepted_level + 1 and not critical_exception:
         return PolicyCheckResult(
@@ -248,11 +253,17 @@ def check_escalation_ladder(
 # ─────────────────────────────────────────────
 
 # Action types that warrant blast radius computation (Level 3-4 or destructive)
-_BLAST_RADIUS_ACTION_TYPES = frozenset({
-    "kill_bet", "rescope", "pre_mortem_session",
-    "jules_refactor_blocker", "jules_add_guardrails",
-    "jules_instrument_experiment", "jules_scaffold_experiment",
-})
+_BLAST_RADIUS_ACTION_TYPES = frozenset(
+    {
+        "kill_bet",
+        "rescope",
+        "pre_mortem_session",
+        "jules_refactor_blocker",
+        "jules_add_guardrails",
+        "jules_instrument_experiment",
+        "jules_scaffold_experiment",
+    }
+)
 
 
 def compute_blast_radius(
@@ -285,6 +296,7 @@ def compute_blast_radius(
 # GOVERNOR AGENT
 # ─────────────────────────────────────────────
 
+
 class GovernorAgent(BaseAgent):
     """Deterministic policy gate — all 8 checks must pass.
 
@@ -309,7 +321,11 @@ class GovernorAgent(BaseAgent):
                 author=self.name,
                 content=types.Content(
                     role="model",
-                    parts=[types.Part.from_text(text="[Governor] Skipped — checkpoint exists")],
+                    parts=[
+                        types.Part.from_text(
+                            text="[Governor] Skipped — checkpoint exists"
+                        )
+                    ],
                 ),
             )
             return
@@ -327,7 +343,11 @@ class GovernorAgent(BaseAgent):
                 author=self.name,
                 content=types.Content(
                     role="model",
-                    parts=[types.Part.from_text(text="[Governor] No proposal — confidence below floor")],
+                    parts=[
+                        types.Part.from_text(
+                            text="[Governor] No proposal — confidence below floor"
+                        )
+                    ],
                 ),
             )
             return
@@ -337,6 +357,7 @@ class GovernorAgent(BaseAgent):
         if isinstance(proposal, str):
             # Parse if it came back as a string representation
             import json
+
             try:
                 proposal = json.loads(proposal) if proposal.startswith("{") else {}
             except Exception:
@@ -360,14 +381,19 @@ class GovernorAgent(BaseAgent):
         control_level = workspace.get("control_level", "draft_only")
         workspace_has_github = bool(workspace.get("github_repo"))
         thresholds = DEFAULT_HEURISTIC_VERSION.risk_thresholds
-        chronic_rollover_count = ctx.session.state.get("linear_signals", {}).get("chronic_rollover_count", 0)
+        chronic_rollover_count = ctx.session.state.get("linear_signals", {}).get(
+            "chronic_rollover_count", 0
+        )
         has_draft_document = bool(proposal.get("proposed_issue_description"))
 
         # Override & Teach: check if this pattern was rejected enough to auto-suppress
         rejection_history = ctx.session.state.get("rejection_history", [])
         suppressed, suppression_reason = should_suppress(
-            rejection_history, risk_type, action_type,
-            threshold=2, window_days=thresholds.auto_suppress_days,
+            rejection_history,
+            risk_type,
+            action_type,
+            threshold=2,
+            window_days=thresholds.auto_suppress_days,
         )
         if suppressed:
             decision = GovernorDecision(
@@ -383,7 +409,12 @@ class GovernorAgent(BaseAgent):
             # Persist trace + denied event
             from app.app_utils.trace_logging import log_governor_trace
             from db.repository import save_policy_denied_event
-            await log_governor_trace(ctx.session.state, approved=False, denial_reason="override_teach_suppression")
+
+            await log_governor_trace(
+                ctx.session.state,
+                approved=False,
+                denial_reason="override_teach_suppression",
+            )
             await save_policy_denied_event(
                 bet_id=bet.get("id", ""),
                 intervention_id="",
@@ -402,18 +433,31 @@ class GovernorAgent(BaseAgent):
         # Run all 8 checks in order
         checks: list[PolicyCheckResult] = [
             check_confidence_floor(confidence, thresholds.min_confidence_to_surface),
-            check_duplicate_suppression(action_type, bet.get("id", ""), prior_interventions),
-            check_rate_cap(bet.get("id", ""), prior_interventions, thresholds.intervention_rate_cap_days),
+            check_duplicate_suppression(
+                action_type, bet.get("id", ""), prior_interventions
+            ),
+            check_rate_cap(
+                bet.get("id", ""),
+                prior_interventions,
+                thresholds.intervention_rate_cap_days,
+            ),
             check_jules_gate(action_type, workspace_has_github),
             check_reversibility(action_type, escalation_level, has_draft_document),
             check_acknowledged_risk(risk_type, acknowledged_risks),
             check_control_level(action_type, control_level),
-            check_escalation_ladder(escalation_level, prior_interventions, risk_severity, chronic_rollover_count),
+            check_escalation_ladder(
+                escalation_level,
+                prior_interventions,
+                risk_severity,
+                chronic_rollover_count,
+            ),
         ]
 
         # Find first failing check
         failing = next((c for c in checks if not c.passed), None)
-        reversibility_check = next((c for c in checks if c.check_name == "reversibility_check"), None)
+        reversibility_check = next(
+            (c for c in checks if c.check_name == "reversibility_check"), None
+        )
         requires_double_confirm = (
             reversibility_check is not None
             and reversibility_check.details == "double_confirm_required"
@@ -434,7 +478,10 @@ class GovernorAgent(BaseAgent):
             # Persist trace + denied event
             from app.app_utils.trace_logging import log_governor_trace
             from db.repository import save_policy_denied_event
-            await log_governor_trace(ctx.session.state, approved=False, denial_reason=denial_reason)
+
+            await log_governor_trace(
+                ctx.session.state, approved=False, denial_reason=denial_reason
+            )
             await save_policy_denied_event(
                 bet_id=bet.get("id", ""),
                 intervention_id=proposal.get("id", ""),
@@ -481,7 +528,9 @@ class GovernorAgent(BaseAgent):
                 ctx.session.state["pipeline_checkpoint"] = "awaiting_founder_approval"
                 # Emit tool args so CopilotKit useRenderTool renders InlineApprovalCard
                 ctx.session.state["request_founder_approval_args"] = {
-                    "intervention_title": proposal.get("title", "Intervention requires your approval"),
+                    "intervention_title": proposal.get(
+                        "title", "Intervention requires your approval"
+                    ),
                     "action_type": action_type,
                     "escalation_level": escalation_level,
                     "rationale": proposal.get("rationale", ""),
@@ -490,6 +539,7 @@ class GovernorAgent(BaseAgent):
                 }
             # Persist trace (approved)
             from app.app_utils.trace_logging import log_governor_trace
+
             await log_governor_trace(ctx.session.state, approved=True)
             # Full intervention payload — CopilotKit renders this in InterventionApprovalCard
             ctx.session.state["awaiting_approval_intervention"] = {

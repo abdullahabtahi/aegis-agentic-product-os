@@ -47,7 +47,10 @@ class TestApproveIntervention:
     def test_preserves_existing_state(self, awaiting_state: dict) -> None:
         result = approve_intervention(awaiting_state)
         assert result["bet"] == awaiting_state["bet"]
-        assert result["awaiting_approval_intervention"] == awaiting_state["awaiting_approval_intervention"]
+        assert (
+            result["awaiting_approval_intervention"]
+            == awaiting_state["awaiting_approval_intervention"]
+        )
 
 
 class TestRejectIntervention:
@@ -57,7 +60,9 @@ class TestRejectIntervention:
         assert result["pipeline_checkpoint"] == "founder_rejected"
 
     def test_stores_rejection_reason(self, awaiting_state: dict) -> None:
-        result = reject_intervention(awaiting_state, "evidence_too_weak", "Not convincing")
+        result = reject_intervention(
+            awaiting_state, "evidence_too_weak", "Not convincing"
+        )
         intervention = result["awaiting_approval_intervention"]
         assert intervention["rejection_reason"] == "evidence_too_weak"
         assert intervention["founder_note"] == "Not convincing"
@@ -83,7 +88,12 @@ class TestRejectIntervention:
 
     def test_appends_to_existing_history(self, awaiting_state: dict) -> None:
         awaiting_state["rejection_history"] = [
-            {"risk_type": "old", "action_type": "old", "rejection_reason": "other", "rejected_at": "2026-01-01"}
+            {
+                "risk_type": "old",
+                "action_type": "old",
+                "rejection_reason": "other",
+                "rejected_at": "2026-01-01",
+            }
         ]
         result = reject_intervention(awaiting_state, "wrong_risk_type")
         assert len(result["rejection_history"]) == 2

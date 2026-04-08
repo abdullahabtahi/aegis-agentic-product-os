@@ -30,9 +30,7 @@ def compute_input_context_hash(
     Returns:
         64-char lowercase hex digest.
     """
-    signals_copy = {
-        k: v for k, v in linear_signals.items() if k != "read_window_days"
-    }
+    signals_copy = {k: v for k, v in linear_signals.items() if k != "read_window_days"}
     payload = {
         "bet_id": bet_id,
         "signals": signals_copy,

@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 import time
 import uuid
-
 from datetime import datetime, timezone
 
 from google.adk.agents.callback_context import CallbackContext
@@ -43,7 +42,11 @@ def _build_trace(
     Computes input_context_hash per CLAUDE.md spec.
     Accepts CallbackContext (LlmAgent callbacks) or plain dict (BaseAgent).
     """
-    state = callback_context if isinstance(callback_context, dict) else callback_context.state
+    state = (
+        callback_context
+        if isinstance(callback_context, dict)
+        else callback_context.state
+    )
     bet = state.get("bet", {})
     bet_id = bet.get("id", "")
     workspace_id = state.get("workspace_id", bet.get("workspace_id", ""))
@@ -140,9 +143,7 @@ async def log_governor_trace(
     """
     from db.repository import save_agent_trace
 
-    output_summary = (
-        "approved" if approved else f"denied: {denial_reason or 'unknown'}"
-    )
+    output_summary = "approved" if approved else f"denied: {denial_reason or 'unknown'}"
     trace = _build_trace(
         state,
         agent_name="governor",

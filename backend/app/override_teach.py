@@ -15,7 +15,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 
-def build_suppression_key(risk_type: str, action_type: str, rejection_reason: str) -> str:
+def build_suppression_key(
+    risk_type: str, action_type: str, rejection_reason: str
+) -> str:
     """Deterministic key for grouping rejections by pattern."""
     return f"{risk_type}:{action_type}:{rejection_reason}"
 
