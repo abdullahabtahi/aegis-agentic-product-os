@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { listBets } from "@/lib/api";
 import {
-  BET_STATUS_LABELS, BET_STATUS_STYLES, RISK_LABELS, healthColor,
+  BET_STATUS_LABELS, BET_STATUS_STYLES, healthColor,
 } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { Bet, BetStatus, RiskType } from "@/lib/types";
@@ -34,13 +34,15 @@ const RISK_ACCENT: Record<RiskType, string> = {
 function HealthBar({ score }: { score: number }) {
   return (
     <div className="flex items-center gap-2">
-      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/8">
+      {/* Track — visible on light bg */}
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200/80">
         <div
           className={cn("h-full rounded-full transition-all duration-500", healthColor(score))}
           style={{ width: `${score}%` }}
         />
       </div>
-      <span className="w-8 text-right font-mono text-[11px] text-white/50">{score}</span>
+      {/* Score — min 12px, contrasting on light bg */}
+      <span className="w-8 text-right font-mono text-xs text-slate-400">{score}</span>
     </div>
   );
 }
@@ -48,7 +50,7 @@ function HealthBar({ score }: { score: number }) {
 function StatusBadge({ status }: { status: BetStatus }) {
   return (
     <span className={cn(
-      "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+      "rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide",
       BET_STATUS_STYLES[status],
     )}>
       {BET_STATUS_LABELS[status]}
@@ -65,28 +67,29 @@ function BetCard({ bet }: { bet: Bet }) {
     <Link href={`/workspace/directions/${bet.id}`}>
       <div className={cn(
         "group glass-panel rounded-2xl border-l-4 p-5 transition-all duration-200",
-        "hover:bg-white/8 hover:shadow-lg hover:shadow-indigo-500/5 cursor-pointer",
-        "border-l-indigo-400/40",
+        "hover:bg-white/60 hover:shadow-lg hover:shadow-indigo-500/10 cursor-pointer",
+        "border-l-indigo-500/50",
       )}>
         {/* Header row */}
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <h3 className="font-heading text-sm font-semibold text-white/90 truncate group-hover:text-white transition-colors">
+            {/* Primary text — high contrast */}
+            <h3 className="font-heading text-sm font-semibold text-slate-900 truncate group-hover:text-slate-700 transition-colors">
               {bet.name}
             </h3>
             {bet.target_segment && (
-              <p className="mt-0.5 text-[11px] text-white/40">{bet.target_segment}</p>
+              <p className="mt-0.5 text-xs text-slate-500">{bet.target_segment}</p>
             )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <StatusBadge status={bet.status} />
-            <ChevronRight className="h-4 w-4 text-white/20 group-hover:text-white/50 transition-colors" />
+            <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-slate-500 transition-colors" />
           </div>
         </div>
 
         {/* Problem statement */}
         {bet.problem_statement && (
-          <p className="mb-3 text-[11px] leading-relaxed text-white/45 line-clamp-2">
+          <p className="mb-3 text-xs leading-relaxed text-slate-500 line-clamp-2">
             {bet.problem_statement}
           </p>
         )}
@@ -94,33 +97,32 @@ function BetCard({ bet }: { bet: Bet }) {
         {/* Health bar */}
         <div className="mb-3">
           <div className="mb-1 flex items-center justify-between">
-            <span className="text-[10px] font-medium uppercase tracking-widest text-white/25">Health</span>
+            <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Health</span>
           </div>
           <HealthBar score={healthScore} />
         </div>
 
-        {/* Footer metadata */}
-        <div className="flex items-center gap-4 text-[10px] text-white/30">
+        {/* Footer metadata — min 12px, contrasting colours */}
+        <div className="flex items-center gap-4 text-xs text-slate-400">
           {bet.time_horizon && (
             <span className="flex items-center gap-1">
               <Clock className="h-3 w-3" />
               {bet.time_horizon}
             </span>
           )}
-          {bet.hypothesis && (
-            <span className="flex items-center gap-1 text-emerald-400/50">
+          {bet.hypothesis ? (
+            <span className="flex items-center gap-1 text-emerald-700">
               <CheckCircle2 className="h-3 w-3" />
               Hypothesis set
             </span>
-          )}
-          {!bet.hypothesis && (
-            <span className="flex items-center gap-1 text-amber-400/50">
+          ) : (
+            <span className="flex items-center gap-1 text-amber-700">
               <AlertTriangle className="h-3 w-3" />
               No hypothesis
             </span>
           )}
           {bet.success_metrics?.length > 0 && (
-            <span className="flex items-center gap-1 text-sky-400/50">
+            <span className="flex items-center gap-1 text-sky-700">
               <Target className="h-3 w-3" />
               {bet.success_metrics.length} metric{bet.success_metrics.length !== 1 ? "s" : ""}
             </span>
@@ -135,10 +137,10 @@ function EmptyState({ onDeclare }: { onDeclare: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-20 text-center">
       <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-indigo-500/10 ring-1 ring-indigo-500/20">
-        <Zap size={28} className="text-indigo-400" />
+        <Zap size={28} className="text-indigo-600" />
       </div>
-      <h2 className="font-heading text-lg font-semibold text-white/80">No strategic directions yet</h2>
-      <p className="mt-2 max-w-xs text-sm leading-relaxed text-white/40">
+      <h2 className="font-heading text-lg font-semibold text-slate-800">No strategic directions yet</h2>
+      <p className="mt-2 max-w-xs text-sm leading-relaxed text-slate-500">
         Declare your first direction and Aegis will run a continuous pre-mortem — scanning for strategy drift, misalignment, and execution blockers.
       </p>
       <button
@@ -184,26 +186,28 @@ export default function DirectionsPage() {
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="font-heading text-xl font-bold text-white/90">Strategic Directions</h1>
-          <p className="mt-0.5 text-sm text-white/40">
+          {/* High-contrast heading for light glassmorphic bg */}
+          <h1 className="font-heading text-xl font-bold text-slate-900">Strategic Directions</h1>
+          <p className="mt-0.5 text-sm text-slate-500">
             {isLoading ? "Loading…" : `${bets.length} direction${bets.length !== 1 ? "s" : ""} being monitored`}
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* Refresh — min 44×44px touch target */}
           <button
             onClick={() => refetch()}
             disabled={isFetching}
             className={cn(
-              "flex h-9 w-9 items-center justify-center rounded-xl border border-white/8 bg-white/4 text-white/40 transition-all hover:bg-white/8 hover:text-white/70",
+              "flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white/60 text-slate-400 transition-all hover:bg-white/80 hover:text-slate-600",
               isFetching && "animate-spin",
             )}
-            aria-label="Refresh"
+            aria-label="Refresh directions"
           >
             <RefreshCw size={15} />
           </button>
           <button
             onClick={() => setShowDeclareModal(true)}
-            className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-indigo-500/20 transition-all hover:bg-indigo-500 active:scale-95"
+            className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/20 transition-all hover:bg-indigo-500 active:scale-95"
           >
             <Plus size={15} />
             New direction
@@ -211,34 +215,36 @@ export default function DirectionsPage() {
         </div>
       </div>
 
-      {/* Filter tabs */}
-      <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
-        {FILTER_TABS.map((tab) => {
-          const count = tab.value === "all" ? bets.length : bets.filter((b) => b.status === tab.value).length;
-          return (
-            <button
-              key={tab.value}
-              onClick={() => setFilter(tab.value)}
-              className={cn(
-                "flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
-                filter === tab.value
-                  ? "bg-white/12 text-white/90"
-                  : "text-white/35 hover:bg-white/6 hover:text-white/60",
-              )}
-            >
-              {tab.label}
-              {count > 0 && (
-                <span className={cn(
-                  "rounded-full px-1.5 py-0 text-[9px] font-bold leading-4",
-                  filter === tab.value ? "bg-indigo-500/30 text-indigo-300" : "bg-white/8 text-white/30",
-                )}>
-                  {count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+      {/* Filter tabs — only shown when there is data to filter */}
+      {!isLoading && bets.length > 0 && (
+        <div className="flex items-center gap-1 overflow-x-auto pb-0.5">
+          {FILTER_TABS.map((tab) => {
+            const count = tab.value === "all" ? bets.length : bets.filter((b) => b.status === tab.value).length;
+            return (
+              <button
+                key={tab.value}
+                onClick={() => setFilter(tab.value)}
+                className={cn(
+                  "flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2.5 text-xs font-medium transition-all",
+                  filter === tab.value
+                    ? "bg-indigo-50 text-indigo-700 ring-1 ring-inset ring-indigo-200"
+                    : "text-slate-500 hover:bg-slate-100 hover:text-slate-700",
+                )}
+              >
+                {tab.label}
+                {count > 0 && (
+                  <span className={cn(
+                    "rounded-full px-1.5 py-0 text-[10px] font-bold leading-4",
+                    filter === tab.value ? "bg-indigo-100 text-indigo-600" : "bg-slate-100 text-slate-500",
+                  )}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Content */}
       {isLoading ? (
@@ -249,9 +255,9 @@ export default function DirectionsPage() {
         </div>
       ) : isError ? (
         <div className="flex flex-col items-center gap-2 py-16 text-center">
-          <AlertTriangle size={24} className="text-red-400/60" />
-          <p className="text-sm text-white/40">Could not load directions — is the backend running?</p>
-          <button onClick={() => refetch()} className="mt-2 text-xs text-indigo-400 hover:text-indigo-300 underline">
+          <AlertTriangle size={24} className="text-red-500" />
+          <p className="text-sm text-slate-600">Could not load directions — is the backend running?</p>
+          <button onClick={() => refetch()} className="mt-2 text-xs text-indigo-600 hover:text-indigo-500 underline">
             Retry
           </button>
         </div>

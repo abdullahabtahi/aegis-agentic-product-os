@@ -224,7 +224,7 @@ SequentialAgent("aegis_pipeline") wraps 5 agents:
    writes: executor_result, pipeline_status
 ```
 
-Entry point: `backend/app/agent.py` → `create_conversational_agent()`.
+Entry point: `backend/app/agent.py` → `create_conversational_agent()`. The conversational agent is in `backend/app/agents/conversational.py`; the pipeline SequentialAgent is assembled there and triggered via `run_pipeline_scan` tool.
 
 **Conversational agent (unified):** A single LlmAgent wraps the pipeline. It handles natural conversation and triggers the sequential pipeline via a `run_pipeline_scan` tool. No router needed — the agent decides when to chat vs. scan based on context.
 
@@ -305,21 +305,33 @@ aegis-agentic-product-os/
 ├── backend/                         ← Python + ADK
 │   ├── Makefile                     ← all commands
 │   ├── pyproject.toml               ← Python deps
+│   ├── alembic.ini                  ← Alembic config
 │   ├── .env.example                 ← env vars template
 │   ├── app/
-│   │   ├── agent.py                 ← root pipeline entry point
+│   │   ├── agent.py                 ← root pipeline entry point (create_conversational_agent)
 │   │   ├── main.py                  ← FastAPI + AG-UI endpoint
 │   │   ├── config.py                ← config + secrets
-│   │   ├── agents/                  ← 5 agents (signal_engine, product_brain, coordinator, governor, executor)
-│   │   ├── tools/
-│   │   │   └── linear_tools.py      ← MockLinearMCP + RealLinearMCP
-│   │   ├── skills/                  ← ADK SkillToolset (L1/L2/L3)
-│   │   ├── models/                  ← Pydantic (schema.py, contexts.py, responses.py)
+│   │   ├── approval_handler.py      ← approve/reject intervention logic
+│   │   ├── override_teach.py        ← override & teach loop
+│   │   ├── session_store.py         ← SQLite session persistence
+│   │   ├── agents/                  ← 6 agents: signal_engine, product_brain, coordinator, governor, executor, conversational
 │   │   ├── app_utils/               ← input_context_hash, telemetry, trace_logging
-│   │   ├── stubs/                   ← Phase 4+ (memory_synthesis, graphiti, auto_research)
-│   │   └── db/                      ← AlloyDB / Alembic migrations
+│   │   └── stubs/                   ← Phase 4+ (memory_synthesis, graphiti, auto_research)
+│   ├── db/                          ← SQLAlchemy engine + async session
+│   │   ├── engine.py
+│   │   └── repository.py            ← data access layer (bets, interventions, sessions)
+│   ├── models/                      ← Pydantic (schema.py, contexts.py, responses.py)
+│   ├── tools/                       ← MCP tools
+│   │   ├── linear_tools.py          ← MockLinearMCP + RealLinearMCP
+│   │   ├── jules_service.py         ← Jules integration
+│   │   └── lenny_mcp.py             ← Lenny MCP client
+│   ├── skills/                      ← ADK SkillToolset (L1/L2/L3)
+│   │   ├── risk-classifier/
+│   │   ├── intervention-ranker/
+│   │   └── strategy-heuristics/
+│   ├── migrations/                  ← Alembic migration versions
 │   ├── tests/
-│   │   ├── unit/                    ← signal engine, parsers, validators (15/15 green)
+│   │   ├── unit/                    ← signal engine, parsers, validators
 │   │   ├── integration/             ← pipeline, agent chains
 │   │   └── eval/evalsets/           ← 5 golden traces (.evalset.json)
 │   └── Dockerfile                   ← container for backend
@@ -330,13 +342,16 @@ aegis-agentic-product-os/
 │   ├── app/
 │   │   ├── layout.tsx               ← root layout (CopilotKit provider)
 │   │   ├── workspace/
-│   │   │   ├── layout.tsx           ← LinearLayout wrapper (sidebar + header)
-│   │   │   ├── page.tsx             ← Home overview (Linear-style, mock data)
-│   │   │   ├── Home.module.css      ← Home page styles
-│   │   │   ├── inbox/page.tsx       ← Intervention Inbox
-│   │   │   ├── activity/page.tsx    ← Activity log (stub)
-│   │   │   ├── settings/page.tsx    ← Settings (stub)
-│   │   │   └── suppression/page.tsx ← Suppression log (stub)
+│   │   │   ├── layout.tsx                ← LinearLayout wrapper (sidebar + header)
+│   │   │   ├── page.tsx                  ← Home overview (wired to backend)
+│   │   │   ├── Home.module.css           ← Home page styles
+│   │   │   ├── inbox/page.tsx            ← Intervention Inbox
+│   │   │   ├── mission-control/page.tsx  ← Mission Control (live pipeline state)
+│   │   │   ├── directions/page.tsx       ← Directions list (initiative health bars)
+│   │   │   ├── directions/[id]/page.tsx  ← Direction detail
+│   │   │   ├── activity/page.tsx         ← Activity log (stub)
+│   │   │   ├── settings/page.tsx         ← Settings (stub)
+│   │   │   └── suppression/page.tsx      ← Suppression log (stub)
 │   ├── components/
 │   │   ├── layout/                  ← LinearLayout, AppShell, Providers
 │   │   │   ├── LinearLayout.tsx     ← sidebar + header + search + chat toggle
@@ -371,58 +386,42 @@ aegis-agentic-product-os/
 | 6 | ✅ Bet Declaration | `POST /bets`, `GET /bets`, `GET /bets/{id}`; BetDeclarationModal; session persistence (SQLite) |
 | 7 | — | HeuristicVersion canary rollout, EvalSynthesisJob, deployment hardening |
 
-### Key bugs fixed 2026-04-08 (session 4)
+### Key bugs fixed 2026-04-08 (sessions 3–4)
 
 | File | Bug | Fix |
 |------|-----|-----|
-| `backend/app/main.py:184-201` | Approval endpoints called `approval_handler` with wrong signature (`intervention_id` instead of `session_state`) | Replaced with direct `db.repository.update_intervention_status()` calls |
-| `backend/app/main.py:196` | Default rejection reason `"founder_rejected"` is not a valid `RejectionReasonCategory` | Changed to `"other"`; added `RejectBody` Pydantic model |
-| `backend/app/main.py:193` | `body: dict = {}` mutable default — FastAPI anti-pattern | Replaced with `body: RejectBody = RejectBody()` |
-| `frontend/lib/types.ts:6-12` | `RiskType` had EvidenceType values (`missing_hypothesis`, `missing_metric`) and invented `low_confidence` | Aligned with `data-schema.ts`: 4 canonical types incl. `placebo_productivity` |
-| `frontend/lib/types.ts:16-21` | `InterventionStatus` had `auto_suppressed` + `snoozed` (neither in backend) | Aligned with `data-schema.ts`: `dismissed` replaces both |
-| `frontend/lib/types.ts:137-143` | `GovernorDecision.double_confirm_required` didn't match backend `requires_double_confirm`; had extra `pipeline_status` field | Aligned with `models/responses.py GovernorDecision` exactly |
-| `frontend/lib/types.ts:131-135` | `BlastRadius.summary` doesn't exist in backend; missing 3 backend fields | Aligned with `data-schema.ts BlastRadiusPreview` |
-| `frontend/lib/constants.ts:28-35` | `RISK_LABELS` had keys for the removed RiskType values | Aligned with corrected `RiskType` |
+| `directions/[id]/page.tsx:204` | `getInterventions(workspace)` + client-side filter — unbounded fetch | Switched to `getInterventionsByBet(workspaceId, betId)` |
+| `directions/[id]/page.tsx:192` | `use(params)` in `"use client"` without Suspense — React 19 crash | Split: `DirectionDetailPage` (Suspense) wraps `DirectionDetailContent` |
+| `mission-control/page.tsx:325` | Mock "Governor Halt" + "Rollout Threshold" cards visible in production | Replaced with real empty state |
+| `lib/types.ts:69-89` | `Bet` fields typed required but API sends nullable | `hypothesis/target_segment/problem_statement/time_horizon/success_metrics/last_monitored_at` → `\| null` |
+| `mission-control/page.tsx:138` | Manual `useState+useEffect` for interventions — no error rollback | Migrated to `useQuery` + `useMutation` with `invalidateQueries` |
+| `backend/app/main.py:399` | `body: RejectBody = RejectBody()` — ruff B008 | Changed to `body: RejectBody \| None = None` |
+| `frontend/lib/types.ts:6-12` | `RiskType` had EvidenceType values + invented `low_confidence` | Aligned with `data-schema.ts`: 4 canonical types |
+| `backend/tools/linear_tools.py` | `history { addedToCycleId }` in GraphQL → 400 Bad Request | Removed `history` block from `_ISSUES_QUERY` |
+| `backend/app/main.py` | `InMemorySessionService` → sessions lost on restart | `session_store.py`: `DatabaseSessionService(sqlite+aiosqlite:///aegis_sessions.db)` |
 
 ---
 
 ## Next Steps (80/20 — production impact order)
 
-### Priority 1 — Wire frontend ↔ backend (Phase 5b gate)
+Phases 1–6 are complete. Current focus is Phase 7.
 
-1. **Wire chat panel to conversational agent.**
-   `LinearLayout.tsx` has a chat toggle but no chat component connected. Need to build a chat panel that talks to the unified conversational agent (`backend/app/agents/conversational.py`) via CopilotKit.
+### Priority 1 — Eval hardening (Phase 7 gate)
 
-2. **Replace mock data in Home page with real API calls.**
-   `frontend/app/workspace/page.tsx` uses hardcoded mock data. Wire to backend endpoints (`/health`, `/taxonomy`, pipeline state).
+1. **Run `make eval-all` and verify `tool_trajectory_avg_score` ≥ 0.8 across all 5 traces.**
 
-3. **Build additional pages:**
-   - Bets list (`/workspace/bets`) — list active bets
-   - Risk detail (`/workspace/risks/[id]`) — individual risk drill-down
+### Priority 2 — Phase 7 build
 
-4. **Backend: AG-UI state emission.**
-   Emit state updates after each pipeline stage so frontend receives real-time updates via CopilotKit.
+2. **HeuristicVersion canary rollout** — offline replay + manual promotion. Never auto-promote MAJOR versions.
+3. **EvalSynthesisJob** — aggregate eval results into a summary for ProductBrain heuristic tuning.
+4. **Deployment hardening** — production Docker, secrets via GCP Secret Manager, Cloud Run deployment.
 
-5. **Backend: L2 autonomous execution logic.**
-   Executor needs to check `control_level` + `escalation_level` to decide auto-execute vs. await approval.
+### Priority 3 — Subject hygiene for Jules
 
-### Priority 2 — Phase 6 build (high signal value, low coupling)
-
-6. **Bet Declaration flow** (`backend/app/agents/` + `frontend/app/workspace/`).
-   - Add `/bets` POST endpoint → persists Bet → triggers first pipeline run.
-   - Frontend: simple form modal on Home page.
-
-7. **`build_jules_subject` (Subject Hygiene for Jules).**
-   - Add `build_jules_subject(bet, risk_signal, action_type) -> str` utility to normalize subject format for Jules L3 actions.
-
-### Priority 3 — Eval hardening (phase gate unlock)
-
-8. **Run `make eval-all` and check `tool_trajectory_avg_score` across all 5 traces.**
-   Phase 6 gate requires all traces ≥ 0.8.
+5. **`build_jules_subject`** — Add utility `build_jules_subject(bet, risk_signal, action_type) -> str` to `backend/tools/jules_service.py` to normalize subject format for Jules L3 actions.
 
 ### What to skip (YAGNI until Phase 7)
 - `BetOutcomeRecord` corpus — needs weeks of real data.
-- HeuristicVersion canary rollout — zero bets in prod yet.
 - PDF digest, mobile fallback, SSE reconnect banner.
 
 ---

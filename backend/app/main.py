@@ -266,6 +266,10 @@ async def list_interventions(
 # BET ENDPOINTS (Phase 6 — Bet Declaration flow)
 # ─────────────────────────────────────────────
 
+# In-memory fallback for bets when AlloyDB is not configured (local dev / CI).
+# This is process-scoped — resets on restart, which is acceptable for local dev.
+_inmemory_bets: list[dict] = []
+
 
 class BetCreateBody(BaseModel):
     """Minimal fields required to declare a new bet. Defaults applied for optional fields."""
@@ -335,6 +339,9 @@ async def create_bet(body: BetCreateBody):
         )
         saved_id = await save_bet(bet)
         persisted = saved_id is not None
+    else:
+        # No DB — keep bet in process memory so GET /bets reflects it this session
+        _inmemory_bets.append(bet)
 
     return {**bet, "persisted": persisted}
 
@@ -344,11 +351,15 @@ async def list_bets_endpoint(
     workspace_id: str = Query(...),
     status: str | None = Query(None),
 ):
-    """List bets for a workspace. Returns [] when DB not configured."""
+    """List bets for a workspace. Falls back to in-memory store when DB not configured."""
     from db.repository import list_bets
 
     if not is_db_configured():
-        return []
+        # Serve from process-scoped fallback (local dev / CI)
+        result = [b for b in _inmemory_bets if b["workspace_id"] == workspace_id]
+        if status:
+            result = [b for b in result if b["status"] == status]
+        return result
     return await list_bets(workspace_id=workspace_id, status=status)
 
 
@@ -358,7 +369,10 @@ async def get_bet_endpoint(bet_id: str):
     from db.repository import get_bet
 
     if not is_db_configured():
-        raise HTTPException(status_code=503, detail="Database not configured")
+        bet = next((b for b in _inmemory_bets if b["id"] == bet_id), None)
+        if not bet:
+            raise HTTPException(status_code=404, detail="Bet not found")
+        return bet
     bet = await get_bet(bet_id)
     if not bet:
         raise HTTPException(status_code=404, detail=f"Bet {bet_id} not found")

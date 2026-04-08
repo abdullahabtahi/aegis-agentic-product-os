@@ -96,6 +96,14 @@ export function BetDeclarationModal({
         success_metrics: successMetrics,
         time_horizon: timeHorizon.trim(),
       });
+      // Warn if the backend is running without a DB (in-memory only, resets on restart)
+      if (bet.persisted === false) {
+        setError("Direction saved in memory only — no database configured. It will be lost on backend restart.");
+        // Still call onBetDeclared so the list refreshes with the in-memory bet
+        onBetDeclared(bet);
+        setIsLoading(false);
+        return;
+      }
       resetForm();
       onBetDeclared(bet);
     } catch (err) {

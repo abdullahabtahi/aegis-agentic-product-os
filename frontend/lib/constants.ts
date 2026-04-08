@@ -36,17 +36,17 @@ export const RISK_LABELS: Record<RiskType, string> = {
 };
 
 export const SEVERITY_COLORS: Record<Severity, string> = {
-  low: "text-emerald-400",
-  medium: "text-amber-400",
-  high: "text-orange-400",
-  critical: "text-red-400",
+  low: "text-emerald-700",
+  medium: "text-amber-700",
+  high: "text-orange-700",
+  critical: "text-red-600",
 };
 
 export const SEVERITY_BG: Record<Severity, string> = {
-  low: "bg-emerald-400/10 text-emerald-400 border-emerald-400/20",
-  medium: "bg-amber-400/10 text-amber-400 border-amber-400/20",
-  high: "bg-orange-400/10 text-orange-400 border-orange-400/20",
-  critical: "bg-red-400/10 text-red-400 border-red-400/20",
+  low: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  medium: "bg-amber-50 text-amber-700 border-amber-200",
+  high: "bg-orange-50 text-orange-700 border-orange-200",
+  critical: "bg-red-50 text-red-600 border-red-200",
 };
 
 export const BET_STATUS_LABELS: Record<BetStatus, string> = {
@@ -58,11 +58,11 @@ export const BET_STATUS_LABELS: Record<BetStatus, string> = {
 };
 
 export const BET_STATUS_STYLES: Record<BetStatus, string> = {
-  detecting: "bg-indigo-400/10 text-indigo-400 border-indigo-400/20",
-  active: "bg-emerald-400/10 text-emerald-400 border-emerald-400/20",
-  paused: "bg-amber-400/10 text-amber-400 border-amber-400/20",
-  validated: "bg-sky-400/10 text-sky-400 border-sky-400/20",
-  killed: "bg-slate-400/10 text-slate-400 border-slate-400/20",
+  detecting: "bg-indigo-50 text-indigo-700 border-indigo-200",
+  active: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  paused: "bg-amber-50 text-amber-700 border-amber-200",
+  validated: "bg-sky-50 text-sky-700 border-sky-200",
+  killed: "bg-slate-100 text-slate-600 border-slate-200",
 };
 
 /** Health score → colour class (for progress bars and indicators) */
