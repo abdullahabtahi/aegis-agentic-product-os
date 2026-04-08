@@ -21,6 +21,13 @@ logger = logging.getLogger(__name__)
 _MAX_ISSUES = 50
 _MAX_DIRECTIONS = 5
 
+_DEFAULT_HEALTH_BASELINE: dict = {
+    "expected_bet_coverage_pct": 0.5,
+    "expected_weekly_velocity": 3,
+    "hypothesis_required": True,
+    "metric_linked_required": False,
+}
+
 _PROMPT_TEMPLATE = """\
 You are a product strategy assistant. Given the following Linear issues, identify \
 between 2 and 5 distinct strategic themes or product directions.
@@ -44,11 +51,10 @@ def _make_genai_client() -> genai.Client:
 
 
 def _build_issues_text(issues: list) -> str:
-    lines = []
-    for issue in issues:
+    def _format(issue) -> str:
         desc = (issue.description or "")[:200].replace("\n", " ")
-        lines.append(f"- {issue.title} | {desc if desc else '(no description)'}")
-    return "\n".join(lines)
+        return f"- {issue.title} | {desc or '(no description)'}"
+    return "\n".join(_format(i) for i in issues)
 
 
 def _build_bet_dict(cluster: dict, workspace_id: str, now: str) -> dict:
@@ -65,12 +71,7 @@ def _build_bet_dict(cluster: dict, workspace_id: str, now: str) -> dict:
         "declaration_source": {"type": "agent_inferred", "raw_artifact_refs": []},
         "declaration_confidence": 0.7,
         "status": "detecting",
-        "health_baseline": {
-            "expected_bet_coverage_pct": 0.5,
-            "expected_weekly_velocity": 3,
-            "hypothesis_required": True,
-            "metric_linked_required": False,
-        },
+        "health_baseline": dict(_DEFAULT_HEALTH_BASELINE),
         "acknowledged_risks": [],
         "linear_issue_ids": [],
         "doc_refs": [],

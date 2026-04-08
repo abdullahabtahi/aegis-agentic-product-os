@@ -97,8 +97,30 @@ class MockLinearMCP:
                 f"Signal Engine must never read more than 14 days. Got days={days}. "
                 "This is a hard constraint (CLAUDE.md)."
             )
+        # Workspace-wide scan: return issues from all known fixtures (deduplicated by ID)
         if not project_ids:
-            return []
+            seen: set[str] = set()
+            all_issues: list[LinearIssue] = []
+            for fixture_name in dict.fromkeys(_FIXTURE_MAP.values()):  # preserve order, dedup fixture names
+                try:
+                    fixture = self._load_fixture(fixture_name)
+                except FileNotFoundError:
+                    continue
+                for issue in fixture.get("issues", []):
+                    if issue["id"] not in seen:
+                        seen.add(issue["id"])
+                        all_issues.append(
+                            LinearIssue(
+                                id=issue["id"],
+                                title=issue["title"],
+                                status=issue["status"],
+                                project_id=issue.get("project_id"),
+                                description=issue.get("description", ""),
+                                rolled_over=issue.get("rolled_over", False),
+                                roll_count=issue.get("roll_count", 0),
+                            )
+                        )
+            return all_issues
 
         fixture = self._fixture_for_project(project_ids[0])
         return [

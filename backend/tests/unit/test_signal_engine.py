@@ -103,10 +103,15 @@ class TestMockLinearMCP:
             await mock.list_issues(project_ids=["proj-unknown-xyz"], days=14)
 
     @pytest.mark.asyncio
-    async def test_empty_project_ids_returns_empty(self):
+    async def test_empty_project_ids_returns_workspace_wide_issues(self):
+        """Workspace-wide scan (project_ids=[]) should return issues from all fixtures."""
         mock = MockLinearMCP()
         issues = await mock.list_issues(project_ids=[], days=14)
-        assert issues == []
+        # Should return a non-empty deduplicated list from all known fixtures
+        assert len(issues) > 0
+        # All returned items must be LinearIssue instances with unique IDs
+        ids = [i.id for i in issues]
+        assert len(ids) == len(set(ids)), "Workspace-wide scan must not return duplicate issue IDs"
 
 
 # ─────────────────────────────────────────────
