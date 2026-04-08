@@ -559,6 +559,34 @@ async def get_bet(bet_id: str) -> dict | None:
         return None
 
 
+async def list_interventions(workspace_id: str, limit: int = 10) -> list[dict]:
+    """List recent interventions for a workspace, newest first."""
+    if not is_db_configured():
+        return []
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                text("""
+                    SELECT i.id, i.bet_id, i.action_type, i.escalation_level,
+                           i.status, i.rationale, i.confidence,
+                           i.created_at, i.decided_at,
+                           b.name AS bet_name
+                    FROM interventions i
+                    LEFT JOIN bets b ON b.id = i.bet_id
+                    WHERE i.workspace_id = :wid
+                    ORDER BY i.created_at DESC
+                    LIMIT :lim
+                """),
+                {"wid": workspace_id, "lim": limit},
+            )
+            return [dict(row._mapping) for row in result]
+    except Exception as exc:
+        logger.warning(
+            "Failed to list interventions for workspace %s: %s", workspace_id, exc
+        )
+        return []
+
+
 # ─────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────

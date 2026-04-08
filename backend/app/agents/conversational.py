@@ -295,19 +295,15 @@ async def get_intervention_history(
     if not workspace_id:
         return {"status": "error", "message": "No workspace configured"}
 
-    # TODO: Query AlloyDB interventions table
-    # For now, return placeholder
-    return {
-        "status": "success",
-        "interventions": [
-            {
-                "action": "add_success_metric",
-                "bet": "Ship v2 onboarding",
-                "timestamp": "2h ago",
-                "outcome": "Created Linear issue ENG-47",
-            }
-        ],
-    }
+    from db.engine import is_db_configured
+    from db.repository import list_interventions
+
+    if is_db_configured():
+        rows = await list_interventions(workspace_id=workspace_id, limit=limit)
+        return {"status": "success", "interventions": rows}
+
+    # Local dev without DB — return empty list (not fake data)
+    return {"status": "success", "interventions": []}
 
 
 async def explain_risk_type(
@@ -320,7 +316,7 @@ async def explain_risk_type(
     References product principles (Shreyas Doshi, Lenny Rachitsky).
 
     Args:
-        risk_type: One of strategy_unclear, alignment_issue, execution_issue
+        risk_type: One of strategy_unclear, alignment_issue, execution_issue, placebo_productivity
 
     Returns:
         Explanation with product principle citations
@@ -340,6 +336,11 @@ async def explain_risk_type(
             "meaning": "Chronic rollovers, blockers piling up, scope creep.",
             "why_matters": "Executing the right strategy but hitting friction. Scoping or unblocking needed.",
             "intervention": "Reduce scope, unblock dependencies, or add capacity.",
+        },
+        "placebo_productivity": {
+            "meaning": "Tickets close but none map to the stated direction. High velocity, zero progress.",
+            "why_matters": "Per Shreyas Doshi: The most dangerous failure mode — teams feel productive while building the wrong thing. Lenny Rachitsky calls this 'shipping without learning'.",
+            "intervention": "Audit recent closed work against direction hypothesis. Re-map or re-scope.",
         },
     }
 

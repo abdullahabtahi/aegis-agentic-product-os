@@ -1,4 +1,14 @@
 # docker-compose.yml
+#
+# Quick start:
+#   1. cp backend/.env.example backend/.env
+#   2. Edit backend/.env — set GOOGLE_CLOUD_PROJECT (required) and optionally LINEAR_API_KEY
+#   3. docker-compose up
+#
+# For local dev without GCP credentials, set in backend/.env:
+#   AEGIS_MOCK_LINEAR=true
+#   GOOGLE_CLOUD_PROJECT=local-dev
+
 services:
   backend:
     build: 
@@ -12,6 +22,7 @@ services:
     environment:
       - AEGIS_LOCAL_DEV=true
       - ALLOWED_ORIGINS=http://localhost:3000
+      - AEGIS_SESSION_DB=aegis_sessions.db
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/debug/ping')"]

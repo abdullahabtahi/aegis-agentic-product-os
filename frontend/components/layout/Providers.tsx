@@ -29,7 +29,7 @@ function CopilotKitWithSession({
       runtimeUrl="/api/copilotkit"
       agent="aegis_pipeline"
       threadId={threadId}
-      showDevConsole={true}
+      showDevConsole={process.env.NODE_ENV === "development"}
       onError={onError}
     >
       {children}
