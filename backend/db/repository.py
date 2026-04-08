@@ -346,6 +346,193 @@ async def get_workspace_intervention_stats(workspace_id: str) -> dict:
 
 
 # ─────────────────────────────────────────────
+# WORKSPACES
+# ─────────────────────────────────────────────
+
+async def upsert_workspace(workspace: dict) -> str | None:
+    """Insert workspace if not exists (by id). Returns id or None."""
+    if not is_db_configured():
+        return workspace.get("id")
+    try:
+        ws_id = workspace.get("id", _new_id())
+        async with get_session() as session:
+            await session.execute(
+                text("""
+                    INSERT INTO workspaces (
+                        id, linear_team_id, strategy_doc_refs, active_bet_ids,
+                        control_level, github_repo, created_at
+                    ) VALUES (
+                        :id, :linear_team_id, :strategy_doc_refs, :active_bet_ids,
+                        :control_level, :github_repo, :created_at
+                    )
+                    ON CONFLICT (id) DO NOTHING
+                """),
+                {
+                    "id": ws_id,
+                    "linear_team_id": workspace.get("linear_team_id", ""),
+                    "strategy_doc_refs": workspace.get("strategy_doc_refs", []),
+                    "active_bet_ids": workspace.get("active_bet_ids", []),
+                    "control_level": workspace.get("control_level", "draft_only"),
+                    "github_repo": workspace.get("github_repo"),
+                    "created_at": workspace.get("created_at", _now_iso()),
+                },
+            )
+        return ws_id
+    except Exception as exc:
+        logger.warning("Failed to upsert workspace: %s", exc)
+        return None
+
+
+async def get_workspace(workspace_id: str) -> dict | None:
+    """Fetch a workspace by id. Returns dict or None."""
+    if not is_db_configured():
+        return None
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                text("SELECT * FROM workspaces WHERE id = :id"),
+                {"id": workspace_id},
+            )
+            row = result.mappings().first()
+            return dict(row) if row else None
+    except Exception as exc:
+        logger.warning("Failed to get workspace %s: %s", workspace_id, exc)
+        return None
+
+
+# ─────────────────────────────────────────────
+# BETS
+# ─────────────────────────────────────────────
+
+async def save_bet(bet: dict) -> str | None:
+    """Persist a Bet dict. Returns id or None."""
+    if not is_db_configured():
+        return bet.get("id")
+    try:
+        bet_id = bet.get("id", _new_id())
+        now = _now_iso()
+        async with get_session() as session:
+            await session.execute(
+                text("""
+                    INSERT INTO bets (
+                        id, workspace_id, name, target_segment, problem_statement,
+                        hypothesis, success_metrics, time_horizon,
+                        declaration_source, declaration_confidence,
+                        status, health_baseline, acknowledged_risks,
+                        linear_project_ids, linear_issue_ids, doc_refs,
+                        created_at, last_monitored_at
+                    ) VALUES (
+                        :id, :workspace_id, :name, :target_segment, :problem_statement,
+                        :hypothesis, :success_metrics::jsonb, :time_horizon,
+                        :declaration_source::jsonb, :declaration_confidence,
+                        :status, :health_baseline::jsonb, :acknowledged_risks::jsonb,
+                        :linear_project_ids, :linear_issue_ids, :doc_refs,
+                        :created_at, :last_monitored_at
+                    )
+                """),
+                {
+                    "id": bet_id,
+                    "workspace_id": bet["workspace_id"],
+                    "name": bet["name"],
+                    "target_segment": bet.get("target_segment", ""),
+                    "problem_statement": bet.get("problem_statement", ""),
+                    "hypothesis": bet.get("hypothesis", ""),
+                    "success_metrics": _json_str(bet.get("success_metrics", [])),
+                    "time_horizon": bet.get("time_horizon", ""),
+                    "declaration_source": _json_str(bet.get("declaration_source", {
+                        "type": "manual",
+                        "raw_artifact_refs": [],
+                    })),
+                    "declaration_confidence": bet.get("declaration_confidence", 1.0),
+                    "status": bet.get("status", "active"),
+                    "health_baseline": _json_str(bet.get("health_baseline", {
+                        "expected_bet_coverage_pct": 0.5,
+                        "expected_weekly_velocity": 3,
+                        "hypothesis_required": True,
+                        "metric_linked_required": True,
+                    })),
+                    "acknowledged_risks": _json_str(bet.get("acknowledged_risks", [])),
+                    "linear_project_ids": bet.get("linear_project_ids", []),
+                    "linear_issue_ids": bet.get("linear_issue_ids", []),
+                    "doc_refs": bet.get("doc_refs", []),
+                    "created_at": bet.get("created_at", now),
+                    "last_monitored_at": bet.get("last_monitored_at", now),
+                },
+            )
+            # Update workspace.active_bet_ids
+            await session.execute(
+                text("""
+                    UPDATE workspaces
+                    SET active_bet_ids = array_append(active_bet_ids, :bet_id)
+                    WHERE id = :workspace_id
+                    AND NOT (:bet_id = ANY(active_bet_ids))
+                """),
+                {"bet_id": bet_id, "workspace_id": bet["workspace_id"]},
+            )
+        return bet_id
+    except Exception as exc:
+        logger.warning("Failed to save bet: %s", exc)
+        return None
+
+
+async def list_bets(workspace_id: str, status: str | None = None) -> list[dict]:
+    """List bets for a workspace, newest first. Optionally filter by status."""
+    if not is_db_configured():
+        return []
+    try:
+        async with get_session() as session:
+            if status:
+                result = await session.execute(
+                    text("""
+                        SELECT id, workspace_id, name, target_segment, problem_statement,
+                               hypothesis, success_metrics, time_horizon, status,
+                               declaration_confidence, health_baseline, acknowledged_risks,
+                               linear_project_ids, linear_issue_ids, doc_refs,
+                               created_at, last_monitored_at, completed_at
+                        FROM bets
+                        WHERE workspace_id = :wid AND status = :status
+                        ORDER BY created_at DESC
+                    """),
+                    {"wid": workspace_id, "status": status},
+                )
+            else:
+                result = await session.execute(
+                    text("""
+                        SELECT id, workspace_id, name, target_segment, problem_statement,
+                               hypothesis, success_metrics, time_horizon, status,
+                               declaration_confidence, health_baseline, acknowledged_risks,
+                               linear_project_ids, linear_issue_ids, doc_refs,
+                               created_at, last_monitored_at, completed_at
+                        FROM bets
+                        WHERE workspace_id = :wid
+                        ORDER BY created_at DESC
+                    """),
+                    {"wid": workspace_id},
+                )
+            return [dict(row._mapping) for row in result]
+    except Exception as exc:
+        logger.warning("Failed to list bets for workspace %s: %s", workspace_id, exc)
+        return []
+
+
+async def get_bet(bet_id: str) -> dict | None:
+    """Fetch a single bet by id."""
+    if not is_db_configured():
+        return None
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                text("SELECT * FROM bets WHERE id = :id"),
+                {"id": bet_id},
+            )
+            row = result.mappings().first()
+            return dict(row) if row else None
+    except Exception as exc:
+        logger.warning("Failed to get bet %s: %s", bet_id, exc)
+        return None
+
+
+# ─────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────
 

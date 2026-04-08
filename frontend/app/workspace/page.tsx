@@ -10,9 +10,11 @@
  * Backend health shown inline so connectivity issues are visible immediately.
  */
 
-import { Shield, Radar, Brain, Zap, WifiOff, AlertTriangle, Sparkles } from "lucide-react";
+import { useState } from "react";
+import { Shield, Radar, Brain, Zap, WifiOff, AlertTriangle, Sparkles, GitBranch, Plus } from "lucide-react";
 import { CommandBar } from "@/components/chat/CommandBar";
 import { ChatMessages } from "@/components/chat/ChatMessages";
+import { BetDeclarationModal } from "@/components/bets/BetDeclarationModal";
 import { useChatController } from "@/hooks/useChatController";
 import { useAgentStateSync } from "@/hooks/useAgentStateSync";
 import { useBackendHealth } from "@/hooks/useBackendHealth";
@@ -20,6 +22,7 @@ import { useBackendHealth } from "@/hooks/useBackendHealth";
 const FEATURE_CARDS = [
   { icon: Radar, title: "Signal Engine", description: "Monitors Linear for strategy drift, missing metrics, and execution blockers.", color: "text-indigo-500", bg: "bg-indigo-500/10" },
   { icon: Brain, title: "Product Brain", description: "Debate-pattern risk classification with confidence scoring.", color: "text-violet-500", bg: "bg-violet-500/10" },
+  { icon: GitBranch, title: "Coordinator", description: "Orchestrates multi-agent responses and recommends bounded interventions.", color: "text-sky-500", bg: "bg-sky-500/10" },
   { icon: Shield, title: "Governor", description: "8 deterministic policy checks — safe, bounded interventions.", color: "text-emerald-500", bg: "bg-emerald-500/10" },
   { icon: Zap, title: "Executor", description: "Creates issues, adds comments, or escalates for approval.", color: "text-amber-500", bg: "bg-amber-500/10" },
 ] as const;
@@ -35,9 +38,31 @@ export default function HomePage() {
   const { messages, sendMessage, isLoading, stopGeneration, hasMessages } = useChatController();
   const { state: pipelineState } = useAgentStateSync();
   const backendHealth = useBackendHealth();
+  const [showBetModal, setShowBetModal] = useState(false);
+
+  // When a bet is declared, send it as context to the agent and trigger a scan
+  function handleBetDeclared(bet: Record<string, unknown>) {
+    setShowBetModal(false);
+    const betName = String(bet.name ?? "");
+    const segment = String(bet.target_segment ?? "");
+    const problem = String(bet.problem_statement ?? "");
+    const hypothesis = String(bet.hypothesis ?? "");
+    const horizon = String(bet.time_horizon ?? "");
+    sendMessage(
+      `I've declared a new strategic bet:\n\n**${betName}**\n- Segment: ${segment}\n- Problem: ${problem}${hypothesis ? `\n- Hypothesis: ${hypothesis}` : ""}${horizon ? `\n- Time horizon: ${horizon}` : ""}\n\nPlease scan this bet for risks.`
+    );
+  }
 
   return (
     <div className="flex h-full flex-col">
+
+      {/* Bet declaration modal */}
+      <BetDeclarationModal
+        open={showBetModal}
+        workspaceId="default_workspace"
+        onClose={() => setShowBetModal(false)}
+        onBetDeclared={handleBetDeclared}
+      />
 
       {/* Backend offline banner */}
       {backendHealth === "offline" && (
@@ -60,7 +85,7 @@ export default function HomePage() {
           </p>
 
           {/* Feature cards */}
-          <div className="mt-8 grid w-full max-w-3xl grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="mt-8 grid w-full max-w-3xl grid-cols-2 gap-3 sm:grid-cols-5">
             {FEATURE_CARDS.map((card) => {
               const Icon = card.icon;
               return (
@@ -90,6 +115,18 @@ export default function HomePage() {
                 {prompt}
               </button>
             ))}
+          </div>
+
+          {/* Primary CTA — Declare a Bet */}
+          <div className="mt-4 flex justify-center">
+            <button
+              onClick={() => setShowBetModal(true)}
+              disabled={backendHealth === "offline"}
+              className="flex items-center gap-2 rounded-xl bg-indigo-500 px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/30 transition-all hover:bg-indigo-600 hover:shadow-indigo-500/40 disabled:opacity-50"
+            >
+              <Plus size={15} />
+              Declare a Bet
+            </button>
           </div>
 
           {/* Command bar — centered in hero */}

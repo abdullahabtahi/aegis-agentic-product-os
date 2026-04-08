@@ -66,3 +66,29 @@ export function getArtifactUrl(
   if (version != null) params.set("version", String(version));
   return `${BACKEND_URL}/artifacts/${encodeURIComponent(filename)}?${params}`;
 }
+
+// ─── Bets (Phase 6 — Bet Declaration) ───
+
+export interface BetCreateRequest {
+  workspace_id: string;
+  name: string;
+  target_segment: string;
+  problem_statement: string;
+  hypothesis?: string;
+  success_metrics?: Array<{ name: string; target_value: string; unit: string }>;
+  time_horizon?: string;
+  linear_project_ids?: string[];
+}
+
+export function createBet(body: BetCreateRequest): Promise<Record<string, unknown>> {
+  return request("/bets", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function listBets(workspaceId: string, status?: string): Promise<Record<string, unknown>[]> {
+  const params = new URLSearchParams({ workspace_id: workspaceId });
+  if (status) params.set("status", status);
+  return request(`/bets?${params}`);
+}

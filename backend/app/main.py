@@ -48,6 +48,10 @@ ADK_APP_NAME = "app"
 adk_agent = ADKAgent(
     adk_agent=root_agent,
     app_name=ADK_APP_NAME,
+    # Fix: ag_ui_adk default extractor uses f"thread_user_{thread_id}" but
+    # frontend SessionDrawer calls GET /sessions?user_id=default_user.
+    # Setting a static user_id ensures sessions are findable by the UI.
+    user_id="default_user",
     session_service=session_service,
     artifact_service=artifact_service,
     use_in_memory_services=False,
@@ -217,6 +221,102 @@ async def list_interventions(
     except Exception as exc:
         logger.warning("Failed to list interventions for workspace %s: %s", workspace_id, exc)
         return []
+
+
+# ─────────────────────────────────────────────
+# BET ENDPOINTS (Phase 6 — Bet Declaration flow)
+# ─────────────────────────────────────────────
+
+class BetCreateBody(BaseModel):
+    """Minimal fields required to declare a new bet. Defaults applied for optional fields."""
+    workspace_id: str
+    name: str
+    target_segment: str
+    problem_statement: str
+    hypothesis: str = ""
+    success_metrics: list[dict] = []   # [{name, target_value, unit}]
+    time_horizon: str = ""             # ISO 8601 date or relative (e.g. "Q2 2026")
+    linear_project_ids: list[str] = []
+
+
+@app.post("/bets", status_code=201)
+async def create_bet(body: BetCreateBody):
+    """Declare a new strategic bet.
+
+    Auto-creates a workspace record if it doesn't exist yet (idempotent upsert).
+    Returns the persisted bet dict. When DB is not configured (local dev),
+    returns the bet with persisted=False — still useful for wiring agent state.
+    """
+    import uuid
+    from datetime import datetime, timezone
+    from db.repository import upsert_workspace, save_bet
+
+    now = datetime.now(timezone.utc).isoformat()
+    bet_id = str(uuid.uuid4())
+
+    bet = {
+        "id": bet_id,
+        "workspace_id": body.workspace_id,
+        "name": body.name,
+        "target_segment": body.target_segment,
+        "problem_statement": body.problem_statement,
+        "hypothesis": body.hypothesis,
+        "success_metrics": body.success_metrics,
+        "time_horizon": body.time_horizon,
+        "linear_project_ids": body.linear_project_ids,
+        "declaration_source": {"type": "manual", "raw_artifact_refs": []},
+        "declaration_confidence": 1.0,
+        "status": "active",
+        "health_baseline": {
+            "expected_bet_coverage_pct": 0.5,
+            "expected_weekly_velocity": 3,
+            "hypothesis_required": bool(body.hypothesis),
+            "metric_linked_required": len(body.success_metrics) > 0,
+        },
+        "acknowledged_risks": [],
+        "linear_issue_ids": [],
+        "doc_refs": [],
+        "created_at": now,
+        "last_monitored_at": now,
+    }
+
+    persisted = False
+    if is_db_configured():
+        # Ensure workspace exists (no-op if already created)
+        await upsert_workspace({
+            "id": body.workspace_id,
+            "linear_team_id": "",
+            "control_level": "draft_only",
+            "created_at": now,
+        })
+        saved_id = await save_bet(bet)
+        persisted = saved_id is not None
+
+    return {**bet, "persisted": persisted}
+
+
+@app.get("/bets")
+async def list_bets_endpoint(
+    workspace_id: str = Query(...),
+    status: str | None = Query(None),
+):
+    """List bets for a workspace. Returns [] when DB not configured."""
+    from db.repository import list_bets
+    if not is_db_configured():
+        return []
+    return await list_bets(workspace_id=workspace_id, status=status)
+
+
+@app.get("/bets/{bet_id}")
+async def get_bet_endpoint(bet_id: str):
+    """Fetch a single bet by id."""
+    from db.repository import get_bet
+    if not is_db_configured():
+        raise HTTPException(status_code=503, detail="Database not configured")
+    bet = await get_bet(bet_id)
+    if not bet:
+        raise HTTPException(status_code=404, detail=f"Bet {bet_id} not found")
+    return bet
 
 
 class RejectBody(BaseModel):
