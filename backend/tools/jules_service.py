@@ -94,6 +94,7 @@ def _get_jules_prompt(action_type: str, rationale: str, title: str) -> str:
 # JULES CLIENT
 # ─────────────────────────────────────────────
 
+
 class JulesClient:
     """Async client for the Jules API (v1alpha).
 
@@ -226,7 +227,9 @@ class JulesClient:
 
                 logger.info(
                     "Jules session created: id=%s, action=%s, repo=%s",
-                    session_id, action_type, github_repo,
+                    session_id,
+                    action_type,
+                    github_repo,
                 )
 
                 return {
@@ -241,7 +244,9 @@ class JulesClient:
         except httpx.HTTPStatusError as exc:
             error_body = exc.response.text
             logger.warning(
-                "Jules create_session HTTP %s: %s", exc.response.status_code, error_body,
+                "Jules create_session HTTP %s: %s",
+                exc.response.status_code,
+                error_body,
             )
             return {
                 "status": "error",

@@ -32,10 +32,10 @@ from google.genai import types
 from models.schema import DEFAULT_HEURISTIC_VERSION
 from tools.lenny_mcp import search_lenny_transcripts
 
-
 # ─────────────────────────────────────────────
 # TOOLS — each writes to session state via ToolContext
 # ─────────────────────────────────────────────
+
 
 def emit_cynic_assessment(
     risk_type: str,
@@ -53,7 +53,7 @@ def emit_cynic_assessment(
         severity: One of: low, medium, high, critical.
         confidence: Confidence in this risk assessment, 0.0 to 1.0.
         evidence_summary: Comma-separated evidence types observed (e.g. 'chronic_rollover,missing_hypothesis').
-        key_concerns: 2–3 sentences on what could go worst-case if this risk is real.
+        key_concerns: 2-3 sentences on what could go worst-case if this risk is real.
 
     Returns:
         Assessment dict saved to session state for Optimist and Synthesis to read.
@@ -83,7 +83,7 @@ def emit_optimist_assessment(
         risk_type: Your own independent classification. May differ from Cynic's.
             Use 'none' if mitigating factors make the signal noise.
         confidence: Your confidence, 0.0 to 1.0.
-        mitigating_factors: 2–3 sentences on evidence that reduces risk severity.
+        mitigating_factors: 2-3 sentences on evidence that reduces risk severity.
         adjusted_severity: After weighing mitigating factors: low, medium, high, or critical.
 
     Returns:
@@ -123,7 +123,7 @@ def emit_risk_signal(
         confidence: Final synthesised confidence, 0.0 to 1.0.
         headline: ONE sentence, max 12 words. LOST UPSIDE framing — never threat or failure.
             WRONG: "Your bet is failing." RIGHT: "Scope creep risks missing your target launch."
-        explanation: 2–3 sentences. Cite specific signal values and product principle by ID.
+        explanation: 2-3 sentences. Cite specific signal values and product principle by ID.
         evidence_summary: Comma-separated evidence types (e.g. 'chronic_rollover,cross_team_thrash').
         product_principle_refs: Comma-separated ProductHeuristic IDs cited.
         classification_rationale: Optional chain-of-thought showing how Cynic vs Optimist were weighed.
@@ -150,6 +150,7 @@ def emit_risk_signal(
 # ─────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────
+
 
 def _compute_hypothesis_staleness_warning(bet: dict, bet_snapshot: dict) -> str:
     """Determine hypothesis/time_horizon staleness for prompt injection.
@@ -187,7 +188,11 @@ def _compute_hypothesis_staleness_warning(bet: dict, bet_snapshot: dict) -> str:
             "Surface this as evidence in strategy_unclear or execution_issue classification."
         )
 
-    return "\n".join(warnings) if warnings else "OK — hypothesis and time_horizon appear fresh."
+    return (
+        "\n".join(warnings)
+        if warnings
+        else "OK — hypothesis and time_horizon appear fresh."
+    )
 
 
 def _format_detected_signals(signals: dict) -> str:
@@ -213,15 +218,17 @@ def _format_detected_signals(signals: dict) -> str:
 # ─────────────────────────────────────────────
 
 # Checkpoints at or past Product Brain stage — skip LLM calls on re-invocation
-_PB_SKIP_CHECKPOINTS = frozenset({
-    "product_brain_complete",
-    "coordinator_complete",
-    "governor_complete",
-    "awaiting_founder_approval",
-    "founder_approved",
-    "founder_rejected",
-    "executor_complete",
-})
+_PB_SKIP_CHECKPOINTS = frozenset(
+    {
+        "product_brain_complete",
+        "coordinator_complete",
+        "governor_complete",
+        "awaiting_founder_approval",
+        "founder_approved",
+        "founder_rejected",
+        "executor_complete",
+    }
+)
 
 
 async def before_cynic(callback_context: CallbackContext) -> types.Content | None:
@@ -235,7 +242,9 @@ async def before_cynic(callback_context: CallbackContext) -> types.Content | Non
     if checkpoint in _PB_SKIP_CHECKPOINTS:
         return types.Content(
             role="model",
-            parts=[types.Part.from_text(text="[ProductBrain] Skipped — checkpoint exists")],
+            parts=[
+                types.Part.from_text(text="[ProductBrain] Skipped — checkpoint exists")
+            ],
         )
     signals = callback_context.state.get("linear_signals", {})
     bet = callback_context.state.get("bet", {})
@@ -249,6 +258,7 @@ async def before_cynic(callback_context: CallbackContext) -> types.Content | Non
     signals_str = _format_detected_signals(signals)
 
     from app.app_utils.trace_logging import record_trace_start
+
     record_trace_start(callback_context)
 
     callback_context.state["product_brain_context"] = {
@@ -264,20 +274,32 @@ async def before_cynic(callback_context: CallbackContext) -> types.Content | Non
     }
     callback_context.state["pb_bet_name"] = bet.get("name", "(unnamed bet)")
     callback_context.state["pb_hypothesis"] = bet.get("hypothesis") or "(no hypothesis)"
-    callback_context.state["pb_time_horizon"] = bet.get("time_horizon") or "(no deadline set)"
-    callback_context.state["pb_problem_statement"] = bet.get("problem_statement") or "(no problem statement)"
+    callback_context.state["pb_time_horizon"] = (
+        bet.get("time_horizon") or "(no deadline set)"
+    )
+    callback_context.state["pb_problem_statement"] = (
+        bet.get("problem_statement") or "(no problem statement)"
+    )
     callback_context.state["pb_signals_str"] = signals_str
-    callback_context.state["pb_prior_risk_types"] = str(list(set(prior_risk_types))) or "[]"
+    callback_context.state["pb_prior_risk_types"] = (
+        str(list(set(prior_risk_types))) or "[]"
+    )
     callback_context.state["pb_staleness_warning"] = staleness_warning
-    callback_context.state["pb_classification_fragment"] = DEFAULT_HEURISTIC_VERSION.classification_prompt_fragment
+    callback_context.state["pb_classification_fragment"] = (
+        DEFAULT_HEURISTIC_VERSION.classification_prompt_fragment
+    )
 
 
 async def before_synthesis(callback_context: CallbackContext) -> None:
     """Format Cynic and Optimist assessments as JSON strings for synthesis instruction."""
     cynic = callback_context.state.get("cynic_assessment", {})
     optimist = callback_context.state.get("optimist_assessment", {})
-    callback_context.state["pb_cynic_json"] = json.dumps(cynic, indent=2) if cynic else "(cynic did not respond)"
-    callback_context.state["pb_optimist_json"] = json.dumps(optimist, indent=2) if optimist else "(optimist did not respond)"
+    callback_context.state["pb_cynic_json"] = (
+        json.dumps(cynic, indent=2) if cynic else "(cynic did not respond)"
+    )
+    callback_context.state["pb_optimist_json"] = (
+        json.dumps(optimist, indent=2) if optimist else "(optimist did not respond)"
+    )
 
 
 def _synthesis_output_has_valid_tool_call(llm_response: LlmResponse) -> bool:
@@ -327,7 +349,9 @@ async def after_synthesis_model(
 
     # After 1 retry still invalid — silent skip, no risk signal surfaced
     # This is the safe path: no signal > bad signal
-    callback_context.state["product_brain_skip_reason"] = "validation_failed_after_retry"
+    callback_context.state["product_brain_skip_reason"] = (
+        "validation_failed_after_retry"
+    )
     return None
 
 
@@ -425,7 +449,7 @@ Problem statement: {pb_problem_statement}
 Weigh the Cynic vs Optimist assessments. Classify ONE primary risk type:
   - strategy_unclear · alignment_issue · execution_issue · placebo_productivity
 
-Determine final confidence (0.0–1.0).
+Determine final confidence (0.0-1.0).
 → If confidence < 0.6: do NOT call emit_risk_signal. Say: "Confidence below threshold — no signal surfaced."
 → Staleness warning above INCREASES your confidence in strategy_unclear or execution_issue classification.
 
@@ -434,7 +458,7 @@ If confident (>= 0.6), generate founder-facing copy:
   headline: ONE sentence, max 12 words. LOST UPSIDE framing — never threat or failure.
     WRONG: "Your team is not executing."
     RIGHT: "3 weeks of rollover risk threaten your launch window."
-  explanation: 2–3 sentences. Cite specific signal values. Ground in product principles.
+  explanation: 2-3 sentences. Cite specific signal values. Ground in product principles.
 
 ## OPTIONAL ENRICHMENT:
 You have access to search_lenny_transcripts — 284 episodes of Lenny's Podcast with product
@@ -458,6 +482,7 @@ If the search fails or returns nothing, proceed without it — do not block on e
 # ─────────────────────────────────────────────
 # AGENT DEFINITIONS
 # ─────────────────────────────────────────────
+
 
 def create_product_brain_debate() -> SequentialAgent:
     """Factory — always returns fresh agent instances with no pre-existing parent.

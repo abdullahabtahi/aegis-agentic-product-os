@@ -11,7 +11,6 @@ import os
 import pytest
 from google.adk.sessions import DatabaseSessionService
 
-
 APP_NAME = "app"
 USER_ID = "default_user"
 
@@ -25,6 +24,7 @@ def db_url(tmp_path):
 # ─────────────────────────────────────────────
 # TESTS
 # ─────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_session_survives_service_restart(db_url):
@@ -86,6 +86,7 @@ async def test_db_path_from_env(tmp_path, monkeypatch):
     monkeypatch.setenv("AEGIS_SESSION_DB", db_file)
 
     from app.session_store import get_session_service
+
     svc = get_session_service()
 
     assert isinstance(svc, DatabaseSessionService)

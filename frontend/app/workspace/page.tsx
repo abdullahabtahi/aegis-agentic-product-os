@@ -18,6 +18,7 @@ import { BetDeclarationModal } from "@/components/bets/BetDeclarationModal";
 import { useChatController } from "@/hooks/useChatController";
 import { useAgentStateSync } from "@/hooks/useAgentStateSync";
 import { useBackendHealth } from "@/hooks/useBackendHealth";
+import type { Bet } from "@/lib/types";
 
 const FEATURE_CARDS = [
   { icon: Radar, title: "Signal Engine", description: "Monitors Linear for strategy drift, missing metrics, and execution blockers.", color: "text-indigo-500", bg: "bg-indigo-500/10" },
@@ -41,15 +42,10 @@ export default function HomePage() {
   const [showBetModal, setShowBetModal] = useState(false);
 
   // When a direction is declared, send it as context to the agent and trigger a scan
-  function handleBetDeclared(bet: Record<string, unknown>) {
+  function handleBetDeclared(bet: Bet) {
     setShowBetModal(false);
-    const name = String(bet.name ?? "");
-    const segment = String(bet.target_segment ?? "");
-    const problem = String(bet.problem_statement ?? "");
-    const hypothesis = String(bet.hypothesis ?? "");
-    const horizon = String(bet.time_horizon ?? "");
     sendMessage(
-      `I've declared a new strategic direction:\n\n**${name}**\n- Segment: ${segment}\n- Problem: ${problem}${hypothesis ? `\n- Hypothesis: ${hypothesis}` : ""}${horizon ? `\n- Time horizon: ${horizon}` : ""}\n\nPlease scan this direction for risks.`
+      `I've declared a new strategic direction:\n\n**${bet.name}**\n- Segment: ${bet.target_segment}\n- Problem: ${bet.problem_statement}${bet.hypothesis ? `\n- Hypothesis: ${bet.hypothesis}` : ""}${bet.time_horizon ? `\n- Time horizon: ${bet.time_horizon}` : ""}\n\nPlease scan this direction for risks.`
     );
   }
 

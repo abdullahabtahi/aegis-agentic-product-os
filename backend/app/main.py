@@ -8,28 +8,31 @@ Run:
 CopilotKit connects to: http://localhost:8000/
 """
 
-import os
-import logging
 import json
+import logging
+import os
 from hashlib import md5
+
 import google.auth
-from fastapi import FastAPI, Response, status, Header
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
-from pydantic import BaseModel
-from sqlalchemy import text
 
 # config.py loads .env before instantiating Config, so LINEAR_API_KEY etc. are
 # available in os.environ for all downstream modules (agent.py, linear_tools.py).
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
+from fastapi import FastAPI, Header, HTTPException, Query, Response, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from google.adk.artifacts import InMemoryArtifactService
+from pydantic import BaseModel
+from sqlalchemy import text
 
 from app.agent import conversational_agent
 from app.config import config  # singleton — resolves secrets after env is loaded
 from app.session_store import get_session_service
 from db.engine import get_session, is_db_configured
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────
@@ -67,9 +70,18 @@ app = FastAPI(
     version="0.1.0",
 )
 
+# CORS origins: configurable via ALLOWED_ORIGINS env var (comma-separated).
+# Defaults to permissive for local dev; MUST be set in production.
+_allowed_origins = os.environ.get("ALLOWED_ORIGINS", "*").split(",")
+if "*" in _allowed_origins and not os.environ.get("AEGIS_LOCAL_DEV"):
+    logger.warning(
+        "CORS allows all origins (ALLOWED_ORIGINS=*). "
+        "Set ALLOWED_ORIGINS to your frontend URL in production."
+    )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Open for development to avoid port mismatch (3000 vs 3001)
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -82,6 +94,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 # HEALTH & TAXONOMY ENDPOINTS
 # ─────────────────────────────────────────────
 
+
 @app.get("/health")
 async def health_check(response: Response):
     """Deep health check for cloud readiness (AlloyDB, Google Cloud, Linear)."""
@@ -90,10 +103,10 @@ async def health_check(response: Response):
         "dependencies": {
             "alloydb": "not_configured",
             "google_cloud": "failed",
-            "linear_api": "not_configured"
-        }
+            "linear_api": "not_configured",
+        },
     }
-    
+
     # 1. Check AlloyDB
     if is_db_configured():
         try:
@@ -101,7 +114,7 @@ async def health_check(response: Response):
                 await session.execute(text("SELECT 1"))
                 health["dependencies"]["alloydb"] = "connected"
         except Exception as e:
-            health["dependencies"]["alloydb"] = f"error: {str(e)}"
+            health["dependencies"]["alloydb"] = f"error: {type(e).__name__}"
             health["status"] = "unhealthy"
 
     # 2. Check Google Cloud Auth
@@ -109,7 +122,7 @@ async def health_check(response: Response):
         _, project = google.auth.default()
         health["dependencies"]["google_cloud"] = f"connected (project: {project})"
     except Exception as e:
-        health["dependencies"]["google_cloud"] = f"error: {str(e)}"
+        health["dependencies"]["google_cloud"] = f"error: {type(e).__name__}"
         health["status"] = "unhealthy"
 
     # 3. Check Linear API (use config singleton — it resolved from env/GCP Secret Manager)
@@ -126,65 +139,87 @@ async def health_check(response: Response):
 
     if health["status"] == "unhealthy":
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-        
+
     return health
 
 
 @app.get("/diag/linear")
 async def diagnostic_linear():
     """Diagnostic endpoint to verify Linear API connectivity.
-    
+
     Returns the authenticated user and organization.
     """
-    from tools.linear_tools import get_linear_mcp, RealLinearMCP
+    from tools.linear_tools import RealLinearMCP, get_linear_mcp
+
     client = get_linear_mcp()
     if not isinstance(client, RealLinearMCP):
         return {
             "status": "mock",
-            "message": "System is running in MOCK mode (AEGIS_MOCK_LINEAR=true or no API key)."
+            "message": "System is running in MOCK mode (AEGIS_MOCK_LINEAR=true or no API key).",
         }
     return await client.whoami()
+
 
 @app.get("/taxonomy")
 async def get_taxonomy(response: Response):
     """Expose the intervention taxonomy for the frontend to build dynamic UI components."""
     # Static data — cache for 1 hour
-    response.headers["Cache-Control"] = "public, max-age=3600, stale-while-revalidate=86400"
+    response.headers["Cache-Control"] = (
+        "public, max-age=3600, stale-while-revalidate=86400"
+    )
     return {
         "version": "2.0.0",
         "levels": {
-            "1": {"name": "Clarify", "actions": ["clarify_bet", "add_hypothesis", "add_metric"]},
-            "2": {"name": "Adjust", "actions": ["rescope", "align_team", "redesign_experiment"]},
-            "3": {"name": "Escalate", "actions": ["pre_mortem_session", "jules_instrument_experiment", "jules_add_guardrails", "jules_refactor_blocker", "jules_scaffold_experiment"]},
-            "4": {"name": "Terminal", "actions": ["kill_bet"]}
+            "1": {
+                "name": "Clarify",
+                "actions": ["clarify_bet", "add_hypothesis", "add_metric"],
+            },
+            "2": {
+                "name": "Adjust",
+                "actions": ["rescope", "align_team", "redesign_experiment"],
+            },
+            "3": {
+                "name": "Escalate",
+                "actions": [
+                    "pre_mortem_session",
+                    "jules_instrument_experiment",
+                    "jules_add_guardrails",
+                    "jules_refactor_blocker",
+                    "jules_scaffold_experiment",
+                ],
+            },
+            "4": {"name": "Terminal", "actions": ["kill_bet"]},
         },
-        "description": "Standard intervention taxonomy for Aegis Agentic Product OS."
+        "description": "Standard intervention taxonomy for Aegis Agentic Product OS.",
     }
+
 
 # ─────────────────────────────────────────────
 # INTERVENTION REST ENDPOINTS (read by frontend InboxHook)
 # ─────────────────────────────────────────────
 
-from fastapi import Query, HTTPException
 
 @app.get("/interventions")
 async def list_interventions(
     response: Response,
     workspace_id: str = Query(...),
-    if_none_match: str | None = Header(None, alias="If-None-Match")
+    if_none_match: str | None = Header(None, alias="If-None-Match"),
 ):
     """Return pending/recent interventions for a workspace.
     Reads from AlloyDB; returns empty list when DB not configured (local dev).
     Supports ETag-based conditional requests (304 Not Modified).
     """
     from db.engine import is_db_configured
+
     if not is_db_configured():
         # Local dev without AlloyDB — return empty, not an error
         return []
     try:
         # Repository is bet-scoped; aggregate across all bets for the workspace
         from sqlalchemy import text
+
         from db.engine import get_session
+
         async with get_session() as session:
             result = await session.execute(
                 text("""
@@ -211,7 +246,9 @@ async def list_interventions(
         # Check If-None-Match header for conditional request
         if if_none_match == etag:
             response.status_code = status.HTTP_304_NOT_MODIFIED
-            return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag})
+            return Response(
+                status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag}
+            )
 
         # Set cache headers: short TTL (30s), revalidate with ETag
         response.headers["Cache-Control"] = "private, max-age=30, must-revalidate"
@@ -219,7 +256,9 @@ async def list_interventions(
 
         return rows
     except Exception as exc:
-        logger.warning("Failed to list interventions for workspace %s: %s", workspace_id, exc)
+        logger.warning(
+            "Failed to list interventions for workspace %s: %s", workspace_id, exc
+        )
         return []
 
 
@@ -227,15 +266,17 @@ async def list_interventions(
 # BET ENDPOINTS (Phase 6 — Bet Declaration flow)
 # ─────────────────────────────────────────────
 
+
 class BetCreateBody(BaseModel):
     """Minimal fields required to declare a new bet. Defaults applied for optional fields."""
+
     workspace_id: str
     name: str
     target_segment: str
     problem_statement: str
     hypothesis: str = ""
-    success_metrics: list[dict] = []   # [{name, target_value, unit}]
-    time_horizon: str = ""             # ISO 8601 date or relative (e.g. "Q2 2026")
+    success_metrics: list[dict] = []  # [{name, target_value, unit}]
+    time_horizon: str = ""  # ISO 8601 date or relative (e.g. "Q2 2026")
     linear_project_ids: list[str] = []
 
 
@@ -249,7 +290,8 @@ async def create_bet(body: BetCreateBody):
     """
     import uuid
     from datetime import datetime, timezone
-    from db.repository import upsert_workspace, save_bet
+
+    from db.repository import save_bet, upsert_workspace
 
     now = datetime.now(timezone.utc).isoformat()
     bet_id = str(uuid.uuid4())
@@ -283,12 +325,14 @@ async def create_bet(body: BetCreateBody):
     persisted = False
     if is_db_configured():
         # Ensure workspace exists (no-op if already created)
-        await upsert_workspace({
-            "id": body.workspace_id,
-            "linear_team_id": "",
-            "control_level": "draft_only",
-            "created_at": now,
-        })
+        await upsert_workspace(
+            {
+                "id": body.workspace_id,
+                "linear_team_id": "",
+                "control_level": "draft_only",
+                "created_at": now,
+            }
+        )
         saved_id = await save_bet(bet)
         persisted = saved_id is not None
 
@@ -302,6 +346,7 @@ async def list_bets_endpoint(
 ):
     """List bets for a workspace. Returns [] when DB not configured."""
     from db.repository import list_bets
+
     if not is_db_configured():
         return []
     return await list_bets(workspace_id=workspace_id, status=status)
@@ -311,6 +356,7 @@ async def list_bets_endpoint(
 async def get_bet_endpoint(bet_id: str):
     """Fetch a single bet by id."""
     from db.repository import get_bet
+
     if not is_db_configured():
         raise HTTPException(status_code=503, detail="Database not configured")
     bet = await get_bet(bet_id)
@@ -332,29 +378,57 @@ async def approve_intervention_endpoint(intervention_id: str):
     (two-invocation model); this REST endpoint is the founder-facing HTTP path.
     """
     from db.repository import update_intervention_status
+
     if not is_db_configured():
-        return {"status": "accepted", "intervention_id": intervention_id, "persisted": False}
+        return {
+            "status": "accepted",
+            "intervention_id": intervention_id,
+            "persisted": False,
+        }
     ok = await update_intervention_status(intervention_id, status="accepted")
     if not ok:
-        raise HTTPException(status_code=404, detail=f"Intervention {intervention_id} not found or DB error")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Intervention {intervention_id} not found or DB error",
+        )
     return {"status": "accepted", "intervention_id": intervention_id}
 
 
 @app.post("/interventions/{intervention_id}/reject")
-async def reject_intervention_endpoint(intervention_id: str, body: RejectBody = RejectBody()):
+async def reject_intervention_endpoint(
+    intervention_id: str, body: RejectBody | None = None
+):
     """Mark an intervention rejected.
 
     body.reason must be a RejectionReasonCategory value:
       evidence_too_weak | already_handled | not_a_priority | wrong_risk_type | other
     """
+    if body is None:
+        body = RejectBody()
     from db.repository import update_intervention_status
-    _valid = {"evidence_too_weak", "already_handled", "not_a_priority", "wrong_risk_type", "other"}
+
+    _valid = {
+        "evidence_too_weak",
+        "already_handled",
+        "not_a_priority",
+        "wrong_risk_type",
+        "other",
+    }
     reason = body.reason if body.reason in _valid else "other"
     if not is_db_configured():
-        return {"status": "rejected", "intervention_id": intervention_id, "persisted": False}
-    ok = await update_intervention_status(intervention_id, status="rejected", rejection_reason=reason)
+        return {
+            "status": "rejected",
+            "intervention_id": intervention_id,
+            "persisted": False,
+        }
+    ok = await update_intervention_status(
+        intervention_id, status="rejected", rejection_reason=reason
+    )
     if not ok:
-        raise HTTPException(status_code=404, detail=f"Intervention {intervention_id} not found or DB error")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Intervention {intervention_id} not found or DB error",
+        )
     return {"status": "rejected", "intervention_id": intervention_id}
 
 
@@ -362,23 +436,28 @@ async def reject_intervention_endpoint(intervention_id: str, body: RejectBody = 
 # SESSION & ARTIFACT ENDPOINTS (frontend history/artifacts UI)
 # ─────────────────────────────────────────────
 
+
 @app.get("/sessions")
 async def list_sessions(user_id: str = Query("default_user")):
     """List ADK sessions for a user. Returns SessionSummary[] matching data-schema.ts."""
     result = await session_service.list_sessions(
-        app_name=ADK_APP_NAME, user_id=user_id,
+        app_name=ADK_APP_NAME,
+        user_id=user_id,
     )
     summaries = []
     for s in result.sessions:
         state = s.state or {}
-        summaries.append({
-            "session_id": s.id,
-            "session_title": state.get("session_title") or state.get("bet", {}).get("name"),
-            "last_update_time": s.last_update_time,
-            "created_at": s.last_update_time,
-            "pipeline_status": state.get("pipeline_status", "idle"),
-            "tags": _derive_session_tags(state),
-        })
+        summaries.append(
+            {
+                "session_id": s.id,
+                "session_title": state.get("session_title")
+                or state.get("bet", {}).get("name"),
+                "last_update_time": s.last_update_time,
+                "created_at": s.last_update_time,
+                "pipeline_status": state.get("pipeline_status", "idle"),
+                "tags": _derive_session_tags(state),
+            }
+        )
     return summaries
 
 
@@ -403,21 +482,27 @@ async def list_artifacts(
 ):
     """List artifact keys and metadata. Returns ArtifactEntry[] matching data-schema.ts."""
     keys = await artifact_service.list_artifact_keys(
-        app_name=ADK_APP_NAME, user_id=user_id, session_id=session_id,
+        app_name=ADK_APP_NAME,
+        user_id=user_id,
+        session_id=session_id,
     )
     entries = []
     for filename in keys:
         versions = await artifact_service.list_versions(
-            app_name=ADK_APP_NAME, user_id=user_id,
-            filename=filename, session_id=session_id,
+            app_name=ADK_APP_NAME,
+            user_id=user_id,
+            filename=filename,
+            session_id=session_id,
         )
-        entries.append({
-            "filename": filename,
-            "session_id": session_id,
-            "versions": versions,
-            "latest_version": max(versions) if versions else 0,
-            "mime_type": "application/octet-stream",  # InMemoryArtifactService doesn't track MIME
-        })
+        entries.append(
+            {
+                "filename": filename,
+                "session_id": session_id,
+                "versions": versions,
+                "latest_version": max(versions) if versions else 0,
+                "mime_type": "application/octet-stream",  # InMemoryArtifactService doesn't track MIME
+            }
+        )
     return entries
 
 
@@ -430,8 +515,11 @@ async def get_artifact(
 ):
     """Download a specific artifact by filename."""
     part = await artifact_service.load_artifact(
-        app_name=ADK_APP_NAME, user_id=user_id,
-        filename=filename, session_id=session_id, version=version,
+        app_name=ADK_APP_NAME,
+        user_id=user_id,
+        filename=filename,
+        session_id=session_id,
+        version=version,
     )
     if part is None:
         raise HTTPException(status_code=404, detail=f"Artifact '{filename}' not found")
@@ -450,6 +538,7 @@ async def get_artifact(
 # DEBUG ENDPOINT — diagnose agent connectivity issues
 # ─────────────────────────────────────────────
 
+
 @app.get("/debug/ping")
 async def debug_ping():
     """Quick connectivity test for frontend health indicator."""
@@ -461,8 +550,9 @@ async def debug_agent_test():
     """Test that the ADK agent + Gemini auth is working without CopilotKit.
     Returns ok=True if the agent can be invoked, with any error details.
     """
-    from google.adk.sessions import InMemorySessionService
     from google.adk.runners import Runner
+    from google.adk.sessions import InMemorySessionService
+
     try:
         test_session_service = InMemorySessionService()
         session = await test_session_service.create_session(
@@ -474,13 +564,14 @@ async def debug_agent_test():
             session_service=test_session_service,
         )
         from google.genai import types as genai_types
+
         events = []
         async for event in runner.run_async(
             user_id="debug",
             session_id=session.id,
             new_message=genai_types.Content(
                 role="user",
-                parts=[genai_types.Part(text="hello, reply with just 'ok'")]
+                parts=[genai_types.Part(text="hello, reply with just 'ok'")],
             ),
         ):
             events.append(event.__class__.__name__)
@@ -489,10 +580,14 @@ async def debug_agent_test():
         return {"ok": True, "events": events, "agent": conversational_agent.name}
     except Exception as e:
         logger.error("[debug/agent-test] Failed: %s", e, exc_info=True)
-        return {"ok": False, "error": str(e), "hint": "Check GCP auth and GOOGLE_CLOUD_PROJECT env var"}
+        # Only expose error class name, not full message which may contain stack traces
+        result: dict = {"ok": False, "error": type(e).__name__}
+        if os.environ.get("AEGIS_LOCAL_DEV"):
+            result["hint"] = (
+                "Check GCP auth and GOOGLE_CLOUD_PROJECT env var. See server logs for details."
+            )
+        return result
 
 
 # Mounting ADK routes with the prefix expected by the frontend HttpAgent
 add_adk_fastapi_endpoint(app, adk_agent, path="/adk/v1/app")
-
-

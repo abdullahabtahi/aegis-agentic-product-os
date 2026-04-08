@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
-
 from app.agents.governor import (
     can_auto_execute,
     check_acknowledged_risk,
@@ -25,24 +23,42 @@ from app.agents.governor import (
     compute_blast_radius,
 )
 
-
 # ─────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────
 
-def _recent_intervention(action_type: str = "clarify_bet", status: str = "accepted", days_ago: int = 5, escalation_level: int = 1) -> dict:
+
+def _recent_intervention(
+    action_type: str = "clarify_bet",
+    status: str = "accepted",
+    days_ago: int = 5,
+    escalation_level: int = 1,
+) -> dict:
     ts = (datetime.now(timezone.utc) - timedelta(days=days_ago)).isoformat()
-    return {"action_type": action_type, "status": status, "created_at": ts, "escalation_level": escalation_level}
+    return {
+        "action_type": action_type,
+        "status": status,
+        "created_at": ts,
+        "escalation_level": escalation_level,
+    }
 
 
-def _old_intervention(action_type: str = "clarify_bet", status: str = "accepted") -> dict:
+def _old_intervention(
+    action_type: str = "clarify_bet", status: str = "accepted"
+) -> dict:
     ts = (datetime.now(timezone.utc) - timedelta(days=60)).isoformat()
-    return {"action_type": action_type, "status": status, "created_at": ts, "escalation_level": 1}
+    return {
+        "action_type": action_type,
+        "status": status,
+        "created_at": ts,
+        "escalation_level": 1,
+    }
 
 
 # ─────────────────────────────────────────────
 # CHECK 1: confidence_floor
 # ─────────────────────────────────────────────
+
 
 class TestConfidenceFloor:
     def test_above_floor_passes(self):
@@ -63,6 +79,7 @@ class TestConfidenceFloor:
 # ─────────────────────────────────────────────
 # CHECK 2: duplicate_suppression
 # ─────────────────────────────────────────────
+
 
 class TestDuplicateSuppression:
     def test_no_prior_passes(self):
@@ -95,6 +112,7 @@ class TestDuplicateSuppression:
 # CHECK 3: rate_cap
 # ─────────────────────────────────────────────
 
+
 class TestRateCap:
     def test_no_recent_passes(self):
         result = check_rate_cap("bet-1", [])
@@ -116,6 +134,7 @@ class TestRateCap:
 # CHECK 4: jules_gate
 # ─────────────────────────────────────────────
 
+
 class TestJulesGate:
     def test_non_jules_passes(self):
         result = check_jules_gate("clarify_bet", workspace_has_github=False)
@@ -126,7 +145,9 @@ class TestJulesGate:
         assert result.passed is True
 
     def test_jules_without_github_fails(self):
-        result = check_jules_gate("jules_instrument_experiment", workspace_has_github=False)
+        result = check_jules_gate(
+            "jules_instrument_experiment", workspace_has_github=False
+        )
         assert result.passed is False
         assert result.denial_reason == "jules_gate"
 
@@ -135,24 +156,33 @@ class TestJulesGate:
 # CHECK 5: reversibility
 # ─────────────────────────────────────────────
 
+
 class TestReversibility:
     def test_normal_action_no_double_confirm(self):
-        result = check_reversibility("clarify_bet", escalation_level=1, has_draft_document=False)
+        result = check_reversibility(
+            "clarify_bet", escalation_level=1, has_draft_document=False
+        )
         assert result.passed is True
         assert result.details == "ok"
 
     def test_kill_bet_requires_double_confirm(self):
-        result = check_reversibility("kill_bet", escalation_level=4, has_draft_document=False)
+        result = check_reversibility(
+            "kill_bet", escalation_level=4, has_draft_document=False
+        )
         assert result.passed is True  # never denied
         assert result.details == "double_confirm_required"
 
     def test_l3_draft_document_requires_double_confirm(self):
-        result = check_reversibility("pre_mortem_session", escalation_level=3, has_draft_document=True)
+        result = check_reversibility(
+            "pre_mortem_session", escalation_level=3, has_draft_document=True
+        )
         assert result.passed is True
         assert result.details == "double_confirm_required"
 
     def test_l2_draft_document_no_double_confirm(self):
-        result = check_reversibility("rescope", escalation_level=2, has_draft_document=True)
+        result = check_reversibility(
+            "rescope", escalation_level=2, has_draft_document=True
+        )
         assert result.passed is True
         assert result.details == "ok"
 
@@ -161,19 +191,24 @@ class TestReversibility:
 # CHECK 6: acknowledged_risk
 # ─────────────────────────────────────────────
 
+
 class TestAcknowledgedRisk:
     def test_no_acknowledged_passes(self):
         result = check_acknowledged_risk("strategy_unclear", [])
         assert result.passed is True
 
     def test_matching_acknowledged_fails(self):
-        ack = [{"risk_type": "strategy_unclear", "acknowledged_at": "2026-01-01T00:00:00Z"}]
+        ack = [
+            {"risk_type": "strategy_unclear", "acknowledged_at": "2026-01-01T00:00:00Z"}
+        ]
         result = check_acknowledged_risk("strategy_unclear", ack)
         assert result.passed is False
         assert result.denial_reason == "acknowledged_risk"
 
     def test_different_risk_type_passes(self):
-        ack = [{"risk_type": "execution_issue", "acknowledged_at": "2026-01-01T00:00:00Z"}]
+        ack = [
+            {"risk_type": "execution_issue", "acknowledged_at": "2026-01-01T00:00:00Z"}
+        ]
         result = check_acknowledged_risk("strategy_unclear", ack)
         assert result.passed is True
 
@@ -181,6 +216,7 @@ class TestAcknowledgedRisk:
 # ─────────────────────────────────────────────
 # CHECK 7: control_level
 # ─────────────────────────────────────────────
+
 
 class TestControlLevel:
     def test_always_passes(self):
@@ -196,6 +232,7 @@ class TestControlLevel:
 # ─────────────────────────────────────────────
 # CHECK 8: escalation_ladder
 # ─────────────────────────────────────────────
+
 
 class TestEscalationLadder:
     def test_first_intervention_l1_passes(self):
@@ -227,6 +264,7 @@ class TestEscalationLadder:
 # can_auto_execute
 # ─────────────────────────────────────────────
 
+
 class TestCanAutoExecute:
     def test_autonomous_l1_low_auto_executes(self):
         assert can_auto_execute("autonomous_low_risk", 1, "low") is True
@@ -250,6 +288,7 @@ class TestCanAutoExecute:
 # ─────────────────────────────────────────────
 # blast_radius
 # ─────────────────────────────────────────────
+
 
 class TestBlastRadius:
     def test_low_impact_returns_none(self):

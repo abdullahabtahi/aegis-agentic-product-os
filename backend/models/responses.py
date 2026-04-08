@@ -17,7 +17,6 @@ from models.schema import (
     Evidence,
     LinearAction,
     PolicyDenialReason,
-    ProductHeuristic,
     RiskType,
     Severity,
 )
@@ -28,12 +27,13 @@ class RiskSignalDraft(BaseModel):
 
     Confidence < 0.6 → return None (no RiskSignal created, no intervention surfaced).
     """
+
     risk_type: RiskType
     severity: Severity
-    confidence: float  # 0–1
+    confidence: float  # 0-1
     evidence: list[Evidence] = Field(default_factory=list)
     headline: str  # ≤12 words, lost-upside framing — never threat
-    explanation: str  # 2–3 sentences, cites product principle by ID
+    explanation: str  # 2-3 sentences, cites product principle by ID
     product_principle_refs: list[str] = Field(default_factory=list)
     # Phase 3: chain-of-thought before structured output (post-hoc debugging)
     classification_rationale: str | None = None
@@ -46,6 +46,7 @@ class RiskSignalDraft(BaseModel):
 
 class InterventionProposal(BaseModel):
     """Produced by Coordinator's propose_intervention tool call."""
+
     action_type: ActionType
     escalation_level: EscalationLevel
     title: str
@@ -63,9 +64,10 @@ class GovernorDecision(BaseModel):
     approved=True → intervention proceeds to HITL approval surface.
     approved=False → PolicyDeniedEvent written to AlloyDB, nothing surfaced to founder.
     """
+
     approved: bool
     denial_reason: PolicyDenialReason | None = None  # None if approved
-    requires_double_confirm: bool = False  # Level 3–4 or kill_bet
+    requires_double_confirm: bool = False  # Level 3-4 or kill_bet
     blast_radius_attached: bool = False
 
     model_config = {"frozen": True}
@@ -73,6 +75,7 @@ class GovernorDecision(BaseModel):
 
 class ExecutorResult(BaseModel):
     """Produced by Executor after executing (or skipping) a founder-approved intervention."""
+
     executed: bool
     action_type: str
     linear_write_result: dict | None = None
@@ -84,6 +87,7 @@ class ExecutorResult(BaseModel):
 
 class PolicyCheckResult(BaseModel):
     """Internal result of a single Governor policy check."""
+
     check_name: str
     passed: bool
     denial_reason: PolicyDenialReason | None = None

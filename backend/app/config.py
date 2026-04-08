@@ -7,8 +7,8 @@ Implements the "Graceful Fallback" pattern:
 This ensures the system is "Cloud Ready" without breaking Claude Code's local flow.
 """
 
-import os
 import logging
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -22,6 +22,7 @@ _env_path = Path(__file__).parent.parent / ".env"
 if _env_path.exists():
     try:
         from dotenv import load_dotenv
+
         load_dotenv(dotenv_path=_env_path, override=False)
     except ImportError:
         for _line in _env_path.read_text().splitlines():
@@ -37,7 +38,7 @@ class Config:
         # 1. Core GCP Project Info
         self.GOOGLE_CLOUD_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT")
         self.GOOGLE_CLOUD_LOCATION = os.environ.get("GOOGLE_CLOUD_LOCATION", "global")
-        
+
         # 2. Secret Mapping
         self._secrets = {}
         self._load_secrets()
@@ -49,11 +50,12 @@ class Config:
         if self.GOOGLE_CLOUD_PROJECT and not os.environ.get("AEGIS_LOCAL_DEV"):
             try:
                 from google.cloud import secretmanager
+
                 client = secretmanager.SecretManagerServiceClient()
-                
+
                 # List of secrets we care about
                 secret_keys = ["LINEAR_API_KEY", "DATABASE_URL", "JULES_API_KEY"]
-                
+
                 for key in secret_keys:
                     name = f"projects/{self.GOOGLE_CLOUD_PROJECT}/secrets/{key}/versions/latest"
                     try:
@@ -64,7 +66,9 @@ class Config:
                         # Fallback to ENV if specific secret is missing in GCP
                         self._secrets[key] = os.environ.get(key)
             except Exception as e:
-                logger.warning(f"Could not connect to GCP Secret Manager: {e}. Falling back to ENV.")
+                logger.warning(
+                    f"Could not connect to GCP Secret Manager: {e}. Falling back to ENV."
+                )
                 self._load_all_from_env()
         else:
             self._load_all_from_env()
@@ -90,9 +94,11 @@ class Config:
     def JULES_API_KEY(self):
         return self._secrets.get("JULES_API_KEY")
 
-@lru_cache()
+
+@lru_cache
 def get_config():
     return Config()
+
 
 # Export a singleton instance for easy import
 config = get_config()

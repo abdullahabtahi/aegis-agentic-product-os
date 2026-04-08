@@ -27,7 +27,9 @@ logger = logging.getLogger(__name__)
 STAGE_NAMES = ["signal_engine", "product_brain", "coordinator", "governor", "executor"]
 
 
-def _make_stages(current_idx: int, statuses: dict[str, str] | None = None) -> list[dict]:
+def _make_stages(
+    current_idx: int, statuses: dict[str, str] | None = None
+) -> list[dict]:
     """Build stages array for AG-UI state emission.
 
     Args:
@@ -46,17 +48,23 @@ def _make_stages(current_idx: int, statuses: dict[str, str] | None = None) -> li
             st = "running"
         else:
             st = "pending"
-        stages.append({
-            "name": name,
-            "status": st,
-            "started_at": now if st in ("running", "complete") else None,
-            "completed_at": now if st == "complete" else None,
-        })
+        stages.append(
+            {
+                "name": name,
+                "status": st,
+                "started_at": now if st in ("running", "complete") else None,
+                "completed_at": now if st == "complete" else None,
+            }
+        )
     return stages
 
 
-def _emit_stage(tool_context: ToolContext, stage_idx: int, pipeline_status: str,
-                overrides: dict[str, str] | None = None) -> None:
+def _emit_stage(
+    tool_context: ToolContext,
+    stage_idx: int,
+    pipeline_status: str,
+    overrides: dict[str, str] | None = None,
+) -> None:
     """Update pipeline stage in session state. AG-UI delivers the diff to the frontend
     after the tool returns — not mid-flight. For real-time streaming, this would need
     to yield StateDeltaEvents, which is a Phase 5b+ concern."""
@@ -97,7 +105,7 @@ async def run_pipeline_scan(
             return {
                 "status": "error",
                 "message": "Missing workspace_id or bet in session state. "
-                          "Please provide bet details first."
+                "Please provide bet details first.",
             }
 
         # ADK session state serializes everything as dicts (JSON).
@@ -129,16 +137,16 @@ async def run_pipeline_scan(
         # SequentialAgent (aegis_pipeline) runs separately (eval/playground only).
         # For now, emit synthetic progression so the UI reaches "complete"
         # instead of freezing on "analyzing". The LLM response IS the output.
-        _emit_stage(tool_context, 2, "analyzing")   # Coordinator
-        _emit_stage(tool_context, 3, "analyzing")   # Governor
-        _emit_stage(tool_context, 4, "executing")   # Executor
+        _emit_stage(tool_context, 2, "analyzing")  # Coordinator
+        _emit_stage(tool_context, 3, "analyzing")  # Governor
+        _emit_stage(tool_context, 4, "executing")  # Executor
 
         # Mark pipeline complete — all stages finished
         tool_context.state["pipeline_status"] = "complete"
         tool_context.state["current_stage"] = STAGE_NAMES[4]
         tool_context.state["stages"] = _make_stages(
             5,  # beyond last index → all stages complete
-            {name: "complete" for name in STAGE_NAMES},
+            dict.fromkeys(STAGE_NAMES, "complete"),
         )
 
         return {
@@ -152,20 +160,18 @@ async def run_pipeline_scan(
                 "Product Brain will classify risks",
                 "Coordinator will recommend interventions",
                 "Governor will check policy compliance",
-                "Executor will take autonomous actions (L2/L3) or request approval (L1)"
-            ]
+                "Executor will take autonomous actions (L2/L3) or request approval (L1)",
+            ],
         }
 
     except Exception as e:
         logger.error("[ConversationalAgent] Pipeline scan failed: %s", e, exc_info=True)
         # Emit error state for frontend
         tool_context.state["pipeline_status"] = "error"
-        tool_context.state["stages"] = _make_stages(0, {
-            STAGE_NAMES[0]: "error"
-        })
+        tool_context.state["stages"] = _make_stages(0, {STAGE_NAMES[0]: "error"})
         return {
             "status": "error",
-            "message": f"Scan failed: {str(e)}. Please check workspace configuration."
+            "message": f"Scan failed: {e!s}. Please check workspace configuration.",
         }
 
 
@@ -240,7 +246,10 @@ async def query_linear_issues(
             if "errors" in data:
                 return {"status": "error", "message": str(data["errors"])}
     except httpx.HTTPStatusError as e:
-        return {"status": "error", "message": f"Linear API error: {e.response.status_code}"}
+        return {
+            "status": "error",
+            "message": f"Linear API error: {e.response.status_code}",
+        }
     except Exception as e:
         return {"status": "error", "message": f"Request failed: {e}"}
 
@@ -268,8 +277,8 @@ async def query_linear_issues(
 
 
 async def get_intervention_history(
-    limit: int,  # noqa: ARG001 — will cap AlloyDB query (Phase 6)
-    tool_context: ToolContext,  # noqa: ARG001 — reserved for AlloyDB query (Phase 6)
+    limit: int,
+    tool_context: ToolContext,
 ) -> dict[str, Any]:
     """
     Get recent autonomous interventions taken by Aegis.
@@ -286,24 +295,20 @@ async def get_intervention_history(
     if not workspace_id:
         return {"status": "error", "message": "No workspace configured"}
 
-    # TODO: Query AlloyDB interventions table
-    # For now, return placeholder
-    return {
-        "status": "success",
-        "interventions": [
-            {
-                "action": "add_success_metric",
-                "bet": "Ship v2 onboarding",
-                "timestamp": "2h ago",
-                "outcome": "Created Linear issue ENG-47"
-            }
-        ]
-    }
+    from db.engine import is_db_configured
+    from db.repository import list_interventions
+
+    if is_db_configured():
+        rows = await list_interventions(workspace_id=workspace_id, limit=limit)
+        return {"status": "success", "interventions": rows}
+
+    # Local dev without DB — return empty list (not fake data)
+    return {"status": "success", "interventions": []}
 
 
 async def explain_risk_type(
     risk_type: str,
-    tool_context: ToolContext,  # noqa: ARG001 — stateless lookup, no session state needed
+    tool_context: ToolContext,
 ) -> dict[str, Any]:
     """
     Explain what a risk type means and why it matters.
@@ -311,7 +316,7 @@ async def explain_risk_type(
     References product principles (Shreyas Doshi, Lenny Rachitsky).
 
     Args:
-        risk_type: One of strategy_unclear, alignment_issue, execution_issue
+        risk_type: One of strategy_unclear, alignment_issue, execution_issue, placebo_productivity
 
     Returns:
         Explanation with product principle citations
@@ -320,18 +325,23 @@ async def explain_risk_type(
         "strategy_unclear": {
             "meaning": "Missing hypothesis or success metric. Team is busy but doesn't know what winning looks like.",
             "why_matters": "Per Shreyas Doshi: This is strategy failure, not execution failure. Busy without metrics typically precedes missed quarters.",
-            "intervention": "Clarify direction hypothesis and define success metric before continuing work."
+            "intervention": "Clarify direction hypothesis and define success metric before continuing work.",
         },
         "alignment_issue": {
             "meaning": "Work doesn't map to the stated direction. Cross-team thrash or priority confusion.",
             "why_matters": "Team knows the plan but isn't executing it. Communication gap, not strategy gap.",
-            "intervention": "Align team priorities. Reprioritize or rescope to match the direction."
+            "intervention": "Align team priorities. Reprioritize or rescope to match the direction.",
         },
         "execution_issue": {
             "meaning": "Chronic rollovers, blockers piling up, scope creep.",
             "why_matters": "Executing the right strategy but hitting friction. Scoping or unblocking needed.",
-            "intervention": "Reduce scope, unblock dependencies, or add capacity."
-        }
+            "intervention": "Reduce scope, unblock dependencies, or add capacity.",
+        },
+        "placebo_productivity": {
+            "meaning": "Tickets close but none map to the stated direction. High velocity, zero progress.",
+            "why_matters": "Per Shreyas Doshi: The most dangerous failure mode — teams feel productive while building the wrong thing. Lenny Rachitsky calls this 'shipping without learning'.",
+            "intervention": "Audit recent closed work against direction hypothesis. Re-map or re-scope.",
+        },
     }
 
     explanation = explanations.get(risk_type, {"meaning": "Unknown risk type"})
@@ -359,7 +369,7 @@ async def adjust_autonomy(
     if control_level not in valid_levels:
         return {
             "status": "error",
-            "message": f"Invalid control level. Must be one of: {', '.join(valid_levels)}"
+            "message": f"Invalid control level. Must be one of: {', '.join(valid_levels)}",
         }
 
     # TODO: Update workspace.control_level in AlloyDB
@@ -368,7 +378,7 @@ async def adjust_autonomy(
     level_names = {
         "draft_only": "L1 (Approval Required)",
         "require_approval": "L2 (Autonomous Low-Risk)",
-        "autonomous_low_risk": "L3 (Full Autonomy)"
+        "autonomous_low_risk": "L3 (Full Autonomy)",
     }
 
     return {
@@ -377,7 +387,7 @@ async def adjust_autonomy(
         "description": (
             "I'll now operate at this level. "
             "You can change this anytime by asking me to adjust autonomy."
-        )
+        ),
     }
 
 

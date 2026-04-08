@@ -73,6 +73,7 @@ async def _mcp_call(method: str, params: dict) -> dict:
 # ADK TOOL: search_lenny_transcripts
 # ─────────────────────────────────────────────
 
+
 async def search_lenny_transcripts(
     query: str,
     tool_context: ToolContext | None = None,
@@ -104,7 +105,10 @@ async def search_lenny_transcripts(
     )
 
     if not result:
-        return {"results": [], "note": "Lenny MCP unreachable — proceed without enrichment"}
+        return {
+            "results": [],
+            "note": "Lenny MCP unreachable — proceed without enrichment",
+        }
 
     # Extract content from MCP tool result format
     content = result.get("content", [])
