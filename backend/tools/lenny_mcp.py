@@ -52,7 +52,11 @@ async def _mcp_call(method: str, params: dict) -> dict:
             resp = await client.post(
                 _LENNY_MCP_URL,
                 json=payload,
-                headers={"Content-Type": "application/json"},
+                headers={
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "User-Agent": "Aegis/1.0",
+                },
             )
             resp.raise_for_status()
             data = resp.json()

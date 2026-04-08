@@ -236,9 +236,11 @@ async def list_linear_relations(issue_ids: str) -> dict:
 # REAL LINEAR MCP
 # ─────────────────────────────────────────────
 
-# GraphQL query: issues + inline relations + cycle history for rollover detection.
-# Fetched in one round-trip to minimize latency. MAX_ISSUES=250 is a safety cap
-# consistent with the 14-day bounded read window (CLAUDE.md Signal Engine invariant).
+# GraphQL query: issues + inline relations.
+# MAX_ISSUES=250 is a safety cap consistent with the 14-day bounded read window.
+# NOTE: Rollover detection (cycle history) is omitted — Linear's IssueHistory schema
+# does not expose addedToCycleId as a scalar. rolled_over/roll_count default to False/0
+# for RealLinearMCP; MockLinearMCP still provides fixture values for eval traces.
 _ISSUES_QUERY = """
 query AegisListIssues($filter: IssueFilter!, $first: Int!) {
   issues(filter: $filter, first: $first) {
@@ -255,11 +257,6 @@ query AegisListIssues($filter: IssueFilter!, $first: Int!) {
             id
             team { id name }
           }
-        }
-      }
-      history(orderBy: createdAt, first: 30) {
-        nodes {
-          addedToCycleId
         }
       }
     }
@@ -356,14 +353,8 @@ class RealLinearMCP:
         self._relations_cache.clear()
 
         for node in data["issues"]["nodes"]:
-            # Rollover detection: count distinct cycle IDs in history
-            cycle_ids = {
-                h["addedToCycleId"]
-                for h in (node.get("history") or {}).get("nodes", [])
-                if h.get("addedToCycleId")
-            }
-            roll_count = max(0, len(cycle_ids) - 1)
-
+            # Rollover detection requires cycle history which is not in this query.
+            # MockLinearMCP provides fixture values for eval traces; real API defaults to 0.
             issue_id = node["id"]
             issues.append(
                 LinearIssue(
@@ -372,8 +363,8 @@ class RealLinearMCP:
                     status=(node["state"]["name"] if node.get("state") else "Unknown"),
                     project_id=(node["project"]["id"] if node.get("project") else None),
                     description=node.get("description") or "",
-                    rolled_over=roll_count >= 1,
-                    roll_count=roll_count,
+                    rolled_over=False,
+                    roll_count=0,
                 )
             )
 

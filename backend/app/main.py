@@ -22,11 +22,11 @@ from sqlalchemy import text
 # config.py loads .env before instantiating Config, so LINEAR_API_KEY etc. are
 # available in os.environ for all downstream modules (agent.py, linear_tools.py).
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
-from google.adk.sessions import InMemorySessionService
 from google.adk.artifacts import InMemoryArtifactService
 
 from app.agent import conversational_agent
 from app.config import config  # singleton — resolves secrets after env is loaded
+from app.session_store import get_session_service
 from db.engine import get_session, is_db_configured
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # SHARED ADK SERVICES (externalized for /sessions & /artifacts endpoints)
 # ─────────────────────────────────────────────
 
-session_service = InMemorySessionService()
+session_service = get_session_service()
 artifact_service = InMemoryArtifactService()
 
 ADK_APP_NAME = "app"
@@ -375,7 +375,7 @@ async def list_sessions(user_id: str = Query("default_user")):
             "session_id": s.id,
             "session_title": state.get("session_title") or state.get("bet", {}).get("name"),
             "last_update_time": s.last_update_time,
-            "created_at": s.last_update_time,  # InMemorySessionService has no created_at
+            "created_at": s.last_update_time,
             "pipeline_status": state.get("pipeline_status", "idle"),
             "tags": _derive_session_tags(state),
         })

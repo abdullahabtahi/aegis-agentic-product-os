@@ -57,7 +57,9 @@ def _make_stages(current_idx: int, statuses: dict[str, str] | None = None) -> li
 
 def _emit_stage(tool_context: ToolContext, stage_idx: int, pipeline_status: str,
                 overrides: dict[str, str] | None = None) -> None:
-    """Emit pipeline stage progress to frontend via AG-UI StateDeltaEvent."""
+    """Update pipeline stage in session state. AG-UI delivers the diff to the frontend
+    after the tool returns — not mid-flight. For real-time streaming, this would need
+    to yield StateDeltaEvents, which is a Phase 5b+ concern."""
     tool_context.state["current_stage"] = STAGE_NAMES[stage_idx]
     tool_context.state["stages"] = _make_stages(stage_idx, overrides)
     tool_context.state["pipeline_status"] = pipeline_status
@@ -266,7 +268,7 @@ async def query_linear_issues(
 
 
 async def get_intervention_history(
-    limit: int,
+    limit: int,  # noqa: ARG001 — will cap AlloyDB query (Phase 6)
     tool_context: ToolContext,  # noqa: ARG001 — reserved for AlloyDB query (Phase 6)
 ) -> dict[str, Any]:
     """
