@@ -287,21 +287,55 @@ async def run_pipeline_scan(
         has_signal = bool(pipeline_state.get("risk_signal_draft"))
         has_intervention = bool(pipeline_state.get("pending_intervention_id"))
 
+        # ── Build factual summary from real pipeline outputs ──────────────────
+        signals = bet_snapshot.linear_signals
+        signal_summary = {
+            "issues_scanned": signals.total_issues_analyzed,
+            "rollover_count": signals.rollover_count,
+            "chronic_rollover_count": signals.chronic_rollover_count,
+            "bet_coverage_pct": round(signals.bet_coverage_pct * 100),
+            "hypothesis_present": signals.hypothesis_present,
+            "cross_team_thrash_signals": signals.cross_team_thrash_signals,
+            "risk_types_detected": bet_snapshot.risk_types_present,
+            "health_score": bet_snapshot.health_score,
+        }
+
+        risk_signal = pipeline_state.get("risk_signal_draft") or {}
+        governor = pipeline_state.get("governor_decision") or {}
+        policy_checks = pipeline_state.get("policy_checks") or []
+        intervention = pipeline_state.get("intervention_proposal") or {}
+
         return {
             "status": "pipeline_complete",
             "pipeline_status": final_status,
             "risk_detected": has_signal,
             "intervention_queued": has_intervention,
-            "message": (
-                "Pre-mortem scan complete. "
-                + (
-                    "A risk was detected and an intervention is awaiting your approval in the Inbox."
-                    if final_status == "awaiting_founder_approval"
-                    else "No policy-passing intervention was generated this cycle."
-                    if not has_signal
-                    else "Risk detected. Governor evaluated the proposal."
-                )
-            ),
+            # Real data — agent must only report what is present here, never invent
+            "signal_engine": signal_summary,
+            "product_brain": {
+                "risk_type": risk_signal.get("risk_type"),
+                "severity": risk_signal.get("severity"),
+                "confidence": risk_signal.get("confidence"),
+                "headline": risk_signal.get("headline"),
+                "explanation": risk_signal.get("explanation"),
+            } if risk_signal else None,
+            "coordinator": {
+                "action_type": intervention.get("action_type"),
+                "rationale": intervention.get("rationale"),
+            } if intervention else None,
+            "governor": {
+                "approved": governor.get("approved"),
+                "denial_reason": governor.get("denial_reason"),
+                "checks_passed": len([c for c in policy_checks if c.get("passed")]),
+                "checks_total": len(policy_checks) if policy_checks else 8,
+                "blocking_check": next(
+                    (c.get("check_name") for c in policy_checks if not c.get("passed")), None
+                ),
+            } if governor else None,
+            "executor": {
+                "status": final_status,
+                "intervention_id": pipeline_state.get("pending_intervention_id"),
+            },
         }
 
     except Exception as e:
@@ -574,7 +608,7 @@ async def declare_direction(
         "health_baseline": {
             "expected_bet_coverage_pct": 0.5,
             "expected_weekly_velocity": 3,
-            "hypothesis_required": bool(hypothesis),
+            "hypothesis_required": True,  # always required — missing hypothesis = strategy_unclear risk
             "metric_linked_required": False,
         },
         "acknowledged_risks": [],
@@ -675,6 +709,27 @@ Use query tools and conversational responses when user:
 - Asks questions: "What does alignment_issue mean?", "Why 65% confidence?"
 - Explores evidence: "Show me Linear issues", "What actions did you take?"
 - Requests explanations: "How does this work?", "What's my autonomy level?"
+
+**HOW TO REPORT A PIPELINE SCAN RESULT:**
+After run_pipeline_scan() returns, report ONLY the data fields present in the tool result.
+NEVER invent numbers, debate quotes, confidence scores, or stage outcomes not in the result.
+
+Rules:
+- signal_engine field is always present — report issues_scanned, rollover_count, bet_coverage_pct, hypothesis_present
+- product_brain field is null when no risk was detected — say "No risk detected" not invented analysis
+- coordinator field is null when no intervention was proposed — say "No intervention proposed"
+- governor field is null when pipeline completed without a halt — say "No policy blocks triggered"
+- executor.status = "awaiting_founder_approval" means an intervention is in the Inbox; "complete" means nothing was queued
+
+Example when no risk found:
+"Signal Engine scanned 14 issues — 0 rollovers, 85% coverage, hypothesis present. No risk threshold was crossed so Product Brain, Coordinator, and Governor had nothing to act on."
+
+Example when risk found:
+"Signal Engine: 8 issues, 3 chronic rollovers, 42% coverage, hypothesis missing → strategy_unclear flagged.
+Product Brain: strategy_unclear at 71% confidence — [headline from result].
+Coordinator proposed: [action_type from result].
+Governor: [checks_passed]/8 checks passed — [blocking_check if any].
+Executor: intervention queued in your Inbox." (or "no action taken")
 
 **TONE:**
 - Direct, not verbose. Evidence-first.

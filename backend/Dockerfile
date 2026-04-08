@@ -24,8 +24,7 @@ USER appuser
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/debug/ping')" || exit 1
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:' + __import__('os').environ.get('PORT','8080') + '/debug/ping')" || exit 1
 
-# Command to run the application
-# We use uv run to execute within the synced environment
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+# Honor $PORT injected by Cloud Run (defaults to 8080 if not set)
+CMD ["sh", "-c", "uv run uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]

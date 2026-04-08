@@ -36,8 +36,9 @@ def get_database_url() -> str:
     if not url:
         # Use alembic.ini default (local dev only — never in CI/prod)
         url = config.get_main_option("sqlalchemy.url")
-    # Force asyncpg driver for async engine
-    if url and "postgresql://" in url and "asyncpg" not in url:
+    # Force asyncpg driver for async engine — handles bare postgresql:// and psycopg2 URLs
+    if url and "asyncpg" not in url:
+        url = url.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
         url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
     return url
 

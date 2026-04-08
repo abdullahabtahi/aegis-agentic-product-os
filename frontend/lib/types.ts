@@ -254,4 +254,5 @@ export interface WorkspaceStats {
 export interface DiscoverBetsResponse {
   created: Bet[];
   skipped_duplicates: number;
+  write_errors?: number;
 }

@@ -22,7 +22,7 @@ from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 from fastapi import FastAPI, Header, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from google.adk.artifacts import InMemoryArtifactService
+from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
@@ -47,7 +47,17 @@ async def lifespan(_app: FastAPI):
 # ─────────────────────────────────────────────
 
 session_service = get_session_service()
-artifact_service = InMemoryArtifactService()
+
+_artifact_bucket = os.environ.get("ARTIFACT_BUCKET")
+if _artifact_bucket:
+    artifact_service = GcsArtifactService(bucket_name=_artifact_bucket)
+    logger.info("Using GcsArtifactService (bucket: %s)", _artifact_bucket)
+else:
+    artifact_service = InMemoryArtifactService()
+    logger.warning(
+        "ARTIFACT_BUCKET not set — using InMemoryArtifactService. "
+        "Artifacts will be lost on scale-out. Set ARTIFACT_BUCKET for production."
+    )
 
 ADK_APP_NAME = "app"
 
@@ -436,6 +446,7 @@ async def discover_bets_endpoint(body: DiscoverBody):
 
     created = []
     skipped = 0
+    write_errors = 0
     for bet in new_bets:
         # Double-check dedup (race condition guard)
         if bet["name"].lower() in existing_names:
@@ -450,13 +461,13 @@ async def discover_bets_endpoint(body: DiscoverBody):
             if saved_id:
                 created.append(bet)
             else:
-                skipped += 1
+                write_errors += 1
         else:
             _inmemory_bets.append(bet)
             created.append(bet)
         existing_names.add(bet["name"].lower())
 
-    return {"created": created, "skipped_duplicates": skipped}
+    return {"created": created, "skipped_duplicates": skipped, "write_errors": write_errors}
 
 
 class RejectBody(BaseModel):

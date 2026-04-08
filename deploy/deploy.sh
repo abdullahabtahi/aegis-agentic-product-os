@@ -41,6 +41,14 @@ BACKEND_SERVICE="${BACKEND_SERVICE:-aegis-backend}"
 FRONTEND_SERVICE="${FRONTEND_SERVICE:-aegis-frontend}"
 LINEAR_API_KEY="${LINEAR_API_KEY:-}"
 
+# If no Linear key is provided, run in mock mode so the backend doesn't
+# error-out on live Linear API calls in Cloud Run.
+MOCK_LINEAR="false"
+if [[ -z "${LINEAR_API_KEY}" ]]; then
+  MOCK_LINEAR="true"
+  echo "    No LINEAR_API_KEY set — AEGIS_MOCK_LINEAR=true (mock data)"
+fi
+
 echo "==> Project: ${PROJECT_ID}  Region: ${REGION}"
 
 # ─── 1. Enable APIs ───────────────────────────────────────────────────────────
@@ -52,6 +60,7 @@ gcloud services enable \
   run.googleapis.com \
   cloudbuild.googleapis.com \
   secretmanager.googleapis.com \
+  aiplatform.googleapis.com \
   --project="${PROJECT_ID}" --quiet
 
 # ─── 2. Artifact Registry ────────────────────────────────────────────────────
@@ -120,14 +129,31 @@ echo -n "${DB_PASS}" | gcloud secrets create aegis-db-pass \
   echo -n "${DB_PASS}" | gcloud secrets versions add aegis-db-pass \
     --data-file=- --project="${PROJECT_ID}" --quiet
 
+LINEAR_SECRET_EXISTS="false"
 if [[ -n "${LINEAR_API_KEY}" ]]; then
   echo -n "${LINEAR_API_KEY}" | gcloud secrets create aegis-linear-key \
     --data-file=- --project="${PROJECT_ID}" --quiet 2>/dev/null || \
     echo -n "${LINEAR_API_KEY}" | gcloud secrets versions add aegis-linear-key \
       --data-file=- --project="${PROJECT_ID}" --quiet
+  LINEAR_SECRET_EXISTS="true"
 fi
 
-# ─── 6. Build & push images ──────────────────────────────────────────────────
+# ─── 6a. GCS artifact bucket ─────────────────────────────────────────────────
+# ADK GcsArtifactService needs a bucket. InMemoryArtifactService loses data
+# on Cloud Run scale-out (each instance has its own store).
+
+ARTIFACT_BUCKET="${ARTIFACT_BUCKET:-${PROJECT_ID}-aegis-artifacts}"
+
+echo "==> Creating GCS artifact bucket (skips if exists)..."
+gcloud storage buckets create "gs://${ARTIFACT_BUCKET}" \
+  --location="${REGION}" \
+  --project="${PROJECT_ID}" \
+  --uniform-bucket-level-access \
+  --quiet 2>/dev/null || echo "    Bucket already exists — skipping."
+
+# ─── 6. Build & push backend image ──────────────────────────────────────────
+# Frontend is built AFTER backend deploy (step 10) so NEXT_PUBLIC_BACKEND_URL
+# can be passed as a --build-arg and baked into the Next.js bundle correctly.
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -135,32 +161,83 @@ echo "==> Building backend image..."
 docker build -t "${BACKEND_IMAGE}" "${REPO_ROOT}/backend"
 docker push "${BACKEND_IMAGE}"
 
-echo "==> Building frontend image..."
-docker build -t "${FRONTEND_IMAGE}" "${REPO_ROOT}/frontend"
-docker push "${FRONTEND_IMAGE}"
+# ─── 7. Resolve Cloud Run service account ────────────────────────────────────
+# Default compute SA is used unless a custom SA is specified.
+# Resolve the project number once to construct the SA email.
 
-# ─── 7. Deploy backend ───────────────────────────────────────────────────────
+PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
+DEFAULT_SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
+
+# ─── 8. Grant IAM roles BEFORE deploy ────────────────────────────────────────
+# Grant roles before deploying so the SA is ready when Cloud Run cold-starts
+# (min-instances=1 means the first instance starts immediately after deploy).
+
+echo "==> Granting IAM roles to Cloud Run SA: ${DEFAULT_SA}..."
+
+# Cloud SQL client — required for unix socket connections
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member="serviceAccount:${DEFAULT_SA}" \
+  --role="roles/cloudsql.client" --quiet 2>/dev/null || true
+
+# Vertex AI user — required for Gemini model calls (gemini-3-flash-preview)
+gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+  --member="serviceAccount:${DEFAULT_SA}" \
+  --role="roles/aiplatform.user" --quiet 2>/dev/null || true
+
+# Secret Manager — db password (always present)
+gcloud secrets add-iam-policy-binding aegis-db-pass \
+  --member="serviceAccount:${DEFAULT_SA}" \
+  --role="roles/secretmanager.secretAccessor" \
+  --project="${PROJECT_ID}" --quiet 2>/dev/null || true
+
+# Secret Manager — Linear key (only if the secret was created)
+if [[ "${LINEAR_SECRET_EXISTS}" == "true" ]]; then
+  gcloud secrets add-iam-policy-binding aegis-linear-key \
+    --member="serviceAccount:${DEFAULT_SA}" \
+    --role="roles/secretmanager.secretAccessor" \
+    --project="${PROJECT_ID}" --quiet 2>/dev/null || true
+fi
+
+# GCS artifact bucket — required for GcsArtifactService
+gcloud storage buckets add-iam-policy-binding "gs://${ARTIFACT_BUCKET}" \
+  --member="serviceAccount:${DEFAULT_SA}" \
+  --role="roles/storage.objectAdmin" \
+  --quiet 2>/dev/null || true
+
+echo "    IAM propagation takes ~30s — sleeping before deploy..."
+sleep 30
+
+# ─── 9. Deploy backend ───────────────────────────────────────────────────────
 
 echo "==> Deploying backend Cloud Run service..."
+
+# Build the --set-secrets flag only when the Linear secret exists.
+SECRET_FLAGS=""
+if [[ "${LINEAR_SECRET_EXISTS}" == "true" ]]; then
+  SECRET_FLAGS="--set-secrets=LINEAR_API_KEY=aegis-linear-key:latest"
+fi
+
 gcloud run deploy "${BACKEND_SERVICE}" \
   --image="${BACKEND_IMAGE}" \
   --region="${REGION}" \
   --project="${PROJECT_ID}" \
   --platform=managed \
   --allow-unauthenticated \
-  --memory=1Gi \
+  --memory=2Gi \
   --cpu=1 \
   --min-instances=1 \
   --max-instances=10 \
+  --timeout=3600 \
   --add-cloudsql-instances="${SQL_CONNECTION_NAME}" \
   --set-env-vars="\
 GOOGLE_CLOUD_PROJECT=${PROJECT_ID},\
 GOOGLE_CLOUD_LOCATION=global,\
 DATABASE_URL=${DATABASE_URL},\
 AEGIS_SESSION_DB=${DATABASE_URL},\
-AEGIS_MOCK_LINEAR=false,\
+AEGIS_MOCK_LINEAR=${MOCK_LINEAR},\
+ARTIFACT_BUCKET=${ARTIFACT_BUCKET},\
 ALLOWED_ORIGINS=*" \
-  --set-secrets="LINEAR_API_KEY=aegis-linear-key:latest" \
+  ${SECRET_FLAGS} \
   --quiet
 
 BACKEND_URL="$(gcloud run services describe "${BACKEND_SERVICE}" \
@@ -168,27 +245,56 @@ BACKEND_URL="$(gcloud run services describe "${BACKEND_SERVICE}" \
   --format='value(status.url)')"
 echo "    Backend: ${BACKEND_URL}"
 
-# ─── 8. Grant Cloud Run SA access to Cloud SQL + secrets ─────────────────────
+# ─── 10. Run Alembic migrations ───────────────────────────────────────────────
+# Must run before first traffic hits the backend. Uses a one-off Cloud Run Job
+# so no local Cloud SQL Proxy is required. The job reuses the backend image
+# (which already has alembic + app code) and connects via unix socket.
 
-CR_SA="$(gcloud run services describe "${BACKEND_SERVICE}" \
-  --region="${REGION}" --project="${PROJECT_ID}" \
-  --format='value(spec.template.spec.serviceAccountName)')"
-CR_SA="${CR_SA:-$(gcloud projects describe "${PROJECT_ID}" \
-  --format='value(projectNumber)')}-compute@developer.gserviceaccount.com"
+echo "==> Running Alembic migrations via Cloud Run Job..."
+gcloud run jobs create aegis-migrate \
+  --image="${BACKEND_IMAGE}" \
+  --region="${REGION}" \
+  --project="${PROJECT_ID}" \
+  --add-cloudsql-instances="${SQL_CONNECTION_NAME}" \
+  --set-env-vars="\
+DATABASE_URL=${DATABASE_URL},\
+GOOGLE_CLOUD_PROJECT=${PROJECT_ID},\
+GOOGLE_CLOUD_LOCATION=global" \
+  --command="uv" \
+  --args="run,alembic,upgrade,head" \
+  --quiet 2>/dev/null || \
+  gcloud run jobs update aegis-migrate \
+    --image="${BACKEND_IMAGE}" \
+    --region="${REGION}" \
+    --project="${PROJECT_ID}" \
+    --add-cloudsql-instances="${SQL_CONNECTION_NAME}" \
+    --set-env-vars="\
+DATABASE_URL=${DATABASE_URL},\
+GOOGLE_CLOUD_PROJECT=${PROJECT_ID},\
+GOOGLE_CLOUD_LOCATION=global" \
+    --command="uv" \
+    --args="run,alembic,upgrade,head" \
+    --quiet
 
-echo "==> Granting IAM roles to Cloud Run SA: ${CR_SA}..."
-gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
-  --member="serviceAccount:${CR_SA}" \
-  --role="roles/cloudsql.client" --quiet 2>/dev/null || true
+gcloud run jobs execute aegis-migrate \
+  --region="${REGION}" \
+  --project="${PROJECT_ID}" \
+  --wait \
+  --quiet
+echo "    Migrations complete."
 
-for SECRET in aegis-db-pass aegis-linear-key; do
-  gcloud secrets add-iam-policy-binding "${SECRET}" \
-    --member="serviceAccount:${CR_SA}" \
-    --role="roles/secretmanager.secretAccessor" \
-    --project="${PROJECT_ID}" --quiet 2>/dev/null || true
-done
+# ─── 11. Build & push frontend image (after backend URL is known) ─────────────
+# NEXT_PUBLIC_BACKEND_URL must be baked into the Next.js bundle at build time.
+# We build the image here, after the backend URL is resolved.
 
-# ─── 9. Deploy frontend ───────────────────────────────────────────────────────
+echo "==> Building frontend image (with NEXT_PUBLIC_BACKEND_URL baked in)..."
+docker build \
+  --build-arg NEXT_PUBLIC_BACKEND_URL="${BACKEND_URL}" \
+  -t "${FRONTEND_IMAGE}" \
+  "${REPO_ROOT}/frontend"
+docker push "${FRONTEND_IMAGE}"
+
+# ─── 12. Deploy frontend ──────────────────────────────────────────────────────
 
 echo "==> Deploying frontend Cloud Run service..."
 gcloud run deploy "${FRONTEND_SERVICE}" \
@@ -201,7 +307,7 @@ gcloud run deploy "${FRONTEND_SERVICE}" \
   --cpu=1 \
   --min-instances=0 \
   --max-instances=5 \
-  --set-env-vars="NEXT_PUBLIC_BACKEND_URL=${BACKEND_URL},BACKEND_URL=${BACKEND_URL}/adk/v1/app" \
+  --set-env-vars="BACKEND_URL=${BACKEND_URL}/adk/v1/app" \
   --quiet
 
 FRONTEND_URL="$(gcloud run services describe "${FRONTEND_SERVICE}" \
@@ -216,16 +322,10 @@ echo "  Backend:  ${BACKEND_URL}"
 echo "  Frontend: ${FRONTEND_URL}"
 echo ""
 echo "Next steps:"
-echo "  1. Run Alembic migrations against Cloud SQL:"
-echo "     cd backend"
-echo "     DATABASE_URL='postgresql+psycopg2://${DB_USER}:${DB_PASS}@127.0.0.1:5433/${DB_NAME}' \\"
-echo "       CLOUDSDK_PYTHON=python3 cloud_sql_proxy -instances=${SQL_CONNECTION_NAME}=tcp:5433 &"
-echo "     uv run alembic upgrade head"
-echo ""
-echo "  2. Lock down CORS to frontend URL:"
+echo "  1. Lock down CORS to frontend URL (recommended):"
 echo "     gcloud run services update ${BACKEND_SERVICE} --region=${REGION} \\"
 echo "       --update-env-vars=ALLOWED_ORIGINS=${FRONTEND_URL}"
 echo ""
 echo "  3. Upgrade DB tier when scaling:"
 echo "     gcloud sql instances patch ${SQL_INSTANCE} --tier=db-custom-2-7680"
-echo "     # To migrate to AlloyDB later: same schema, set ALLOYDB_INSTANCE_URI instead of DATABASE_URL"
+echo "     # To migrate to AlloyDB later: set DATABASE_URL to AlloyDB unix socket path"
