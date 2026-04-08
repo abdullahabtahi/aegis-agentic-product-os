@@ -27,7 +27,7 @@ export function useAgentStateSync() {
 
   const { state: agentState, setState: setAgentState } =
     useCoAgent<AegisPipelineState>({
-      name: "aegis_pipeline",
+      name: "aegis",
       initialState: INITIAL_STATE,
     });
 

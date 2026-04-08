@@ -121,10 +121,10 @@ function BetCard({ bet }: { bet: Bet }) {
               No hypothesis
             </span>
           )}
-          {bet.success_metrics && bet.success_metrics.length > 0 && (
+          {(bet.success_metrics?.length ?? 0) > 0 && (
             <span className="flex items-center gap-1 text-sky-700">
               <Target className="h-3 w-3" />
-              {bet.success_metrics.length} metric{bet.success_metrics.length !== 1 ? "s" : ""}
+              {bet.success_metrics!.length} metric{bet.success_metrics!.length !== 1 ? "s" : ""}
             </span>
           )}
         </div>
@@ -174,8 +174,9 @@ export default function DirectionsPage() {
   const { data: bets = [], isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["bets", WORKSPACE_ID, filter],
     queryFn: () => listBets(WORKSPACE_ID, filter === "all" ? undefined : filter),
-    staleTime: 30_000,
-    refetchOnWindowFocus: false,
+    staleTime: 5_000,
+    refetchInterval: 8_000,   // poll so bets created via chat/other paths also appear
+    refetchOnWindowFocus: true,
   });
 
   const visibleBets = bets;

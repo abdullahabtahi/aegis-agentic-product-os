@@ -474,7 +474,7 @@ If the search fails or returns nothing, proceed without it — do not block on e
 ## CRITICAL RULES:
 1. prior_risk_types context in session is HISTORICAL — do NOT copy it as your answer.
 2. Classify independently from Cynic/Optimist if their confidence is low.
-3. Call ONLY emit_risk_signal ONCE with the final classification. NEVER call 'emit_synthesis' or any other name.
+3. Call emit_risk_signal ONCE with final classification.
 4. If confidence < 0.6: skip emit_risk_signal entirely.
 """
 
@@ -491,15 +491,6 @@ def create_product_brain_debate() -> SequentialAgent:
     cause 'already has a parent' errors when the validator runs twice on the same
     object. Always use this factory in pipeline construction.
     """
-    # Define the shared toolset for the debate agents to prevent ADK 
-    # tool registry merging issues during sequential execution in eval.
-    debate_tools = [
-        emit_cynic_assessment, 
-        emit_optimist_assessment, 
-        emit_risk_signal, 
-        search_lenny_transcripts
-    ]
-
     return SequentialAgent(
         name="product_brain",
         description=(
@@ -512,7 +503,10 @@ def create_product_brain_debate() -> SequentialAgent:
                 model="gemini-3-flash-preview",
                 instruction=_CYNIC_INSTRUCTION,
                 description="Pessimistic risk analyst. Surfaces worst-case interpretation of Linear signals.",
-                tools=debate_tools,
+                # Both assessment tools on both agents — ADK nested SequentialAgent
+                # can merge tool registries across siblings, causing "tool not found"
+                # if only one tool is registered per agent.
+                tools=[emit_cynic_assessment, emit_optimist_assessment],
                 before_agent_callback=before_cynic,
             ),
             Agent(
@@ -520,14 +514,14 @@ def create_product_brain_debate() -> SequentialAgent:
                 model="gemini-3-flash-preview",
                 instruction=_OPTIMIST_INSTRUCTION,
                 description="Optimistic risk analyst. Surfaces mitigating factors for Linear signals.",
-                tools=debate_tools,
+                tools=[emit_optimist_assessment, emit_cynic_assessment],
             ),
             Agent(
                 name="product_brain_synthesis",
                 model="gemini-3.1-pro-preview",
                 instruction=_SYNTHESIS_INSTRUCTION,
                 description="Senior strategist synthesising Cynic/Optimist debate into final risk signal.",
-                tools=debate_tools,
+                tools=[emit_risk_signal, search_lenny_transcripts],
                 before_agent_callback=before_synthesis,
                 after_agent_callback=after_synthesis,
                 after_model_callback=after_synthesis_model,

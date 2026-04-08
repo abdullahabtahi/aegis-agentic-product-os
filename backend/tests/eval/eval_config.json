@@ -10,7 +10,7 @@
         {
           "rubric_id": "risk_signal_emitted",
           "rubric_content": {
-            "text_property": "The agent calls the emit_risk_signal tool exactly once with a valid risk_type (one of: strategy_unclear, alignment_issue, execution_issue, placebo_productivity) and a confidence value between 0.0 and 1.0."
+            "text_property": "Score PASS if EITHER: (A) the workspace has detected risk signals and the agent calls emit_risk_signal exactly once with a valid risk_type (strategy_unclear, alignment_issue, execution_issue, or placebo_productivity) and a confidence value between 0.0 and 1.0; OR (B) the workspace is healthy (no detected risks) or final confidence is below 0.6, and the agent explicitly does NOT call emit_risk_signal — the synthesis agent outputs something like 'Confidence below threshold — no signal surfaced.' or similar. Score FAIL if emit_risk_signal is called multiple times, called with an invalid risk_type, or omitted when a clear risk is evident and confidence is above 0.6."
           }
         },
         {
@@ -28,7 +28,7 @@
         {
           "rubric_id": "debate_pattern_followed",
           "rubric_content": {
-            "text_property": "The agent follows the debate pattern: first a cynic assessment tool call (emit_cynic_assessment), then an optimist assessment tool call (emit_optimist_assessment), then the synthesis emit_risk_signal call. All three must appear in this order."
+            "text_property": "Score PASS if EITHER: (A) the full debate pattern is followed — emit_cynic_assessment is called first, then emit_optimist_assessment, then emit_risk_signal, all in that order (risky workspace path); OR (B) the partial debate pattern is followed — emit_cynic_assessment is called first, then emit_optimist_assessment in order, and then emit_risk_signal is explicitly skipped because confidence is below 0.6 (synthesis outputs 'Confidence below threshold' or similar — healthy workspace path). Score FAIL if the cynic or optimist assessments are missing, called out of order, or if emit_risk_signal is called without the prior debate steps."
           }
         }
       ]

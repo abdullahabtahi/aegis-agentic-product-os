@@ -193,12 +193,16 @@ async def save_intervention(intervention: dict) -> str | None:
                         action_type, escalation_level, title, rationale,
                         product_principle_refs, confidence,
                         proposed_linear_action, blast_radius,
+                        proposed_comment, proposed_issue_title,
+                        proposed_issue_description, requires_double_confirm,
                         status, created_at
                     ) VALUES (
                         :id, :risk_signal_id, :bet_id, :workspace_id,
                         :action_type, :escalation_level, :title, :rationale,
                         :product_principle_refs, :confidence,
                         :proposed_linear_action::jsonb, :blast_radius::jsonb,
+                        :proposed_comment, :proposed_issue_title,
+                        :proposed_issue_description, :requires_double_confirm,
                         :status, :created_at
                     )
                 """),
@@ -219,6 +223,14 @@ async def save_intervention(intervention: dict) -> str | None:
                         intervention.get("proposed_linear_action")
                     ),
                     "blast_radius": _json_str(intervention.get("blast_radius")),
+                    "proposed_comment": intervention.get("proposed_comment"),
+                    "proposed_issue_title": intervention.get("proposed_issue_title"),
+                    "proposed_issue_description": intervention.get(
+                        "proposed_issue_description"
+                    ),
+                    "requires_double_confirm": intervention.get(
+                        "requires_double_confirm", False
+                    ),
                     "status": intervention.get("status", "pending"),
                     "created_at": intervention.get("created_at", _now_iso()),
                 },
@@ -513,7 +525,8 @@ async def list_bets(workspace_id: str, status: str | None = None) -> list[dict]:
                     text("""
                         SELECT id, workspace_id, name, target_segment, problem_statement,
                                hypothesis, success_metrics, time_horizon, status,
-                               declaration_confidence, health_baseline, acknowledged_risks,
+                               declaration_source, declaration_confidence,
+                               health_baseline, acknowledged_risks,
                                linear_project_ids, linear_issue_ids, doc_refs,
                                created_at, last_monitored_at, completed_at
                         FROM bets
@@ -527,7 +540,8 @@ async def list_bets(workspace_id: str, status: str | None = None) -> list[dict]:
                     text("""
                         SELECT id, workspace_id, name, target_segment, problem_statement,
                                hypothesis, success_metrics, time_horizon, status,
-                               declaration_confidence, health_baseline, acknowledged_risks,
+                               declaration_source, declaration_confidence,
+                               health_baseline, acknowledged_risks,
                                linear_project_ids, linear_issue_ids, doc_refs,
                                created_at, last_monitored_at, completed_at
                         FROM bets

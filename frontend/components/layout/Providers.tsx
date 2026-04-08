@@ -27,7 +27,7 @@ function CopilotKitWithSession({
   return (
     <CopilotKit
       runtimeUrl="/api/copilotkit"
-      agent="aegis_pipeline"
+      agent="aegis"
       threadId={threadId}
       showDevConsole={true}
       onError={onError}

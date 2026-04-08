@@ -23,6 +23,7 @@ Writes to session state:
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime, timedelta, timezone
 
@@ -539,8 +540,37 @@ class GovernorAgent(BaseAgent):
                 }
             # Persist trace (approved)
             from app.app_utils.trace_logging import log_governor_trace
+            from db.repository import save_intervention
 
             await log_governor_trace(ctx.session.state, approved=True)
+
+            # Persist intervention to AlloyDB so GET /interventions surfaces it in the UI.
+            int_id = proposal.get("id") or str(uuid.uuid4())
+            await save_intervention({
+                "id": int_id,
+                "risk_signal_id": risk_signal_draft.get("id"),
+                "bet_id": bet.get("id", ""),
+                "workspace_id": (
+                    workspace.get("id")
+                    or ctx.session.state.get("workspace_id", "")
+                ),
+                "action_type": action_type,
+                "escalation_level": escalation_level,
+                "title": proposal.get("title", ""),
+                "rationale": proposal.get("rationale", ""),
+                "product_principle_refs": proposal.get("product_principle_refs", []),
+                "confidence": confidence,
+                "proposed_comment": proposal.get("proposed_comment"),
+                "proposed_issue_title": proposal.get("proposed_issue_title"),
+                "proposed_issue_description": proposal.get(
+                    "proposed_issue_description"
+                ),
+                "requires_double_confirm": requires_double_confirm,
+                "blast_radius": blast_radius_dict,
+                "status": "pending",
+            })
+            ctx.session.state["pending_intervention_id"] = int_id
+
             # Full intervention payload — CopilotKit renders this in InterventionApprovalCard
             ctx.session.state["awaiting_approval_intervention"] = {
                 **proposal,

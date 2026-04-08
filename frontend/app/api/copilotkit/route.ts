@@ -24,8 +24,8 @@ const serviceAdapter = new ExperimentalEmptyAdapter();
 
 const runtime = new CopilotRuntime({
   agents: {
-    // Key must match the name passed to useCoAgent({ name: "aegis_pipeline" })
-    aegis_pipeline: new HttpAgent({ url: BACKEND_URL }),
+    // Key must match the name passed to useCoAgent({ name: "aegis" })
+    aegis: new HttpAgent({ url: BACKEND_URL }),
   },
 });
 

@@ -8,12 +8,13 @@
  */
 
 import { useEffect, useRef } from "react";
-import { Loader2, Shield } from "lucide-react";
+import { Loader2, Shield, History } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PipelineProgressCard } from "./PipelineProgressCard";
 import type { ChatMessage } from "@/hooks/useChatController";
 import type { AegisPipelineState } from "@/lib/types";
+import type { SessionMessage } from "@/lib/api";
 
 /** Markdown component map — styled to match glassmorphic design system. */
 const MD_COMPONENTS: React.ComponentProps<typeof Markdown>["components"] = {
@@ -88,9 +89,34 @@ interface ChatMessagesProps {
   messages: ChatMessage[];
   isLoading: boolean;
   pipelineState?: AegisPipelineState;
+  restoredMessages?: SessionMessage[];
 }
 
-export function ChatMessages({ messages, isLoading, pipelineState }: ChatMessagesProps) {
+function MessageBubble({ role, content }: { role: "user" | "assistant"; content: string }) {
+  if (role === "user") {
+    return (
+      <div className="flex justify-end">
+        <div className="max-w-[75%] rounded-2xl bg-primary/90 px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm">
+          {content}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="flex gap-3">
+      <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-indigo-500/15">
+        <Shield size={16} className="text-indigo-500" />
+      </div>
+      <div className="glass-panel flex-1 p-5">
+        <Markdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+          {content}
+        </Markdown>
+      </div>
+    </div>
+  );
+}
+
+export function ChatMessages({ messages, isLoading, pipelineState, restoredMessages }: ChatMessagesProps) {
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -102,30 +128,42 @@ export function ChatMessages({ messages, isLoading, pipelineState }: ChatMessage
     pipelineState.pipeline_status !== "idle" &&
     pipelineState.pipeline_status !== "complete";
 
+  const hasRestored = restoredMessages && restoredMessages.length > 0;
+
   return (
     <div className="flex flex-col gap-6">
-      {messages.map((msg, i) => (
-        <div key={msg.id}>
-          {msg.role === "user" ? (
-            /* User message — right-aligned question */
-            <div className="flex justify-end">
-              <div className="max-w-[75%] rounded-2xl bg-primary/90 px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm">
-                {msg.content}
-              </div>
+
+      {/* ── Restored history from prior session ── */}
+      {hasRestored && (
+        <>
+          <div className="flex items-center gap-3">
+            <div className="h-px flex-1 bg-slate-200/60" />
+            <span className="flex items-center gap-1.5 rounded-full bg-slate-100/80 px-3 py-1 text-xs font-medium text-slate-500">
+              <History size={11} />
+              Prior session
+            </span>
+            <div className="h-px flex-1 bg-slate-200/60" />
+          </div>
+          {restoredMessages.map((msg) => (
+            <div key={msg.id} className="opacity-70">
+              <MessageBubble role={msg.role} content={msg.content} />
             </div>
-          ) : (
-            /* Assistant message — full glass card */
-            <div className="flex gap-3">
-              <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-indigo-500/15">
-                <Shield size={16} className="text-indigo-500" />
-              </div>
-              <div className="glass-panel flex-1 p-5">
-                <Markdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
-                  {msg.content}
-                </Markdown>
-              </div>
+          ))}
+          {messages.length > 0 && (
+            <div className="flex items-center gap-3">
+              <div className="h-px flex-1 bg-indigo-200/60" />
+              <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-600">
+                Continuing session
+              </span>
+              <div className="h-px flex-1 bg-indigo-200/60" />
             </div>
           )}
+        </>
+      )}
+
+      {messages.map((msg, i) => (
+        <div key={msg.id}>
+          <MessageBubble role={msg.role} content={msg.content} />
 
           {/* Inline pipeline progress after the last user message */}
           {msg.role === "user" && showPipeline && i === messages.length - 1 && pipelineState && (

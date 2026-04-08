@@ -10,6 +10,7 @@ No separate router needed - agent decides internally when to trigger pipeline vs
 import logging
 import os
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -18,6 +19,8 @@ from google.adk.agents import Agent
 from google.adk.tools import ToolContext
 
 from app.agents.signal_engine import compute_signals
+from app.bet_store import inmemory_bets
+from db.engine import is_db_configured
 from models.schema import Bet as BetModel
 from tools.linear_tools import get_linear_mcp
 
@@ -74,6 +77,115 @@ def _emit_stage(
 
 
 # ─────────────────────────────────────────────
+# SUB-PIPELINE RUNNER — Stages 2–5 inline
+# ─────────────────────────────────────────────
+
+async def _run_sub_pipeline(
+    workspace_id: str,
+    bet: Any,
+    bet_snapshot: Any,
+    parent_state: dict,
+) -> dict:
+    """Run Product Brain → Coordinator → Governor → Executor in a fresh sub-Runner.
+
+    Signal Engine has already completed; we seed pipeline_checkpoint =
+    "signal_engine_complete" so each agent's checkpoint guard skips it.
+
+    Returns the final session.state dict so the caller can forward outputs.
+    Fails gracefully — returns {} on any error so the caller can apply
+    synthetic fallback state.
+    """
+    # Local imports avoid circular dependency (app/agent.py → conversational.py)
+    from google.adk.agents import SequentialAgent
+    from google.adk.artifacts import InMemoryArtifactService
+    from google.adk.runners import Runner
+    from google.adk.sessions import InMemorySessionService
+    from google.genai import types as genai_types
+
+    from app.agents.coordinator import create_coordinator_agent
+    from app.agents.executor import create_executor_agent
+    from app.agents.governor import create_governor_agent
+    from app.agents.product_brain import create_product_brain_debate
+
+    bet_dict = bet.model_dump() if hasattr(bet, "model_dump") else bet
+    snapshot_dict = (
+        bet_snapshot.model_dump() if hasattr(bet_snapshot, "model_dump") else bet_snapshot
+    )
+    linear_signals_dict = snapshot_dict.get("linear_signals") or {}
+    if hasattr(bet_snapshot, "linear_signals") and hasattr(
+        bet_snapshot.linear_signals, "model_dump"
+    ):
+        linear_signals_dict = bet_snapshot.linear_signals.model_dump()
+
+    # Seed session with Signal Engine outputs + checkpoint so agents skip it
+    sub_state: dict = {
+        "workspace_id": workspace_id,
+        "bet": bet_dict,
+        "bet_snapshot": snapshot_dict,
+        "linear_signals": linear_signals_dict,
+        "pipeline_checkpoint": "signal_engine_complete",
+        "workspace": parent_state.get(
+            "workspace",
+            {"id": workspace_id, "control_level": "draft_only", "github_repo": None},
+        ),
+        "prior_interventions": parent_state.get("prior_interventions", []),
+        "rejection_history": parent_state.get("rejection_history", []),
+    }
+
+    try:
+        sub_ss = InMemorySessionService()
+        sub_session = await sub_ss.create_session(
+            app_name="aegis_sub",
+            user_id="system",
+            state=sub_state,
+        )
+
+        # Fresh factory instances — ADK requires no shared parent (cheatsheet §factory)
+        sub_pipeline = SequentialAgent(
+            name="aegis_sub_pipeline",
+            description="Product Brain → Coordinator → Governor → Executor",
+            sub_agents=[
+                create_product_brain_debate(),
+                create_coordinator_agent(),
+                create_governor_agent(),
+                create_executor_agent(),
+            ],
+        )
+
+        sub_runner = Runner(
+            agent=sub_pipeline,
+            app_name="aegis_sub",
+            session_service=sub_ss,
+            artifact_service=InMemoryArtifactService(),
+        )
+
+        async for _ in sub_runner.run_async(
+            user_id="system",
+            session_id=sub_session.id,
+            new_message=genai_types.Content(
+                role="user",
+                parts=[genai_types.Part.from_text("run pipeline scan")],
+            ),
+        ):
+            pass  # drain event stream; state accumulates in sub_session
+
+        final = await sub_ss.get_session(
+            app_name="aegis_sub",
+            user_id="system",
+            session_id=sub_session.id,
+        )
+        return dict(final.state) if final else {}
+
+    except Exception as exc:
+        logger.error(
+            "[ConversationalAgent] Sub-pipeline failed — falling back to synthetic state: %s",
+            exc,
+            exc_info=True,
+        )
+        return {}
+
+
+# ─────────────────────────────────────────────
 # PIPELINE TOOL — Triggers autonomous scan
 # ─────────────────────────────────────────────
 
@@ -115,6 +227,10 @@ async def run_pipeline_scan(
 
         logger.info("[ConversationalAgent] Triggering pipeline scan for bet %s", bet_id)
 
+        # Name the session so SessionDrawer shows something useful
+        if not tool_context.state.get("session_title"):
+            tool_context.state["session_title"] = bet.name
+
         # ── Stage 0: Signal Engine ──
         _emit_stage(tool_context, 0, "scanning")
 
@@ -128,40 +244,64 @@ async def run_pipeline_scan(
         tool_context.state["linear_signals"] = bet_snapshot.linear_signals.model_dump()
         tool_context.state["bet_snapshot"] = bet_snapshot.model_dump()
 
-        # ── Stage 1: Product Brain analyzing ──
+        # ── Stages 1-4: Product Brain → Coordinator → Governor → Executor ──
+        # Run as a fresh sub-pipeline SequentialAgent via ADK Runner.
+        # Signal Engine is skipped (already ran above) via checkpoint seed.
         _emit_stage(tool_context, 1, "analyzing")
 
-        # ── Stages 2-4: Coordinator → Governor → Executor ──
-        # TODO(phase-5b): Wire sub-agents inline once SequentialAgent is
-        # invoked from within the conversational tool context. Currently the
-        # SequentialAgent (aegis_pipeline) runs separately (eval/playground only).
-        # For now, emit synthetic progression so the UI reaches "complete"
-        # instead of freezing on "analyzing". The LLM response IS the output.
-        _emit_stage(tool_context, 2, "analyzing")  # Coordinator
-        _emit_stage(tool_context, 3, "analyzing")  # Governor
-        _emit_stage(tool_context, 4, "executing")  # Executor
-
-        # Mark pipeline complete — all stages finished
-        tool_context.state["pipeline_status"] = "complete"
-        tool_context.state["current_stage"] = STAGE_NAMES[4]
-        tool_context.state["stages"] = _make_stages(
-            5,  # beyond last index → all stages complete
-            dict.fromkeys(STAGE_NAMES, "complete"),
+        pipeline_state = await _run_sub_pipeline(
+            workspace_id=workspace_id,
+            bet=bet,
+            bet_snapshot=bet_snapshot,
+            parent_state=tool_context.state,
         )
 
+        # Forward pipeline outputs to the conversational tool context
+        for key in (
+            "risk_signal_draft",
+            "governor_decision",
+            "pipeline_status",
+            "intervention_proposal",
+            "awaiting_approval_intervention",
+            "pending_intervention_id",
+            "policy_checks",
+        ):
+            if key in pipeline_state:
+                tool_context.state[key] = pipeline_state[key]
+
+        final_status = pipeline_state.get("pipeline_status", "complete")
+        tool_context.state["pipeline_status"] = final_status
+        tool_context.state["current_stage"] = STAGE_NAMES[4]
+
+        if final_status == "awaiting_founder_approval":
+            # Governor approved — halted for founder review
+            tool_context.state["stages"] = _make_stages(
+                4,
+                {STAGE_NAMES[3]: "complete", STAGE_NAMES[4]: "pending"},
+            )
+        else:
+            tool_context.state["stages"] = _make_stages(
+                5, dict.fromkeys(STAGE_NAMES, "complete")
+            )
+
+        has_signal = bool(pipeline_state.get("risk_signal_draft"))
+        has_intervention = bool(pipeline_state.get("pending_intervention_id"))
+
         return {
-            "status": "pipeline_triggered",
+            "status": "pipeline_complete",
+            "pipeline_status": final_status,
+            "risk_detected": has_signal,
+            "intervention_queued": has_intervention,
             "message": (
-                "Running continuous pre-mortem scan. "
-                "I'll analyze risk signals and take autonomous actions based on "
-                "your workspace's control level. Results will appear in Mission Control."
+                "Pre-mortem scan complete. "
+                + (
+                    "A risk was detected and an intervention is awaiting your approval in the Inbox."
+                    if final_status == "awaiting_founder_approval"
+                    else "No policy-passing intervention was generated this cycle."
+                    if not has_signal
+                    else "Risk detected. Governor evaluated the proposal."
+                )
             ),
-            "next_steps": [
-                "Product Brain will classify risks",
-                "Coordinator will recommend interventions",
-                "Governor will check policy compliance",
-                "Executor will take autonomous actions (L2/L3) or request approval (L1)",
-            ],
         }
 
     except Exception as e:
@@ -390,6 +530,104 @@ async def adjust_autonomy(
     }
 
 
+async def declare_direction(
+    name: str,
+    target_segment: str,
+    problem_statement: str,
+    tool_context: ToolContext,
+    hypothesis: str = "",
+    time_horizon: str = "",
+) -> dict[str, Any]:
+    """
+    Declare a new strategic direction and persist it so it appears in the
+    Directions list. Call this whenever the user explicitly declares, adds,
+    or registers a new strategic direction, bet, or initiative.
+
+    After declaring, offer to run run_pipeline_scan() on it immediately.
+
+    Args:
+        name: Direction name (e.g. "Ship v2 onboarding by Q2")
+        target_segment: Who this serves (e.g. "First-time SaaS founders")
+        problem_statement: What problem it solves and why it matters
+        hypothesis: Optional — "We believe X will result in Y for Z"
+        time_horizon: Optional — e.g. "Q2 2026", "6 weeks"
+
+    Returns:
+        Created direction with id, or error if creation failed
+    """
+    workspace_id = tool_context.state.get("workspace_id", "default_workspace")
+    now = datetime.now(timezone.utc).isoformat()
+    bet_id = str(uuid.uuid4())
+
+    bet: dict[str, Any] = {
+        "id": bet_id,
+        "workspace_id": workspace_id,
+        "name": name,
+        "target_segment": target_segment,
+        "problem_statement": problem_statement,
+        "hypothesis": hypothesis,
+        "success_metrics": [],
+        "time_horizon": time_horizon,
+        "declaration_source": {"type": "manual", "raw_artifact_refs": []},
+        "declaration_confidence": 1.0,
+        "status": "active",
+        "health_baseline": {
+            "expected_bet_coverage_pct": 0.5,
+            "expected_weekly_velocity": 3,
+            "hypothesis_required": bool(hypothesis),
+            "metric_linked_required": False,
+        },
+        "acknowledged_risks": [],
+        "linear_project_ids": [],
+        "linear_issue_ids": [],
+        "doc_refs": [],
+        "created_at": now,
+        "last_monitored_at": now,
+    }
+
+    persisted = False
+    try:
+        if is_db_configured():
+            from db.repository import save_bet, upsert_workspace
+
+            await upsert_workspace(
+                {
+                    "id": workspace_id,
+                    "linear_team_id": "",
+                    "control_level": "draft_only",
+                    "created_at": now,
+                }
+            )
+            saved_id = await save_bet(bet)
+            persisted = saved_id is not None
+        else:
+            # Local dev fallback — shared list read by GET /bets when no DB
+            inmemory_bets.append(bet)
+            persisted = True  # In-memory is fine for local dev
+    except Exception as exc:
+        logger.error("[declare_direction] Save failed: %s", exc, exc_info=True)
+        return {
+            "status": "error",
+            "message": f"Failed to save direction: {exc!s}",
+        }
+
+    # Store in session state so run_pipeline_scan can use it immediately
+    tool_context.state["bet"] = bet
+    tool_context.state["workspace_id"] = workspace_id
+
+    return {
+        "status": "created",
+        "bet_id": bet_id,
+        "name": name,
+        "persisted": persisted,
+        "message": (
+            f"Direction '{name}' declared and saved. "
+            "It will appear in your Directions list. "
+            "Want me to run a pre-mortem scan on it now?"
+        ),
+    }
+
+
 # ─────────────────────────────────────────────
 # CONVERSATIONAL AGENT — Single entry point
 # ─────────────────────────────────────────────
@@ -418,10 +656,17 @@ You are Aegis, an autonomous strategist helping founders with continuous pre-mor
 - You take autonomous actions based on workspace control level (L1/L2/L3)
 - You chat naturally to explain risks, show evidence, and help founders make decisions
 
+**WHEN TO DECLARE A DIRECTION:**
+Use declare_direction() when user:
+- Explicitly creates/declares/adds a direction: "Declare a direction", "Add a new bet"
+- Provides enough context to persist one: name + target segment + problem statement
+- After declaring, offer to scan it: "Want me to run a pre-mortem on it now?"
+- IMPORTANT: Always call declare_direction() to persist — never just acknowledge in text
+
 **WHEN TO TRIGGER PIPELINE:**
 Use run_pipeline_scan() when user:
 - Explicitly asks: "scan my direction", "check for risks", "analyze progress"
-- Provides direction context: "Here's my Q2 direction: [details]"
+- Provides direction context after already declaring (bet is in session state)
 - Asks about current risk status: "What risks do I have?"
 
 **WHEN TO CHAT NATURALLY:**
@@ -447,7 +692,8 @@ Use query tools and conversational responses when user:
 When you take autonomous actions, ALWAYS explain what you did and why. Include an "undo" option.
 
 **TOOLS AVAILABLE:**
-- run_pipeline_scan() → trigger full risk scan
+- declare_direction() → persist a new strategic direction (REQUIRED when user declares one)
+- run_pipeline_scan() → trigger full risk scan on current direction
 - query_linear_issues() → show Linear evidence
 - get_intervention_history() → show past actions
 - explain_risk_type() → explain what risk means
@@ -456,6 +702,7 @@ When you take autonomous actions, ALWAYS explain what you did and why. Include a
 Be conversational. Don't mention "modes", "routing", or any internal architecture — just help naturally.
 """,
         tools=[
+            declare_direction,
             run_pipeline_scan,
             query_linear_issues,
             get_intervention_history,

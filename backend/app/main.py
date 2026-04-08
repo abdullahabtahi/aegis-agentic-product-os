@@ -11,6 +11,7 @@ CopilotKit connects to: http://localhost:8000/
 import json
 import logging
 import os
+from contextlib import asynccontextmanager
 from hashlib import md5
 
 import google.auth
@@ -28,12 +29,18 @@ from sqlalchemy import text
 from app.agent import conversational_agent
 from app.config import config  # singleton — resolves secrets after env is loaded
 from app.session_store import get_session_service
-from db.engine import get_session, is_db_configured
+from db.engine import close_connector, get_session, is_db_configured
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    yield
+    await close_connector()
 
 # ─────────────────────────────────────────────
 # SHARED ADK SERVICES (externalized for /sessions & /artifacts endpoints)
@@ -68,6 +75,7 @@ app = FastAPI(
     title="Aegis AG-UI",
     description="Agentic Product OS — AG-UI SSE endpoint for CopilotKit",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # CORS: configurable for production. Set ALLOWED_ORIGINS=https://yourapp.com in prod.
@@ -266,9 +274,10 @@ async def list_interventions(
 # BET ENDPOINTS (Phase 6 — Bet Declaration flow)
 # ─────────────────────────────────────────────
 
-# In-memory fallback for bets when AlloyDB is not configured (local dev / CI).
-# This is process-scoped — resets on restart, which is acceptable for local dev.
-_inmemory_bets: list[dict] = []
+# In-memory fallback for bets when DB is not configured (local dev / CI).
+# Shared with the conversational agent's declare_direction tool via bet_store.py
+# so bets created via chat AND via the modal both appear in GET /bets.
+from app.bet_store import inmemory_bets as _inmemory_bets
 
 
 class BetCreateBody(BaseModel):
@@ -485,6 +494,49 @@ def _derive_session_tags(state: dict) -> list[str]:
     if state.get("intervention_proposal"):
         tags.append("intervention")
     return tags
+
+
+@app.get("/sessions/{session_id}/messages")
+async def get_session_messages(
+    session_id: str,
+    user_id: str = Query("default_user"),
+):
+    """Return conversation messages for a session.
+
+    Uses get_session() (not list_sessions) so events are fully populated.
+    Returns only user/assistant text turns — skips tool calls and empty events.
+    """
+    session = await session_service.get_session(
+        app_name=ADK_APP_NAME,
+        user_id=user_id,
+        session_id=session_id,
+    )
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    messages = []
+    for event in session.events:
+        if not event.content or not event.content.parts:
+            continue
+        # Collect text parts only (skip function_call / function_response)
+        text = "".join(
+            part.text
+            for part in event.content.parts
+            if hasattr(part, "text") and part.text
+        ).strip()
+        if not text:
+            continue
+        role = "user" if event.author == "user" else "assistant"
+        messages.append(
+            {
+                "id": event.id or str(event.timestamp),
+                "role": role,
+                "content": text,
+                "timestamp": event.timestamp,
+            }
+        )
+
+    return messages
 
 
 @app.get("/artifacts")

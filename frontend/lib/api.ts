@@ -100,3 +100,21 @@ export function getBet(betId: string): Promise<Bet> {
 export function getInterventionsByBet(workspaceId: string, betId: string): Promise<Intervention[]> {
   return request<Intervention[]>(`/interventions?workspace_id=${workspaceId}&bet_id=${encodeURIComponent(betId)}`);
 }
+
+// ─── Session messages (for history restoration) ───
+
+export interface SessionMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: number;
+}
+
+export function getSessionMessages(
+  sessionId: string,
+  userId = "default_user",
+): Promise<SessionMessage[]> {
+  return request<SessionMessage[]>(
+    `/sessions/${encodeURIComponent(sessionId)}/messages?user_id=${encodeURIComponent(userId)}`,
+  );
+}

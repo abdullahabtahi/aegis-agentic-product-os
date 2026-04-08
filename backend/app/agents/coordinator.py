@@ -149,6 +149,7 @@ async def before_coordinator(callback_context: CallbackContext) -> types.Content
     # Write flat keys for ADK instruction template substitution: {bet_name}, {hypothesis}, etc.
     callback_context.state["bet_name"] = bet.get("name", "")
     callback_context.state["hypothesis"] = bet.get("hypothesis", "")
+    callback_context.state["risk_signal_draft"] = risk_signal_draft
     callback_context.state["acknowledged_risks"] = bet.get("acknowledged_risks", [])
     callback_context.state["prior_interventions"] = prior_interventions
     callback_context.state["intervention_ranking_weights"] = context[

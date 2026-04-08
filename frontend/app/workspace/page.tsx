@@ -10,7 +10,8 @@
  * Backend health shown inline so connectivity issues are visible immediately.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { Shield, Radar, Brain, Zap, WifiOff, AlertTriangle, Sparkles, GitBranch } from "lucide-react";
 import { CommandBar } from "@/components/chat/CommandBar";
 import { ChatMessages } from "@/components/chat/ChatMessages";
@@ -18,6 +19,8 @@ import { BetDeclarationModal } from "@/components/bets/BetDeclarationModal";
 import { useChatController } from "@/hooks/useChatController";
 import { useAgentStateSync } from "@/hooks/useAgentStateSync";
 import { useBackendHealth } from "@/hooks/useBackendHealth";
+import { getSessionMessages } from "@/lib/api";
+import type { SessionMessage } from "@/lib/api";
 
 const FEATURE_CARDS = [
   { icon: Radar, title: "Signal Engine", description: "Monitors Linear for strategy drift, missing metrics, and execution blockers.", color: "text-indigo-500", bg: "bg-indigo-500/10" },
@@ -39,6 +42,22 @@ export default function HomePage() {
   const { state: pipelineState } = useAgentStateSync();
   const backendHealth = useBackendHealth();
   const [showBetModal, setShowBetModal] = useState(false);
+  const searchParams = useSearchParams();
+  const sessionId = searchParams.get("session");
+  const [restoredMessages, setRestoredMessages] = useState<SessionMessage[]>([]);
+
+  // When navigating to a prior session, fetch its messages for display.
+  // CopilotKit already has the threadId so the agent keeps full context;
+  // we just need to show the user what was said before.
+  useEffect(() => {
+    if (!sessionId) {
+      setRestoredMessages([]);
+      return;
+    }
+    getSessionMessages(sessionId).then(setRestoredMessages).catch(() => {
+      setRestoredMessages([]);
+    });
+  }, [sessionId]);
 
   // When a direction is declared, send it as context to the agent and trigger a scan
   function handleBetDeclared(bet: Record<string, unknown>) {
@@ -72,8 +91,8 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ── HERO MODE — no messages yet ── */}
-      {!hasMessages && (
+      {/* ── HERO MODE — no messages yet and no restored session ── */}
+      {!hasMessages && restoredMessages.length === 0 && (
         <div className="flex flex-1 flex-col items-center justify-center px-6">
           {/* Logo */}
           <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg shadow-indigo-500/25">
@@ -130,8 +149,8 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* ── CHAT MODE — after first message ── */}
-      {hasMessages && (
+      {/* ── CHAT MODE — after first message OR when restoring a session ── */}
+      {(hasMessages || restoredMessages.length > 0) && (
         <>
           {/* Scrollable messages area */}
           <div className="flex-1 overflow-y-auto px-4 py-4">
@@ -140,6 +159,7 @@ export default function HomePage() {
                 messages={messages}
                 isLoading={isLoading}
                 pipelineState={pipelineState}
+                restoredMessages={restoredMessages}
               />
             </div>
           </div>
