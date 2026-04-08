@@ -73,6 +73,11 @@ app = FastAPI(
 # CORS origins: configurable via ALLOWED_ORIGINS env var (comma-separated).
 # Defaults to permissive for local dev; MUST be set in production.
 _allowed_origins = os.environ.get("ALLOWED_ORIGINS", "*").split(",")
+if "*" in _allowed_origins and not os.environ.get("AEGIS_LOCAL_DEV"):
+    logger.warning(
+        "CORS allows all origins (ALLOWED_ORIGINS=*). "
+        "Set ALLOWED_ORIGINS to your frontend URL in production."
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -575,11 +580,10 @@ async def debug_agent_test():
         return {"ok": True, "events": events, "agent": conversational_agent.name}
     except Exception as e:
         logger.error("[debug/agent-test] Failed: %s", e, exc_info=True)
-        # Sanitize error message to avoid leaking stack traces to external users
-        error_type = type(e).__name__
+        # Only expose error class name, not full message which may contain stack traces
         return {
             "ok": False,
-            "error": f"{error_type}: {e!s:.200}",
+            "error": type(e).__name__,
             "hint": "Check GCP auth and GOOGLE_CLOUD_PROJECT env var. See server logs for details.",
         }
 
