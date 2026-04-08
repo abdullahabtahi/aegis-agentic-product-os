@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useState, useCallback } from "react";
-import { X, MessageSquare, Clock } from "lucide-react";
+import { X, MessageSquare, Clock, Plus } from "lucide-react";
 import { getSessions } from "@/lib/api";
 import type { SessionSummary, PipelineStatus } from "@/lib/types";
 
@@ -19,6 +19,7 @@ interface SessionDrawerProps {
   open: boolean;
   onClose: () => void;
   onSelect: (sessionId: string) => void;
+  onNewSession: () => void;
 }
 
 const STATUS_DOT: Record<PipelineStatus, string> = {
@@ -41,7 +42,7 @@ function formatTime(ts: number | string): string {
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-export function SessionDrawer({ open, onClose, onSelect }: SessionDrawerProps) {
+export function SessionDrawer({ open, onClose, onSelect, onNewSession }: SessionDrawerProps) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -156,9 +157,13 @@ export function SessionDrawer({ open, onClose, onSelect }: SessionDrawerProps) {
 
           {/* Footer */}
           <div className="border-t border-white/15 p-4">
-            <p className="text-center text-xs text-muted-foreground">
-              Select a session to continue
-            </p>
+            <button
+              onClick={() => { onNewSession(); onClose(); }}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-500/10 px-4 py-2.5 text-sm font-medium text-indigo-600 transition-colors hover:bg-indigo-500/20"
+            >
+              <Plus size={15} />
+              New Session
+            </button>
           </div>
         </div>
       </div>

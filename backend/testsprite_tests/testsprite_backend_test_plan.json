@@ -1,0 +1,27 @@
+[
+  {
+    "id": "TC001",
+    "title": "test_signal_engine_drift_detection",
+    "description": "Verify that the Signal Engine API correctly reads Linear data and detects drift indicators using the defined heuristics."
+  },
+  {
+    "id": "TC002",
+    "title": "test_product_brain_multi_agent_debate",
+    "description": "Test the Product Brain API to ensure it performs multi-agent LLM debates among Cynic, Optimist, and Strategist agents and synthesizes risk accurately."
+  },
+  {
+    "id": "TC003",
+    "title": "test_coordinator_intervention_selection",
+    "description": "Validate that the Coordinator API selects optimal interventions from the predefined taxonomy based on input risk data."
+  },
+  {
+    "id": "TC004",
+    "title": "test_governor_policy_checks",
+    "description": "Ensure the Governor API performs all 8 deterministic policy checks correctly to guarantee bounded and safe actions."
+  },
+  {
+    "id": "TC005",
+    "title": "test_executor_linear_writes_with_hitl_approval",
+    "description": "Test the Executor API to confirm it executes Linear writes such as comments and issues only after human-in-the-loop (HITL) approval."
+  }
+]

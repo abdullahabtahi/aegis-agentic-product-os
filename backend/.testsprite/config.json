@@ -1,0 +1,7 @@
+{
+  "localPort": 8000,
+  "type": "backend",
+  "testType": "backend",
+  "projectPath": "/Users/abdullahabtahi/Hackathons/Gen AI Academy/Product OS - Hackathon/aegis-agentic-product-os/backend",
+  "testScope": "codebase"
+}

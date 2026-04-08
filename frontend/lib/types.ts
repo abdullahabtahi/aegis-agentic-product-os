@@ -250,3 +250,8 @@ export interface WorkspaceStats {
   acceptance_rate: number;
   most_common_action?: ActionType;
 }
+
+export interface DiscoverBetsResponse {
+  created: Bet[];
+  skipped_duplicates: number;
+}

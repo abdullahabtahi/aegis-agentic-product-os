@@ -1,0 +1,67 @@
+version: "2"
+type: frontend
+tech_stack:
+  - React 19
+  - Next.js 16 (App Router)
+  - Tailwind 4
+  - Lucide Icons
+  - CopilotKit (AG-UI bridge)
+  - TanStack Query
+routes:
+  - path: /workspace
+    file: app/workspace/page.tsx
+    auth_required: false
+    description: Core chat-based workspace with quick actions and feature overview.
+  - path: /workspace/mission-control
+    file: app/workspace/mission-control/page.tsx
+    auth_required: false
+    description: Real-time health scoring (0–100) and strategic bet tracking dashboard.
+  - path: /workspace/directions
+    file: app/workspace/directions/page.tsx
+    auth_required: false
+    description: Manage and declare strategic bets manually or via clustered signals.
+  - path: /workspace/inbox
+    file: app/workspace/inbox/page.tsx
+    auth_required: false
+    description: Inbox for human-in-the-loop (HITL) intervention approvals.
+  - path: /workspace/activity
+    file: app/workspace/activity/page.tsx
+    auth_required: false
+    description: System event logs and agent debate history.
+features:
+  - name: Bet Declaration
+    description: Create new strategic bets by filling out target segment, problem statement, and hypothesis.
+    files:
+      - components/bets/BetDeclarationModal.tsx
+      - app/workspace/directions/page.tsx
+    entry_route: /workspace/directions
+    user_interactions:
+      - Click "Declare New Strategic Direction" button
+      - Fill hypothesis and metrics in the modal
+      - Submit to create a bet
+  - name: Mission Control Dashboard
+    description: High-level overview of project health and active interventions.
+    files:
+      - app/workspace/mission-control/page.tsx
+      - components/dashboard/HealthChart.tsx
+    entry_route: /workspace/mission-control
+    user_interactions:
+      - Navigate to Mission Control
+      - Observe the health needle visualization
+      - View active bet status
+  - name: Agentic Inbox Approval
+    description: Approve or reject interventions proposed by Aegis.
+    files:
+      - app/workspace/inbox/page.tsx
+    entry_route: /workspace/inbox
+    user_interactions:
+      - View list of pending interventions
+      - Review rationale and proposed action
+      - Click "Approve" (Accept) or "Reject" (Deny)
+known_limitations:
+  - issue: Backend state sync relies on 8s polling
+    location: hooks/useAgentStateSync.ts
+    impact: UI updates may feel delayed compared to agent execution.
+  - issue: ADK runtime configuration warning on missing NEXT_PUBLIC_ADK_RUNTIME_URL
+    location: components/layout/Providers.tsx
+    impact: Console warning on startup.

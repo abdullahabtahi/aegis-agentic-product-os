@@ -12,9 +12,9 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import {
   Target, AlertTriangle, CheckCircle2, Clock,
-  ChevronRight, Zap, Plus, RefreshCw,
+  ChevronRight, Zap, Plus, RefreshCw, Search, Loader2,
 } from "lucide-react";
-import { listBets } from "@/lib/api";
+import { listBets, discoverBets } from "@/lib/api";
 import {
   BET_STATUS_LABELS, BET_STATUS_STYLES, healthColor,
 } from "@/lib/constants";
@@ -179,7 +179,29 @@ export default function DirectionsPage() {
     refetchOnWindowFocus: true,
   });
 
-  const visibleBets = bets;
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanFeedback, setScanFeedback] = useState<{ kind: "error" | "info" | "success"; message: string } | null>(null);
+
+  async function handleScanLinear() {
+    setIsScanning(true);
+    setScanFeedback(null);
+    try {
+      const result = await discoverBets(WORKSPACE_ID);
+      if (result.created.length === 0) {
+        setScanFeedback({ kind: "info", message: "No new directions found — all clusters already exist." });
+        setTimeout(() => setScanFeedback(null), 6000);
+      } else {
+        await refetch();
+        setScanFeedback({ kind: "success", message: `${result.created.length} new direction${result.created.length !== 1 ? "s" : ""} detected from Linear.` });
+        setTimeout(() => setScanFeedback(null), 6000);
+      }
+    } catch (err) {
+      setScanFeedback({ kind: "error", message: err instanceof Error ? err.message : "Scan failed. Is the backend running?" });
+      // Errors persist until next scan (no auto-dismiss)
+    } finally {
+      setIsScanning(false);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-5 pb-6">
@@ -193,26 +215,60 @@ export default function DirectionsPage() {
             {isLoading ? "Loading…" : `${bets.length} direction${bets.length !== 1 ? "s" : ""} being monitored`}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {/* Refresh — min 44×44px touch target */}
-          <button
-            onClick={() => refetch()}
-            disabled={isFetching}
-            className={cn(
-              "flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white/60 text-slate-400 transition-all hover:bg-white/80 hover:text-slate-600",
-              isFetching && "animate-spin",
-            )}
-            aria-label="Refresh directions"
-          >
-            <RefreshCw size={15} />
-          </button>
-          <button
-            onClick={() => setShowDeclareModal(true)}
-            className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/20 transition-all hover:bg-indigo-500 active:scale-95"
-          >
-            <Plus size={15} />
-            New direction
-          </button>
+        <div className="flex flex-col items-end gap-1.5">
+          <div className="flex items-center gap-2">
+            {/* Refresh */}
+            <button
+              type="button"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              className={cn(
+                "flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white/60 text-slate-400 transition-all hover:bg-white/80 hover:text-slate-600",
+                isFetching && "animate-spin",
+              )}
+              aria-label="Refresh directions"
+            >
+              <RefreshCw size={15} />
+            </button>
+            {/* Scan Linear */}
+            <button
+              type="button"
+              onClick={handleScanLinear}
+              disabled={isScanning}
+              className={cn(
+                "flex items-center gap-2 rounded-xl border border-slate-200 bg-white/60 px-4 py-2.5 text-sm font-medium text-slate-600 transition-all hover:bg-white/80 hover:text-slate-800 active:scale-95",
+                isScanning && "cursor-not-allowed opacity-60",
+              )}
+              aria-label="Scan Linear for new directions"
+            >
+              {isScanning ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <Search size={15} />
+              )}
+              {isScanning ? "Scanning…" : "Scan Linear"}
+            </button>
+            {/* New direction */}
+            <button
+              type="button"
+              onClick={() => setShowDeclareModal(true)}
+              className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-md shadow-indigo-500/20 transition-all hover:bg-indigo-500 active:scale-95"
+            >
+              <Plus size={15} />
+              New direction
+            </button>
+          </div>
+          {/* Inline scan feedback */}
+          {scanFeedback && (
+            <p className={cn(
+              "text-xs",
+              scanFeedback.kind === "error" ? "text-red-600" :
+              scanFeedback.kind === "success" ? "text-emerald-700" :
+              "text-slate-500",
+            )}>
+              {scanFeedback.message}
+            </p>
+          )}
         </div>
       </div>
 
@@ -262,11 +318,11 @@ export default function DirectionsPage() {
             Retry
           </button>
         </div>
-      ) : visibleBets.length === 0 ? (
+      ) : bets.length === 0 ? (
         <EmptyState onDeclare={() => setShowDeclareModal(true)} />
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {visibleBets.map((bet) => (
+          {bets.map((bet) => (
             <BetCard key={bet.id} bet={bet} />
           ))}
         </div>

@@ -1,0 +1,38 @@
+{
+  "project_name": "Aegis Agentic Product OS (Backend)",
+  "overview": "Aegis is an agentic command center for startup founders that scans project data (Linear) to detect strategic risks and proposes interventions via an adversarial multi-agent debate pipeline.",
+  "target_audience": "Founders, Product Leads, and Agentic Developers.",
+  "core_features": [
+    {
+      "name": "Signal Engine",
+      "description": "Reads Linear data and detects drift indicators using heuristics."
+    },
+    {
+      "name": "Product Brain",
+      "description": "Multi-agent LLM debate for risk synthesis (Cynic, Optimist, Strategist)."
+    },
+    {
+      "name": "Coordinator",
+      "description": "Selects optimal interventions from a predefined taxonomy."
+    },
+    {
+      "name": "Governor",
+      "description": "8 deterministic policy checks for bounded, safe actions."
+    },
+    {
+      "name": "Executor",
+      "description": "Executing Linear writes (comments, issues) after HITL approval."
+    }
+  ],
+  "technical_details": {
+    "language": "Python 3.10+",
+    "framework": "FastAPI",
+    "orchestration": "Google Agent Development Kit (ADK)",
+    "database": "Cloud SQL / AlloyDB"
+  },
+  "success_metrics": [
+    "Zero tool hallucinations in debates",
+    "Discovery clustering accuracy > 80%",
+    "穩定 build passing all Golden Traces"
+  ]
+}

@@ -35,6 +35,11 @@ export function GlassmorphicLayout({ children }: GlassmorphicLayoutProps) {
     setSessionDrawerOpen(false);
   }, [router]);
 
+  const handleNewSession = useCallback(() => {
+    router.push("/workspace");
+    setSessionDrawerOpen(false);
+  }, [router]);
+
   return (
     <div className="relative flex h-screen overflow-hidden p-4 gap-4">
       <AmbientBackground />
@@ -50,6 +55,7 @@ export function GlassmorphicLayout({ children }: GlassmorphicLayoutProps) {
         open={sessionDrawerOpen}
         onClose={() => setSessionDrawerOpen(false)}
         onSelect={handleSessionSelect}
+        onNewSession={handleNewSession}
       />
 
       {/* Main content column */}

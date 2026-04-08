@@ -23,7 +23,7 @@ from fastapi import FastAPI, Header, HTTPException, Query, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from google.adk.artifacts import InMemoryArtifactService
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from app.agent import conversational_agent
@@ -278,6 +278,7 @@ async def list_interventions(
 # Shared with the conversational agent's declare_direction tool via bet_store.py
 # so bets created via chat AND via the modal both appear in GET /bets.
 from app.bet_store import inmemory_bets as _inmemory_bets
+from app.services.bet_discovery import discover_bets_from_linear
 
 
 class BetCreateBody(BaseModel):
@@ -392,11 +393,9 @@ async def get_bet_endpoint(bet_id: str):
 # BET DISCOVERY (auto-detect from Linear issues)
 # ─────────────────────────────────────────────
 
-from app.services.bet_discovery import discover_bets_from_linear
-
 
 class DiscoverBody(BaseModel):
-    workspace_id: str
+    workspace_id: str = Field(..., min_length=1, max_length=128)
 
 
 @app.post("/bets/discover")
@@ -410,14 +409,30 @@ async def discover_bets_endpoint(body: DiscoverBody):
     from db.repository import list_bets, save_bet
 
     # Load existing bet names for dedup
-    if is_db_configured():
-        existing = await list_bets(body.workspace_id)
-    else:
-        existing = [b for b in _inmemory_bets if b["workspace_id"] == body.workspace_id]
+    try:
+        if is_db_configured():
+            existing = await list_bets(body.workspace_id)
+        else:
+            existing = [b for b in _inmemory_bets if b["workspace_id"] == body.workspace_id]
+    except Exception as exc:
+        logger.warning("Failed to load existing bets for discovery: %s", exc)
+        existing = []
 
     existing_names = {b["name"].lower() for b in existing}
 
     new_bets = await discover_bets_from_linear(body.workspace_id, existing_names)
+
+    # Upsert workspace ONCE (not per bet)
+    if is_db_configured() and new_bets:
+        from db.repository import upsert_workspace
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        await upsert_workspace({
+            "id": body.workspace_id,
+            "linear_team_id": "",
+            "control_level": "draft_only",
+            "created_at": now,
+        })
 
     created = []
     skipped = 0
@@ -427,17 +442,11 @@ async def discover_bets_endpoint(body: DiscoverBody):
             skipped += 1
             continue
         if is_db_configured():
-            from db.repository import upsert_workspace
-            import uuid
-            from datetime import datetime, timezone
-            now = datetime.now(timezone.utc).isoformat()
-            await upsert_workspace({
-                "id": body.workspace_id,
-                "linear_team_id": "",
-                "control_level": "draft_only",
-                "created_at": now,
-            })
-            saved_id = await save_bet(bet)
+            try:
+                saved_id = await save_bet(bet)
+            except Exception as exc:
+                logger.warning("Failed to save discovered bet %s: %s", bet.get("name"), exc)
+                saved_id = None
             if saved_id:
                 created.append(bet)
             else:

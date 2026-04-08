@@ -4,7 +4,7 @@
  */
 
 import { BACKEND_URL } from "./constants";
-import type { Bet, Intervention, SessionSummary, ArtifactEntry } from "./types";
+import type { Bet, Intervention, SessionSummary, ArtifactEntry, DiscoverBetsResponse } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BACKEND_URL}${path}`, {
@@ -99,6 +99,15 @@ export function getBet(betId: string): Promise<Bet> {
 
 export function getInterventionsByBet(workspaceId: string, betId: string): Promise<Intervention[]> {
   return request<Intervention[]>(`/interventions?workspace_id=${workspaceId}&bet_id=${encodeURIComponent(betId)}`);
+}
+
+// ─── Bet Discovery ───
+
+export function discoverBets(workspaceId: string): Promise<DiscoverBetsResponse> {
+  return request<DiscoverBetsResponse>("/bets/discover", {
+    method: "POST",
+    body: JSON.stringify({ workspace_id: workspaceId }),
+  });
 }
 
 // ─── Session messages (for history restoration) ───
