@@ -581,11 +581,12 @@ async def debug_agent_test():
     except Exception as e:
         logger.error("[debug/agent-test] Failed: %s", e, exc_info=True)
         # Only expose error class name, not full message which may contain stack traces
-        return {
-            "ok": False,
-            "error": type(e).__name__,
-            "hint": "Check GCP auth and GOOGLE_CLOUD_PROJECT env var. See server logs for details.",
-        }
+        result: dict = {"ok": False, "error": type(e).__name__}
+        if os.environ.get("AEGIS_LOCAL_DEV"):
+            result["hint"] = (
+                "Check GCP auth and GOOGLE_CLOUD_PROJECT env var. See server logs for details."
+            )
+        return result
 
 
 # Mounting ADK routes with the prefix expected by the frontend HttpAgent
