@@ -648,3 +648,252 @@ def _json_str(obj: dict | list | None) -> str | None:
     import json
 
     return json.dumps(obj)
+
+
+# ─────────────────────────────────────────────
+# BET MUTATIONS
+# ─────────────────────────────────────────────
+
+# Allowlist guards against arbitrary column injection — values are always
+# bound parameters; only the column names come from this set.
+_BET_UPDATE_ALLOWED: frozenset[str] = frozenset(
+    {
+        "name",
+        "target_segment",
+        "problem_statement",
+        "hypothesis",
+        "success_metrics",
+        "time_horizon",
+        "linear_project_ids",
+        "status",
+    }
+)
+_BET_UPDATE_JSONB: frozenset[str] = frozenset({"success_metrics"})
+
+
+async def update_bet(bet_id: str, fields: dict) -> bool:
+    """Update allowed fields on a bet. Returns True if the row was updated."""
+    if not is_db_configured():
+        return False
+    safe_fields = {k: v for k, v in fields.items() if k in _BET_UPDATE_ALLOWED}
+    if not safe_fields:
+        return False
+    try:
+        set_clauses: list[str] = []
+        params: dict = {"bet_id": bet_id}
+        for col, val in safe_fields.items():
+            if col in _BET_UPDATE_JSONB:
+                set_clauses.append(f"{col} = :{col}::jsonb")
+                params[col] = _json_str(val)
+            else:
+                set_clauses.append(f"{col} = :{col}")
+                params[col] = val
+        set_sql = ", ".join(set_clauses)
+        async with get_session() as session:
+            result = await session.execute(
+                # Column names come from validated allowlist; values are bound params.
+                text(f"UPDATE bets SET {set_sql} WHERE id = :bet_id"),  # noqa: S608
+                params,
+            )
+            return result.rowcount > 0
+    except Exception as exc:
+        logger.warning("Failed to update bet %s: %s", bet_id, exc)
+        return False
+
+
+async def archive_bet(bet_id: str) -> bool:
+    """Set status='archived' and completed_at=now(). Returns True if updated."""
+    if not is_db_configured():
+        return False
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                text("""
+                    UPDATE bets
+                    SET status = 'archived', completed_at = :now
+                    WHERE id = :bet_id
+                """),
+                {"bet_id": bet_id, "now": _now_iso()},
+            )
+            return result.rowcount > 0
+    except Exception as exc:
+        logger.warning("Failed to archive bet %s: %s", bet_id, exc)
+        return False
+
+
+async def update_acknowledged_risks(
+    bet_id: str, acknowledged_risks: list[dict]
+) -> bool:
+    """Replace acknowledged_risks on a bet. Returns True if updated."""
+    if not is_db_configured():
+        return False
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                text("""
+                    UPDATE bets
+                    SET acknowledged_risks = :acknowledged_risks::jsonb
+                    WHERE id = :bet_id
+                """),
+                {
+                    "bet_id": bet_id,
+                    "acknowledged_risks": _json_str(acknowledged_risks),
+                },
+            )
+            return result.rowcount > 0
+    except Exception as exc:
+        logger.warning(
+            "Failed to update acknowledged_risks for bet %s: %s", bet_id, exc
+        )
+        return False
+
+
+# ─────────────────────────────────────────────
+# SUPPRESSION RULES
+# ─────────────────────────────────────────────
+
+
+async def save_suppression_rule(rule: dict) -> str | None:
+    """Persist a suppression rule. Returns id or None."""
+    if not is_db_configured():
+        return None
+    try:
+        rule_id = rule.get("id", _new_id())
+        async with get_session() as session:
+            await session.execute(
+                text("""
+                    INSERT INTO suppression_rules (
+                        id, workspace_id, risk_type, action_type,
+                        rejection_reason, suppressed_at, suppressed_until, created_at
+                    ) VALUES (
+                        :id, :workspace_id, :risk_type, :action_type,
+                        :rejection_reason, :suppressed_at, :suppressed_until, :created_at
+                    )
+                """),
+                {
+                    "id": rule_id,
+                    "workspace_id": rule["workspace_id"],
+                    "risk_type": rule["risk_type"],
+                    "action_type": rule["action_type"],
+                    "rejection_reason": rule["rejection_reason"],
+                    "suppressed_at": rule.get("suppressed_at", _now_iso()),
+                    "suppressed_until": rule.get("suppressed_until"),
+                    "created_at": rule.get("created_at", _now_iso()),
+                },
+            )
+        return rule_id
+    except Exception as exc:
+        logger.warning("Failed to save suppression_rule: %s", exc)
+        return None
+
+
+async def list_suppression_rules(workspace_id: str) -> list[dict]:
+    """List suppression rules for a workspace, newest first. Max 100."""
+    if not is_db_configured():
+        return []
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                text("""
+                    SELECT id, workspace_id, risk_type, action_type,
+                           rejection_reason, suppressed_at, suppressed_until,
+                           created_at
+                    FROM suppression_rules
+                    WHERE workspace_id = :wid
+                    ORDER BY created_at DESC
+                    LIMIT 100
+                """),
+                {"wid": workspace_id},
+            )
+            return [dict(row._mapping) for row in result]
+    except Exception as exc:
+        logger.warning(
+            "Failed to list suppression_rules for workspace %s: %s", workspace_id, exc
+        )
+        return []
+
+
+async def delete_suppression_rule(rule_id: str) -> bool:
+    """Delete a suppression rule by id. Returns True if a row was deleted."""
+    if not is_db_configured():
+        return False
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                text("DELETE FROM suppression_rules WHERE id = :id"),
+                {"id": rule_id},
+            )
+            return result.rowcount > 0
+    except Exception as exc:
+        logger.warning("Failed to delete suppression_rule %s: %s", rule_id, exc)
+        return False
+
+
+# ─────────────────────────────────────────────
+# OUTCOME functions
+# ─────────────────────────────────────────────
+
+
+async def save_outcome(outcome: dict) -> str | None:
+    """Persist an Outcome record. Returns the outcome id on success, None on failure."""
+    if not is_db_configured():
+        return None
+    try:
+        async with get_session() as session:
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO outcomes (
+                        id, intervention_id, bet_id,
+                        snapshot_before_id, snapshot_after_id,
+                        health_score_delta, risk_resolved, founder_rating, measured_at
+                    ) VALUES (
+                        :id, :intervention_id, :bet_id,
+                        :snapshot_before_id, :snapshot_after_id,
+                        :health_score_delta, :risk_resolved, :founder_rating, :measured_at
+                    )
+                    """
+                ),
+                {
+                    "id": outcome["id"],
+                    "intervention_id": outcome["intervention_id"],
+                    "bet_id": outcome["bet_id"],
+                    "snapshot_before_id": outcome["snapshot_before_id"],
+                    "snapshot_after_id": outcome["snapshot_after_id"],
+                    "health_score_delta": outcome.get("health_score_delta", 0.0),
+                    "risk_resolved": outcome.get("risk_resolved", False),
+                    "founder_rating": outcome.get("founder_rating"),
+                    "measured_at": outcome["measured_at"],
+                },
+            )
+        return outcome["id"]
+    except Exception as exc:
+        logger.warning("Failed to save outcome %s: %s", outcome.get("id"), exc)
+        return None
+
+
+async def get_outcomes_for_bet(bet_id: str) -> list[dict]:
+    """Return all Outcome records for a bet, ordered by measured_at DESC."""
+    if not is_db_configured():
+        return []
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                text(
+                    """
+                    SELECT id, intervention_id, bet_id, snapshot_before_id,
+                           snapshot_after_id, health_score_delta, risk_resolved,
+                           founder_rating, measured_at
+                    FROM outcomes
+                    WHERE bet_id = :bet_id
+                    ORDER BY measured_at DESC
+                    """
+                ),
+                {"bet_id": bet_id},
+            )
+            rows = result.mappings().all()
+            return [dict(r) for r in rows]
+    except Exception as exc:
+        logger.warning("Failed to get outcomes for bet %s: %s", bet_id, exc)
+        return []
+

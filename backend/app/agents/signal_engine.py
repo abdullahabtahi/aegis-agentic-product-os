@@ -51,10 +51,18 @@ def _compute_bet_coverage(
     issues: list,
     project_ids: set[str],
 ) -> tuple[int, int, float]:
-    """Returns (total, mapped, coverage_pct)."""
+    """Returns (total, mapped, coverage_pct).
+
+    When project_ids is empty (bet has no Linear projects configured), coverage
+    tracking is meaningless — returning 0 would trigger a false low_bet_coverage
+    risk on every newly-declared bet. Return full coverage as a neutral baseline.
+    """
     total = len(issues)
     if total == 0:
         return 0, 0, 0.0
+    if not project_ids:
+        # No project constraint — can't measure coverage; treat as fully covered
+        return total, total, 1.0
     mapped = sum(1 for i in issues if i.project_id in project_ids)
     return total, mapped, round(mapped / total, 4)
 
@@ -96,12 +104,18 @@ def _misc_ticket_pct(issues: list, project_ids: set[str]) -> float:
     total = len(issues)
     if total == 0:
         return 0.0
+    if not project_ids:
+        # No project constraint — all issues appear unmapped, which is a false signal
+        return 0.0
     unmapped = sum(1 for i in issues if i.project_id not in project_ids)
     return round(unmapped / total, 4)
 
 
 def _placebo_productivity_score(issues: list, project_ids: set[str]) -> float | None:
     """Pct of closed (done) issues that are NOT bet-mapped. L/N/O signal."""
+    if not project_ids:
+        # No project constraint — all closed issues appear unmapped, false positive
+        return None
     done = [i for i in issues if i.status.lower() in ("done", "completed", "closed")]
     if not done:
         return None

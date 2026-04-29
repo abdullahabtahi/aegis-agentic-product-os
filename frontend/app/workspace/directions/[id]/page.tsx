@@ -11,24 +11,26 @@
  * 5. Historical interventions — timeline of resolved actions
  */
 
-import { use, Suspense } from "react";
+import { use, Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, AlertTriangle, CheckCircle2, Clock, Target,
-  BookOpen, Zap, BarChart2, MessageSquare,
+  BookOpen, Zap, BarChart2, MessageSquare, Pencil, Archive, ShieldCheck, Plus, X,
 } from "lucide-react";
 import {
   getBet, getInterventionsByBet, approveIntervention, rejectIntervention,
+  updateBet, archiveBet, addAcknowledgedRisk, removeAcknowledgedRisk,
 } from "@/lib/api";
+import type { AcknowledgedRiskRequest } from "@/lib/api";
 import {
   BET_STATUS_LABELS, BET_STATUS_STYLES, RISK_LABELS,
   SEVERITY_BG, ACTION_LABELS,
 } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { ApprovalCard } from "@/components/interventions/ApprovalCard";
-import type { Intervention, RiskSignal, ProductPrincipleRef } from "@/lib/types";
+import type { Intervention, RiskSignal, ProductPrincipleRef, RiskType } from "@/lib/types";
 import { useWorkspaceId } from "@/hooks/useWorkspaceId";
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -233,6 +235,21 @@ function DirectionDetailContent({ params }: { params: Promise<{ id: string }> })
   const queryClient = useQueryClient();
   const router = useRouter();
 
+  // Edit form state
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState<Partial<{
+    name: string; target_segment: string; problem_statement: string;
+    hypothesis: string; time_horizon: string; linear_project_ids: string;
+  }>>({});
+
+  // Archive confirmation state
+  const [confirmArchive, setConfirmArchive] = useState(false);
+
+  // Add ack risk form state
+  const [addingRisk, setAddingRisk] = useState(false);
+  const [newRiskType, setNewRiskType] = useState<RiskType>("strategy_unclear");
+  const [newRiskNote, setNewRiskNote] = useState("");
+
   const { data: bet, isLoading: loadingBet, isError: betError } = useQuery({
     queryKey: ["bet", id],
     queryFn: () => getBet(id),
@@ -260,10 +277,66 @@ function DirectionDetailContent({ params }: { params: Promise<{ id: string }> })
     },
   });
 
+  const editMutation = useMutation({
+    mutationFn: (body: Parameters<typeof updateBet>[1]) => updateBet(id, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["bet", id] });
+      setEditing(false);
+    },
+  });
+
+  const archiveMutation = useMutation({
+    mutationFn: () => archiveBet(id),
+    onSuccess: () => {
+      router.push("/workspace/directions");
+    },
+  });
+
+  const addRiskMutation = useMutation({
+    mutationFn: (body: AcknowledgedRiskRequest) => addAcknowledgedRisk(id, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["bet", id] });
+      setAddingRisk(false);
+      setNewRiskNote("");
+    },
+  });
+
+  const removeRiskMutation = useMutation({
+    mutationFn: (riskType: RiskType) => removeAcknowledgedRisk(id, riskType),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["bet", id] });
+    },
+  });
+
   const pending = interventions.filter((i: Intervention) => i.status === "pending");
   const resolved = interventions.filter((i: Intervention) => i.status !== "pending");
 
   const healthScore = bet ? deriveHealthScore(bet, interventions) : null;
+
+  const ALL_RISK_TYPES: RiskType[] = [
+    "strategy_unclear", "alignment_issue", "execution_issue", "placebo_productivity",
+  ];
+
+  function openEdit() {
+    if (!bet) return;
+    setEditForm({
+      name: bet.name,
+      target_segment: bet.target_segment ?? "",
+      problem_statement: bet.problem_statement ?? "",
+      hypothesis: bet.hypothesis ?? "",
+      time_horizon: bet.time_horizon ?? "",
+      linear_project_ids: (bet.linear_project_ids ?? []).join(", "),
+    });
+    setEditing(true);
+  }
+
+  function submitEdit() {
+    const { linear_project_ids, ...rest } = editForm;
+    const ids = linear_project_ids
+      ? linear_project_ids.split(",").map((s) => s.trim()).filter(Boolean)
+      : undefined;
+    editMutation.mutate({ ...rest, ...(ids !== undefined ? { linear_project_ids: ids } : {}) });
+  }
 
   // ── Loading state ──────────────────────────────────────────────────────────
   if (loadingBet) {
@@ -288,6 +361,9 @@ function DirectionDetailContent({ params }: { params: Promise<{ id: string }> })
       </div>
     );
   }
+
+  const acknowledgedRiskTypes = new Set((bet.acknowledged_risks ?? []).map((r) => r.risk_type));
+  const availableRiskTypes = ALL_RISK_TYPES.filter((rt) => !acknowledgedRiskTypes.has(rt));
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -324,6 +400,37 @@ function DirectionDetailContent({ params }: { params: Promise<{ id: string }> })
               >
                 <Zap size={12} /> Scan for risks
               </button>
+              <button
+                onClick={openEdit}
+                className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                <Pencil size={12} /> Edit
+              </button>
+              {!confirmArchive ? (
+                <button
+                  onClick={() => setConfirmArchive(true)}
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-50 transition-colors"
+                >
+                  <Archive size={12} /> Archive
+                </button>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-slate-600">Confirm archive?</span>
+                  <button
+                    onClick={() => archiveMutation.mutate()}
+                    disabled={archiveMutation.isPending}
+                    className="rounded-lg bg-red-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
+                  >
+                    {archiveMutation.isPending ? "Archiving…" : "Yes"}
+                  </button>
+                  <button
+                    onClick={() => setConfirmArchive(false)}
+                    className="rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+                  >
+                    No
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-slate-500">
@@ -355,6 +462,90 @@ function DirectionDetailContent({ params }: { params: Promise<{ id: string }> })
           </div>
         </div>
       </div>
+
+      {/* ── Edit form ──────────────────────────────────────────────────── */}
+      {editing && (
+        <div className="glass-panel rounded-2xl p-5 space-y-4 border border-indigo-200">
+          <div className="flex items-center justify-between">
+            <h2 className="font-heading text-sm font-semibold text-slate-700 flex items-center gap-2">
+              <Pencil size={14} className="text-indigo-500" /> Edit Direction
+            </h2>
+            <button onClick={() => setEditing(false)} className="text-slate-400 hover:text-slate-600">
+              <X size={16} />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2 space-y-1">
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Name</label>
+              <input
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-indigo-400 focus:outline-none"
+                value={editForm.name ?? ""}
+                onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Target Segment</label>
+              <input
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-indigo-400 focus:outline-none"
+                value={editForm.target_segment ?? ""}
+                onChange={(e) => setEditForm((f) => ({ ...f, target_segment: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Time Horizon</label>
+              <input
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-indigo-400 focus:outline-none"
+                value={editForm.time_horizon ?? ""}
+                onChange={(e) => setEditForm((f) => ({ ...f, time_horizon: e.target.value }))}
+              />
+            </div>
+            <div className="col-span-2 space-y-1">
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Problem Statement</label>
+              <textarea
+                rows={2}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-indigo-400 focus:outline-none resize-none"
+                value={editForm.problem_statement ?? ""}
+                onChange={(e) => setEditForm((f) => ({ ...f, problem_statement: e.target.value }))}
+              />
+            </div>
+            <div className="col-span-2 space-y-1">
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Hypothesis</label>
+              <textarea
+                rows={2}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-indigo-400 focus:outline-none resize-none"
+                value={editForm.hypothesis ?? ""}
+                onChange={(e) => setEditForm((f) => ({ ...f, hypothesis: e.target.value }))}
+              />
+            </div>
+            <div className="col-span-2 space-y-1">
+              <label className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Linear Project IDs (comma-separated)</label>
+              <input
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-indigo-400 focus:outline-none font-mono"
+                value={editForm.linear_project_ids ?? ""}
+                onChange={(e) => setEditForm((f) => ({ ...f, linear_project_ids: e.target.value }))}
+              />
+            </div>
+          </div>
+          {editMutation.isError && (
+            <p className="text-xs text-red-500">{(editMutation.error as Error).message}</p>
+          )}
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              onClick={submitEdit}
+              disabled={editMutation.isPending}
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+            >
+              {editMutation.isPending ? "Saving…" : "Save"}
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              className="rounded-lg border border-slate-200 px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── 2. Two-column: hypothesis + metrics ────────────────────────── */}
       <div className="grid grid-cols-12 gap-5">
@@ -396,6 +587,94 @@ function DirectionDetailContent({ params }: { params: Promise<{ id: string }> })
             <p className="text-[11px] text-slate-400">No metrics defined yet.</p>
           )}
         </div>
+      </div>
+
+      {/* ── 2b. Acknowledged Risks ─────────────────────────────────────── */}
+      <div className="glass-panel rounded-2xl p-5 space-y-3">
+        <h2 className="font-heading text-sm font-semibold text-slate-700 flex items-center gap-2">
+          <ShieldCheck size={14} className="text-emerald-500" />
+          Acknowledged Risks
+        </h2>
+        {(bet.acknowledged_risks?.length ?? 0) === 0 ? (
+          <p className="text-[11px] text-slate-400">No risks acknowledged yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {bet.acknowledged_risks!.map((entry) => (
+              <div
+                key={entry.risk_type}
+                className="flex items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5"
+              >
+                <div className="flex-1 min-w-0 space-y-0.5">
+                  <p className="text-[12px] font-semibold text-slate-700">
+                    {RISK_LABELS[entry.risk_type]}
+                  </p>
+                  <p className="text-[10px] text-slate-400">
+                    {new Date(entry.acknowledged_at).toLocaleDateString()}
+                  </p>
+                  {entry.founder_note && (
+                    <p className="text-[11px] text-slate-500 italic">{entry.founder_note}</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => removeRiskMutation.mutate(entry.risk_type)}
+                  disabled={removeRiskMutation.isPending}
+                  className="shrink-0 rounded-md px-2 py-1 text-[10px] font-medium text-red-500 hover:bg-red-50 disabled:opacity-40 transition-colors"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {!addingRisk ? (
+          <button
+            onClick={() => {
+              setNewRiskType(availableRiskTypes[0] ?? "strategy_unclear");
+              setAddingRisk(true);
+            }}
+            disabled={availableRiskTypes.length === 0}
+            className="flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-500 hover:border-slate-400 hover:text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <Plus size={12} /> Add acknowledged risk
+          </button>
+        ) : (
+          <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <div className="flex gap-2">
+              <select
+                value={newRiskType}
+                onChange={(e) => setNewRiskType(e.target.value as RiskType)}
+                className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-indigo-400 focus:outline-none"
+              >
+                {availableRiskTypes.map((rt) => (
+                  <option key={rt} value={rt}>{RISK_LABELS[rt]}</option>
+                ))}
+              </select>
+              <button onClick={() => setAddingRisk(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={14} />
+              </button>
+            </div>
+            <textarea
+              rows={2}
+              placeholder="Founder note (optional)"
+              value={newRiskNote}
+              onChange={(e) => setNewRiskNote(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:border-indigo-400 focus:outline-none resize-none"
+            />
+            {addRiskMutation.isError && (
+              <p className="text-[10px] text-red-500">{(addRiskMutation.error as Error).message}</p>
+            )}
+            <button
+              onClick={() => addRiskMutation.mutate({
+                risk_type: newRiskType,
+                founder_note: newRiskNote.trim() || undefined,
+              })}
+              disabled={addRiskMutation.isPending}
+              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+            >
+              {addRiskMutation.isPending ? "Saving…" : "Acknowledge"}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── 3. Pending interventions ───────────────────────────────────── */}

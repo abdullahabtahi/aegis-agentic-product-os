@@ -11,11 +11,13 @@
  * Language here is neutral — "Governor blocked" not "Aegis failed."
  */
 
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useInterventionInbox } from "@/hooks/useInterventionInbox";
 import { useWorkspaceId } from "@/hooks/useWorkspaceId";
-import { ACTION_LABELS } from "@/lib/constants";
-import type { Intervention } from "@/lib/types";
-import { ShieldOff, RefreshCw } from "lucide-react";
+import { ACTION_LABELS, RISK_LABELS } from "@/lib/constants";
+import { getSuppressionRules, deleteSuppressionRule } from "@/lib/api";
+import type { Intervention, SuppressionRule } from "@/lib/types";
+import { ShieldOff, RefreshCw, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const DENIAL_REASON_LABELS: Record<string, string> = {
@@ -32,7 +34,20 @@ const DENIAL_REASON_LABELS: Record<string, string> = {
 
 export default function SuppressionPage() {
   const workspaceId = useWorkspaceId();
+  const queryClient = useQueryClient();
   const { pending, resolved, loading, refresh } = useInterventionInbox(workspaceId);
+
+  const { data: suppressionRules = [] } = useQuery({
+    queryKey: ["suppression-rules", workspaceId],
+    queryFn: () => getSuppressionRules(workspaceId),
+    staleTime: 30_000,
+    enabled: workspaceId !== "default_workspace",
+  });
+
+  const deleteRule = useMutation({
+    mutationFn: (ruleId: string) => deleteSuppressionRule(ruleId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["suppression-rules", workspaceId] }),
+  });
 
   const suppressed = [...pending, ...resolved].filter(
     (i) =>
@@ -60,7 +75,38 @@ export default function SuppressionPage() {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-6">
+
+          {/* ── Auto-suppressed patterns section ──────────────────────── */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="w-3.5 h-3.5 text-white/30" />
+              <span className="text-[10px] font-semibold text-white/40 tracking-wide uppercase">
+                Auto-suppressed patterns
+              </span>
+            </div>
+            {suppressionRules.length === 0 ? (
+              <p className="text-[11px] text-white/20 pl-1">
+                No auto-suppressions active — Aegis will propose interventions freely.
+              </p>
+            ) : (
+              <div className="space-y-1">
+                {suppressionRules.map((rule) => (
+                  <SuppressionRuleRow
+                    key={rule.id}
+                    rule={rule}
+                    onUnsuppress={() => deleteRule.mutate(rule.id)}
+                    isPending={deleteRule.isPending && deleteRule.variables === rule.id}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── Separator ──────────────────────────────────────────────── */}
+          <div className="border-t border-white/8" />
+
+          {/* ── Governor-blocked interventions section ─────────────────── */}
           {suppressed.length === 0 && !loading && (
             <div className="text-center py-16 space-y-2">
               <ShieldOff className="w-8 h-8 text-white/10 mx-auto" />
@@ -86,6 +132,51 @@ export default function SuppressionPage() {
           )}
         </div>
       </div>
+  );
+}
+
+function SuppressionRuleRow({
+  rule,
+  onUnsuppress,
+  isPending,
+}: {
+  rule: SuppressionRule;
+  onUnsuppress: () => void;
+  isPending: boolean;
+}) {
+  return (
+    <div className="flex items-start gap-3 py-2.5 px-3 rounded-lg border border-white/5 bg-white/2 hover:bg-white/4 transition-colors">
+      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400/40 mt-0.5 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[12px] font-medium text-white/60">
+            {RISK_LABELS[rule.risk_type]}
+          </span>
+          <span className="text-[10px] text-white/30">·</span>
+          <span className="text-[10px] text-white/40">{ACTION_LABELS[rule.action_type]}</span>
+        </div>
+        <p className="text-[10px] text-white/30 mt-0.5">{rule.rejection_reason.replace(/_/g, " ")}</p>
+        <div className="flex items-center gap-3 mt-0.5">
+          <span className="text-[9px] text-white/15 font-mono">
+            Since {new Date(rule.suppressed_at).toLocaleDateString()}
+          </span>
+          {rule.suppressed_until ? (
+            <span className="text-[9px] text-white/15 font-mono">
+              Until {new Date(rule.suppressed_until).toLocaleDateString()}
+            </span>
+          ) : (
+            <span className="text-[9px] text-white/15 font-mono">Permanent</span>
+          )}
+        </div>
+      </div>
+      <button
+        onClick={onUnsuppress}
+        disabled={isPending}
+        className="shrink-0 rounded-md px-2 py-1 text-[10px] font-medium text-amber-400/70 hover:text-amber-300 hover:bg-white/5 disabled:opacity-40 transition-colors"
+      >
+        {isPending ? "…" : "Unsuppress"}
+      </button>
+    </div>
   );
 }
 

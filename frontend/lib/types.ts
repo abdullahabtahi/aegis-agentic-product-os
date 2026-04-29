@@ -66,7 +66,7 @@ export interface DeclarationSource {
   raw_artifact_refs?: string[];
 }
 
-export type BetStatus = "detecting" | "active" | "paused" | "validated" | "killed";
+export type BetStatus = "detecting" | "active" | "paused" | "validated" | "killed" | "archived";
 
 export interface Bet {
   id: string;
@@ -86,14 +86,14 @@ export interface Bet {
   linear_issue_ids: string[];
   doc_refs: string[];
   created_at: string;
-  last_monitored_at: string | null;
+  last_monitored_at: string | null;  // null until first scan — never set on declaration
   completed_at?: string | null;
 }
 
 export interface AcknowledgedRisk {
   risk_type: RiskType;
   acknowledged_at: string;
-  note?: string;
+  founder_note?: string;
 }
 
 export interface EvidenceIssue {
@@ -101,6 +101,23 @@ export interface EvidenceIssue {
   title: string;
   status: string;
   url: string;
+}
+
+export interface BetSnapshot {
+  id: string;
+  bet_id: string;
+  captured_at: string;
+  period_start: string;
+  period_end: string;
+  health_score: number;
+  risk_types_present: RiskType[];
+  status: "ok" | "error";
+  error_code?: string | null;
+  hypothesis_staleness_days: number | null;
+  hypothesis_experiment_count: number;
+  last_experiment_outcome: string | null;
+  similar_bet_outcome_pct: number | null;
+  outcome_pattern_source_count: number;
 }
 
 export interface ProductPrincipleRef {
@@ -138,7 +155,7 @@ export interface Intervention {
   proposed_comment?: string;
   proposed_issue_title?: string;
   proposed_issue_description?: string;
-  blast_radius?: BlastRadius;
+  blast_radius?: BlastRadiusPreview;
   created_at: string;
   resolved_at?: string;
   denial_reason?: string;
@@ -147,7 +164,7 @@ export interface Intervention {
 // Mirrors data-schema.ts BlastRadiusPreview and models/schema.py BlastRadiusPreview.
 // No "summary" field exists in the backend — removed. Blast radius details
 // are surfaced via affected_assignee_ids/project_ids in the approval card.
-export interface BlastRadius {
+export interface BlastRadiusPreview {
   affected_issue_count: number;
   affected_assignee_ids: string[];
   affected_project_ids: string[];
@@ -219,13 +236,39 @@ export interface ArtifactEntry {
 // AG-UI PIPELINE STATE (synced via CopilotKit)
 // ─────────────────────────────────────────────
 
+export interface CynicAssessment {
+  risk_type: string;
+  severity: string;
+  confidence: number;
+  evidence_summary: string;
+  key_concerns: string;
+  perspective: "cynic";
+}
+
+export interface OptimistAssessment {
+  risk_type: string;
+  confidence: number;
+  mitigating_factors: string;
+  adjusted_severity: string;
+  perspective: "optimist";
+}
+
+export interface PolicyCheck {
+  check_name: string;
+  passed: boolean;
+  reason?: string | null;
+}
+
 /** AG-UI pipeline state synced from backend via CopilotKit */
 export interface AegisPipelineState {
   bet?: Bet;
   workspace_id?: string;
   linear_signals?: Record<string, unknown>;
-  bet_snapshot?: Record<string, unknown>;
+  bet_snapshot?: BetSnapshot;
   risk_signal_draft?: string;
+  cynic_assessment?: CynicAssessment;
+  optimist_assessment?: OptimistAssessment;
+  policy_checks?: PolicyCheck[];
   intervention_proposal?: {
     action_type: ActionType;
     escalation_level: EscalationLevel;
@@ -259,4 +302,15 @@ export interface DiscoverBetsResponse {
   created: Bet[];
   skipped_duplicates: number;
   write_errors?: number;
+}
+
+export interface SuppressionRule {
+  id: string;
+  workspace_id: string;
+  risk_type: RiskType;
+  action_type: ActionType;
+  rejection_reason: string;
+  suppressed_at: string;
+  suppressed_until: string | null;
+  created_at: string;
 }

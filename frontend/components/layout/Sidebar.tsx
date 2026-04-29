@@ -9,7 +9,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Home, Radar, Target, Bell, Activity, History } from "lucide-react";
+import { Home, MessageSquare, Radar, Target, Bell, Activity, History } from "lucide-react";
 import { useWorkspaceId } from "@/hooks/useWorkspaceId";
 import { getInterventions } from "@/lib/api";
 
@@ -20,6 +20,7 @@ interface SidebarProps {
 
 const NAV_ITEMS = [
   { href: "/workspace", icon: Home, label: "Home" },
+  { href: "/workspace/chat", icon: MessageSquare, label: "Chat" },
   { href: "/workspace/mission-control", icon: Radar, label: "Mission Control" },
   { href: "/workspace/directions", icon: Target, label: "Directions" },
   { href: "/workspace/inbox", icon: Bell, label: "Inbox" },

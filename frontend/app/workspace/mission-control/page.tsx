@@ -1,36 +1,20 @@
 "use client";
 
-/**
- * Mission Control — Aegis pipeline dashboard.
- *
- * Layout (matches Stitch design):
- * ┌─────────────────────────────────────────────┐
- * │  Header bar (in GlassmorphicLayout)          │
- * ├─────────────────────────────────────────────┤
- * │  Pipeline Stages Row (5 cols)               │
- * ├──────────────────────┬──────────────────────┤
- * │  Active Bets (8 col) │ Interventions (4 col)│
- * │  Execution Health    │ Recent Actions       │
- * └──────────────────────┴──────────────────────┘
- *
- * Data:
- * - Bets: live from GET /bets (gracefully falls back to empty when DB not configured)
- * - Interventions: live from GET /interventions
- * - Pipeline stages: live from AG-UI STATE_DELTA via useAgentStateSync
- * - Recent Actions: derived from resolved interventions
- * - Execution Health chart: static sample (live metrics endpoint planned for Phase 6)
- */
-
 import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import {
-  Network, Brain, GitBranch, Gavel, Terminal,
-  AlertTriangle, CheckCircle2, ArrowRight, Zap, Loader2
-} from "lucide-react";
+import { ArrowRight, CheckCircle2, AlertTriangle, X } from "lucide-react";
 import { getInterventions, approveIntervention, rejectIntervention, listBets, discoverBets } from "@/lib/api";
 import { useAgentStateSync } from "@/hooks/useAgentStateSync";
 import { useWorkspaceId } from "@/hooks/useWorkspaceId";
-import type { PipelineStage, PipelineStageName } from "@/lib/types";
+
+import { KpiStatsBar } from "@/components/mission-control/KpiStatsBar";
+import { PipelineFlowRow } from "@/components/mission-control/PipelineFlowRow";
+import { ScanButton } from "@/components/mission-control/ScanButton";
+import { ExecutionHealthChart } from "@/components/mission-control/ExecutionHealthChart";
+import { InterventionCard } from "@/components/mission-control/InterventionCard";
+import { GovernorBreakdownPanel } from "@/components/mission-control/GovernorBreakdownPanel";
+import { FirstRunGuide } from "@/components/mission-control/FirstRunGuide";
 
 /** Lightweight relative time formatter — no external dependency. */
 function timeAgo(iso: string): string {
@@ -43,130 +27,48 @@ function timeAgo(iso: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-// ─── Live stage display derivation ───────────────────────────────────────────
-
-/** Maps a live PipelineStage status to display tokens. */
-function getLiveDisplay(
-  stageName: PipelineStageName,
-  liveStages: PipelineStage[] | undefined,
-): { statusLabel: string; statusClass: string; dotClass: string } | null {
-  if (!liveStages?.length) return null;
-  const stage = liveStages.find((s) => s.name === stageName);
-  if (!stage) return null;
-
-  switch (stage.status) {
-    case "running":
-      return {
-        statusLabel: "RUNNING",
-        statusClass: "text-indigo-600 bg-indigo-600/10",
-        dotClass: "bg-indigo-500 animate-pulse",
-      };
-    case "complete":
-      return {
-        statusLabel: "COMPLETE",
-        statusClass: "text-emerald-600 bg-emerald-500/10",
-        dotClass: "bg-emerald-500",
-      };
-    case "error":
-      return {
-        statusLabel: "ERROR",
-        statusClass: "text-red-600 bg-red-500/10",
-        dotClass: "bg-red-500",
-      };
-    case "pending":
-    default:
-      return {
-        statusLabel: "IDLE",
-        statusClass: "text-slate-500 bg-slate-200/50",
-        dotClass: "bg-slate-300",
-      };
-  }
-}
-
-// ─── Pipeline stage config ───────────────────────────────────────────────────
-
-const PIPELINE_STAGES = [
-  {
-    num: "01",
-    stageName: "signal_engine" as const,
-    label: "Signal Engine",
-    icon: Network,
-    statusLabel: "IDLE",
-    statusClass: "text-slate-500 bg-slate-200/50",
-    dotClass: "bg-slate-300",
-  },
-  {
-    num: "02",
-    stageName: "product_brain" as const,
-    label: "Product Brain",
-    icon: Brain,
-    statusLabel: "IDLE",
-    statusClass: "text-slate-500 bg-slate-200/50",
-    dotClass: "bg-slate-300",
-  },
-  {
-    num: "03",
-    stageName: "coordinator" as const,
-    label: "Coordinator",
-    icon: GitBranch,
-    statusLabel: "IDLE",
-    statusClass: "text-slate-500 bg-slate-200/50",
-    dotClass: "bg-slate-300",
-  },
-  {
-    num: "04",
-    stageName: "governor" as const,
-    label: "Governor",
-    icon: Gavel,
-    statusLabel: "IDLE",
-    statusClass: "text-slate-500 bg-slate-200/50",
-    dotClass: "bg-slate-300",
-  },
-  {
-    num: "05",
-    stageName: "executor" as const,
-    label: "Executor",
-    icon: Terminal,
-    statusLabel: "IDLE",
-    statusClass: "text-slate-500 bg-slate-200/50",
-    dotClass: "bg-slate-300",
-  },
-];
-
-// ─── Bar chart data ───────────────────────────────────────────────────────────
-
-const CHART_BARS = [40, 60, 55, 85, 95, 70, 80, 65, 98, 75, 45, 88];
-const CHART_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
 export default function MissionControlPage() {
   const workspaceId = useWorkspaceId();
   const { state: pipelineState } = useAgentStateSync();
   const queryClient = useQueryClient();
+  const [toastVisible, setToastVisible] = useState(false);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const enabled = workspaceId !== "default_workspace";
 
   const { data: interventions = [], isLoading: loadingInterventions } = useQuery({
     queryKey: ["interventions", workspaceId],
     queryFn: () => getInterventions(workspaceId),
     staleTime: 15_000,
-    enabled: workspaceId !== "default_workspace",
+    enabled,
   });
 
-  // Live bets from /bets API (gracefully empty when DB not configured)
   const { data: liveBets = [], isLoading: loadingBets } = useQuery({
     queryKey: ["bets", workspaceId],
     queryFn: () => listBets(workspaceId, "active"),
     staleTime: 10_000,
     refetchOnWindowFocus: false,
-    enabled: workspaceId !== "default_workspace",
+    enabled,
   });
 
   const scanMutation = useMutation({
     mutationFn: () => discoverBets(workspaceId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bets", workspaceId] }),
+    onError: () => {
+      setToastVisible(true);
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      toastTimerRef.current = setTimeout(() => {
+        setToastVisible(false);
+        scanMutation.reset();
+      }, 8_000);
+    },
   });
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
   const lastScan = liveBets.reduce<string | null>((latest, b) => {
     if (!b.last_monitored_at) return latest;
@@ -185,62 +87,46 @@ export default function MissionControlPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["interventions", workspaceId] }),
   });
 
-  return (
-    <div className="flex flex-col gap-6 pb-4">
+  const denialReason = pipelineState?.governor_decision?.denial_reason ?? null;
 
-      {/* ── Pipeline Stage Cards ──────────────────────────────────────────── */}
-      {/* Live: pipelineState.stages from useAgentStateSync (AG-UI StateDeltaEvent).
-          Falls back to static PIPELINE_STAGES display when pipeline is idle. */}
-      <div className="flex items-center justify-between mb-1">
-        <div>
+  function handleRetry() {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToastVisible(false);
+    scanMutation.reset();
+    scanMutation.mutate();
+  }
+
+  function handleDismissToast() {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToastVisible(false);
+    scanMutation.reset();
+  }
+
+  return (
+    <div className="flex flex-col gap-5 pb-4">
+
+      {/* ── KPI Stats Bar ──────────────────────────────────────────────────── */}
+      <KpiStatsBar
+        bets={liveBets}
+        interventions={interventions}
+        lastScan={lastScan}
+        loading={loadingBets || loadingInterventions}
+        timeAgo={timeAgo}
+      />
+
+      {/* ── Pipeline Flow Row + Scan CTA ──────────────────────────────────── */}
+      <div className="glass-panel rounded-2xl p-4">
+        <div className="flex items-center justify-between mb-3">
           <span className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Pipeline Stages</span>
-          <p className="text-[10px] text-slate-400 mt-0.5">
-            Last scan:{" "}
-            {loadingBets
-              ? "—"
-              : lastScan
-              ? timeAgo(lastScan)
-              : "Never"}
-          </p>
+          <ScanButton
+            onClick={() => scanMutation.mutate()}
+            isPending={scanMutation.isPending}
+            disabled={scanMutation.isPending || !enabled}
+            workspaceFallback={!enabled}
+          />
         </div>
-        <button
-          onClick={() => scanMutation.mutate()}
-          disabled={scanMutation.isPending || workspaceId === "default_workspace"}
-          className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {scanMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
-          Scan all
-        </button>
+        <PipelineFlowRow stages={pipelineState?.stages} />
       </div>
-      <section className="grid grid-cols-5 gap-3">
-        {PIPELINE_STAGES.map((stage) => {
-          const Icon = stage.icon;
-          const live = getLiveDisplay(stage.stageName, pipelineState?.stages);
-          const statusLabel = live?.statusLabel ?? stage.statusLabel;
-          const statusClass = live?.statusClass ?? stage.statusClass;
-          const dotClass = live?.dotClass ?? stage.dotClass;
-          return (
-            <div
-              key={stage.num}
-              className="glass-panel flex flex-col items-center gap-2 rounded-2xl p-4 text-center"
-            >
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/50 shadow-sm">
-                <Icon size={20} className="text-[#112478]" strokeWidth={1.5} />
-              </div>
-              <div>
-                <p className="mb-0.5 text-[10px] font-medium uppercase tracking-widest text-slate-400">
-                  Stage {stage.num}
-                </p>
-                <h3 className="font-heading text-sm font-semibold text-[#1a1c1d]">{stage.label}</h3>
-              </div>
-              <div className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[10px] font-bold ${statusClass}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
-                {statusLabel}
-              </div>
-            </div>
-          );
-        })}
-      </section>
 
       {/* ── Main Grid: Bets + Interventions / Health + Actions ───────────── */}
       <div className="grid grid-cols-12 gap-5">
@@ -248,7 +134,7 @@ export default function MissionControlPage() {
         {/* Left: Bets + Health (8 cols) */}
         <div className="col-span-8 flex flex-col gap-4">
 
-          {/* Active Strategic Bets — live from /bets API */}
+          {/* Active Strategic Directions */}
           <div className="glass-panel rounded-2xl p-6">
             <div className="mb-5 flex items-center justify-between">
               <div>
@@ -261,13 +147,9 @@ export default function MissionControlPage() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               {loadingBets ? (
-                <div className="col-span-2 py-8 text-center text-xs text-muted-foreground">Loading bets...</div>
+                <div className="col-span-2 py-8 text-center text-xs text-muted-foreground">Loading directions...</div>
               ) : liveBets.length === 0 ? (
-                <div className="col-span-2 flex flex-col items-center gap-2 py-8 text-center">
-                  <Zap size={24} className="text-indigo-300" />
-                  <p className="text-sm font-medium text-foreground/60">No active directions yet</p>
-                  <p className="text-xs text-muted-foreground">Declare a direction from the home page to get started.</p>
-                </div>
+                <FirstRunGuide />
               ) : (
                 liveBets.map((bet) => {
                   const name = String(bet.name ?? "Untitled Bet");
@@ -281,9 +163,9 @@ export default function MissionControlPage() {
                     >
                       <div className="mb-4 flex items-start justify-between">
                         <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-900/80">
-                          <Zap size={20} className="text-white" />
+                          <span className="text-white text-lg font-bold">{name.charAt(0).toUpperCase()}</span>
                         </div>
-                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
                           ACTIVE
                         </span>
                       </div>
@@ -291,7 +173,7 @@ export default function MissionControlPage() {
                       <p className="mt-1 text-xs leading-relaxed text-muted-foreground line-clamp-2">{desc}</p>
                       {segment && (
                         <div className="mt-3">
-                          <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                          <span className="rounded bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
                             {segment}
                           </span>
                         </div>
@@ -304,43 +186,13 @@ export default function MissionControlPage() {
           </div>
 
           {/* Execution Health Chart */}
-          <div className="glass-panel rounded-2xl p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <div>
-                <h2 className="font-heading text-base font-semibold text-[#1a1c1d]">Execution Health</h2>
-                <p className="text-[10px] text-muted-foreground">Live when DB + Linear connected</p>
-              </div>
-              <div className="flex gap-3 text-[10px] text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full bg-[#112478]" /> Volume
-                </span>
-                <span className="flex items-center gap-1">
-                  <span className="h-2 w-2 rounded-full bg-indigo-300" /> Success Rate
-                </span>
-              </div>
-            </div>
-            <div className="flex items-end justify-between gap-1 pt-1" style={{ height: "72px" }}>
-              {CHART_BARS.map((h, i) => (
-                <div
-                  key={i}
-                  className="w-full rounded-t transition-all"
-                  style={{
-                    height: `${h}%`,
-                    background: `rgba(17, 36, 120, ${0.12 + (h / 100) * 0.55})`,
-                  }}
-                />
-              ))}
-            </div>
-            <div className="mt-2 flex justify-between text-[10px] font-medium text-muted-foreground">
-              {CHART_DAYS.map((d) => <span key={d}>{d}</span>)}
-            </div>
-          </div>
+          <ExecutionHealthChart interventions={interventions} />
         </div>
 
         {/* Right: Interventions + Recent Actions (4 cols) */}
         <div className="col-span-4 flex flex-col gap-4">
 
-          {/* Interventions Panel — primary CTA when blocking items exist */}
+          {/* Interventions Panel */}
           <div className={`glass-panel rounded-2xl p-5 transition-all ${pendingInterventions.length > 0 ? "ring-1 ring-red-400/30" : ""}`}>
             <div className="mb-4 flex items-center justify-between">
               <h3 className="flex items-center gap-2 font-heading text-sm font-semibold text-[#1a1c1d]">
@@ -348,11 +200,19 @@ export default function MissionControlPage() {
                 Interventions
               </h3>
               {pendingInterventions.length > 0 && (
-                <span className="rounded-full bg-red-500 px-2 py-0.5 text-[10px] font-bold text-white">
+                <span className="rounded-full bg-red-500 px-2 py-0.5 text-[11px] font-bold text-white">
                   {pendingInterventions.length} PENDING
                 </span>
               )}
             </div>
+
+            {/* Governor Policy Breakdown — shown when pending + denial reason present */}
+            {pendingInterventions.length > 0 && (
+              <GovernorBreakdownPanel
+                denialReason={denialReason}
+                denialDetails={undefined}
+              />
+            )}
 
             <div className="flex flex-col gap-3">
               {loadingInterventions ? (
@@ -364,50 +224,22 @@ export default function MissionControlPage() {
                 </div>
               ) : (
                 pendingInterventions.map((intervention) => (
-                  <div
+                  <InterventionCard
                     key={intervention.id}
-                    className="rounded-xl border border-red-200/40 bg-white/60 p-4 transition-all hover:border-red-300/50"
-                  >
-                    <div className="flex gap-3">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100 text-red-600">
-                        <AlertTriangle size={14} />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold text-[#1a1c1d] capitalize">
-                          {intervention.action_type?.replace(/_/g, " ") ?? "Intervention"}
-                        </p>
-                        <p className="mt-1 text-xs leading-relaxed text-muted-foreground line-clamp-2">
-                          {intervention.rationale ?? "Awaiting founder approval."}
-                        </p>
-                        <div className="mt-2.5 flex gap-2">
-                          <button
-                            onClick={() => approveMutation.mutate(intervention.id)}
-                            disabled={approveMutation.isPending || rejectMutation.isPending}
-                            className="rounded-lg bg-[#112478] px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-80 disabled:opacity-50"
-                          >
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => rejectMutation.mutate(intervention.id)}
-                            disabled={approveMutation.isPending || rejectMutation.isPending}
-                            className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200 disabled:opacity-50"
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                    intervention={intervention}
+                    onApprove={(id) => approveMutation.mutate(id)}
+                    onReject={(id) => rejectMutation.mutate(id)}
+                    isPending={approveMutation.isPending || rejectMutation.isPending}
+                  />
                 ))
               )}
             </div>
           </div>
 
-          {/* Recent Actions — live from resolved interventions */}
+          {/* Recent Actions */}
           <div className="glass-panel flex flex-1 flex-col rounded-2xl p-5">
             <h3 className="mb-4 font-heading text-sm font-semibold text-[#1a1c1d]">Recent Actions</h3>
             <div className="relative flex flex-col gap-4 max-h-[180px] overflow-y-auto pr-1">
-              {/* Timeline line */}
               <div className="absolute bottom-2 left-[11px] top-2 w-px bg-slate-200" />
 
               {interventions.filter((i) => i.status !== "pending").length === 0 ? (
@@ -429,7 +261,7 @@ export default function MissionControlPage() {
                         >
                           <div className={`h-1.5 w-1.5 rounded-full ${isPrimary ? "bg-[#112478]" : "bg-slate-300"}`} />
                         </div>
-                        <p className="text-[10px] font-medium uppercase tracking-tight text-muted-foreground">
+                        <p className="text-[11px] font-medium uppercase tracking-tight text-muted-foreground">
                           {({ accepted: "APPROVED", rejected: "REJECTED", dismissed: "DISMISSED" } as Record<string, string>)[action.status] ?? action.status.toUpperCase()} — {(action.action_type ?? "INTERVENTION").replace(/_/g, " ").toUpperCase()}
                         </p>
                         <p className="mt-0.5 text-xs text-[#1a1c1d] line-clamp-2">
@@ -443,6 +275,29 @@ export default function MissionControlPage() {
           </div>
         </div>
       </div>
+
+      {/* ── Error Toast ──────────────────────────────────────────────────────── */}
+      {toastVisible && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-xl bg-red-50 border border-red-200 px-4 py-3 shadow-lg">
+          <p className="text-sm text-red-700">
+            <span className="font-semibold">Pipeline scan failed</span>
+            <span className="text-muted-foreground"> — try again.</span>
+          </p>
+          <button
+            onClick={handleRetry}
+            className="rounded-lg bg-red-600 px-3 py-1 text-xs font-semibold text-white hover:bg-red-700 transition-colors"
+          >
+            Retry
+          </button>
+          <button
+            onClick={handleDismissToast}
+            className="text-red-400 hover:text-red-600 transition-colors"
+            aria-label="Dismiss"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

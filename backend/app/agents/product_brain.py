@@ -226,9 +226,9 @@ _PB_SKIP_CHECKPOINTS = frozenset(
         "product_brain_complete",
         "coordinator_complete",
         "governor_complete",
-        "awaiting_founder_approval",
-        "founder_approved",
-        "founder_rejected",
+        "awaiting_approval",
+        "approved",
+        "rejected",
         "executor_complete",
     }
 )
@@ -539,6 +539,12 @@ def create_product_brain_debate() -> SequentialAgent:
                 generate_content_config=types.GenerateContentConfig(
                     temperature=0.0,
                     max_output_tokens=1024,
+                    tool_config=types.ToolConfig(
+                        function_calling_config=types.FunctionCallingConfig(
+                            mode="ANY",
+                            allowed_function_names=["emit_cynic_assessment"],
+                        )
+                    ),
                 ),
             ),
             Agent(
@@ -550,6 +556,12 @@ def create_product_brain_debate() -> SequentialAgent:
                 generate_content_config=types.GenerateContentConfig(
                     temperature=0.0,
                     max_output_tokens=1024,
+                    tool_config=types.ToolConfig(
+                        function_calling_config=types.FunctionCallingConfig(
+                            mode="ANY",
+                            allowed_function_names=["emit_optimist_assessment"],
+                        )
+                    ),
                 ),
             ),
             Agent(

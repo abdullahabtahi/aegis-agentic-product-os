@@ -287,9 +287,16 @@ class RealLinearMCP:
             )
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
-        issue_filter: dict[str, Any] = {"updatedAt": {"gte": cutoff}}
+        # When scanning a specific bet's projects, bound by updatedAt (14-day invariant).
+        # When discovering workspace issues (no project_ids), omit the date filter so
+        # Backlog / stale issues are visible for workspace-wide risk assessment.
         if project_ids:
-            issue_filter["project"] = {"id": {"in": project_ids}}
+            issue_filter: dict[str, Any] = {
+                "updatedAt": {"gte": cutoff},
+                "project": {"id": {"in": project_ids}},
+            }
+        else:
+            issue_filter = {}
         if team_id:
             issue_filter["team"] = {"id": {"eq": team_id}}
 

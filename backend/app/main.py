@@ -379,6 +379,34 @@ async def get_workspace_endpoint(workspace_id: str):
     return {"id": ws["id"], "control_level": ws.get("control_level", "draft_only")}
 
 
+_VALID_CONTROL_LEVELS = frozenset(
+    {"draft_only", "require_approval", "autonomous_low_risk"}
+)
+
+
+class WorkspaceUpdateBody(BaseModel):
+    control_level: str
+
+
+@app.patch("/workspace/{workspace_id}")
+async def update_workspace_endpoint(workspace_id: str, body: WorkspaceUpdateBody):
+    """Update control_level for a workspace."""
+    if body.control_level not in _VALID_CONTROL_LEVELS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"control_level must be one of: "
+                f"{', '.join(sorted(_VALID_CONTROL_LEVELS))}"
+            ),
+        )
+    from db.repository import update_workspace_control_level
+
+    if not is_db_configured():
+        return {"id": workspace_id, "control_level": body.control_level}
+    await update_workspace_control_level(workspace_id, body.control_level)
+    return {"id": workspace_id, "control_level": body.control_level}
+
+
 @app.get("/bets")
 async def list_bets_endpoint(
     workspace_id: str = Query(...),
@@ -410,6 +438,163 @@ async def get_bet_endpoint(bet_id: str):
     if not bet:
         raise HTTPException(status_code=404, detail=f"Bet {bet_id} not found")
     return bet
+
+
+# ─────────────────────────────────────────────
+# BET MUTATIONS (edit, archive, acknowledged risks)
+# ─────────────────────────────────────────────
+
+
+class BetUpdateBody(BaseModel):
+    """All fields are optional — only provided fields are updated."""
+
+    name: str | None = None
+    target_segment: str | None = None
+    problem_statement: str | None = None
+    hypothesis: str | None = None
+    success_metrics: list[dict] | None = None
+    time_horizon: str | None = None
+    linear_project_ids: list[str] | None = None
+
+
+@app.patch("/bets/{bet_id}")
+async def update_bet_endpoint(bet_id: str, body: BetUpdateBody):
+    """Edit mutable fields on an existing bet."""
+    from db.repository import get_bet, update_bet
+
+    fields = body.model_dump(exclude_none=True)
+    if not fields:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    if not is_db_configured():
+        bet = next((b for b in _inmemory_bets if b["id"] == bet_id), None)
+        if not bet:
+            raise HTTPException(status_code=404, detail="Bet not found")
+        idx = next(i for i, b in enumerate(_inmemory_bets) if b["id"] == bet_id)
+        _inmemory_bets[idx] = {**bet, **fields}
+        return _inmemory_bets[idx]
+
+    ok = await update_bet(bet_id, fields)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Bet {bet_id} not found")
+    return await get_bet(bet_id)
+
+
+@app.post("/bets/{bet_id}/archive")
+async def archive_bet_endpoint(bet_id: str):
+    """Soft-delete a bet: sets status='archived' and removes it from the workspace
+    active_bet_ids array.
+    """
+    from datetime import datetime, timezone
+
+    from db.repository import archive_bet
+
+    if not is_db_configured():
+        bet = next((b for b in _inmemory_bets if b["id"] == bet_id), None)
+        if not bet:
+            raise HTTPException(status_code=404, detail="Bet not found")
+        now_iso = datetime.now(timezone.utc).isoformat()
+        idx = next(i for i, b in enumerate(_inmemory_bets) if b["id"] == bet_id)
+        _inmemory_bets[idx] = {**bet, "status": "archived", "completed_at": now_iso}
+        return {"bet_id": bet_id, "status": "archived"}
+
+    ok = await archive_bet(bet_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Bet {bet_id} not found")
+
+    # Remove from workspace.active_bet_ids
+    try:
+        async with get_session() as session:
+            await session.execute(
+                text("""
+                    UPDATE workspaces
+                    SET active_bet_ids = array_remove(active_bet_ids, :bet_id)
+                    WHERE id = (SELECT workspace_id FROM bets WHERE id = :bet_id)
+                """),
+                {"bet_id": bet_id},
+            )
+    except Exception as exc:
+        logger.warning(
+            "Failed to remove bet %s from workspace active_bet_ids: %s", bet_id, exc
+        )
+
+    return {"bet_id": bet_id, "status": "archived"}
+
+
+class AcknowledgedRiskBody(BaseModel):
+    risk_type: str
+    founder_note: str | None = None
+
+
+@app.post("/bets/{bet_id}/acknowledged-risks")
+async def upsert_acknowledged_risk(bet_id: str, body: AcknowledgedRiskBody):
+    """Upsert an acknowledged risk entry on a bet.
+    If risk_type already exists the entry is replaced; otherwise appended.
+    """
+    from datetime import datetime, timezone
+
+    from db.repository import get_bet, update_acknowledged_risks
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    new_entry: dict = {
+        "risk_type": body.risk_type,
+        "acknowledged_at": now_iso,
+        "founder_note": body.founder_note,
+    }
+
+    if not is_db_configured():
+        bet = next((b for b in _inmemory_bets if b["id"] == bet_id), None)
+        if not bet:
+            raise HTTPException(status_code=404, detail="Bet not found")
+        current = bet.get("acknowledged_risks") or []
+        updated_risks = [
+            r for r in current if r.get("risk_type") != body.risk_type
+        ] + [new_entry]
+        idx = next(i for i, b in enumerate(_inmemory_bets) if b["id"] == bet_id)
+        _inmemory_bets[idx] = {**bet, "acknowledged_risks": updated_risks}
+        return updated_risks
+
+    bet = await get_bet(bet_id)
+    if not bet:
+        raise HTTPException(status_code=404, detail=f"Bet {bet_id} not found")
+    current = bet.get("acknowledged_risks") or []
+    if not isinstance(current, list):
+        current = []
+    updated_risks = [
+        r for r in current if r.get("risk_type") != body.risk_type
+    ] + [new_entry]
+    ok = await update_acknowledged_risks(bet_id, updated_risks)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Bet {bet_id} not found")
+    return updated_risks
+
+
+@app.delete("/bets/{bet_id}/acknowledged-risks/{risk_type}")
+async def remove_acknowledged_risk(bet_id: str, risk_type: str):
+    """Remove an acknowledged risk entry by risk_type."""
+    from db.repository import get_bet, update_acknowledged_risks
+
+    if not is_db_configured():
+        bet = next((b for b in _inmemory_bets if b["id"] == bet_id), None)
+        if not bet:
+            raise HTTPException(status_code=404, detail="Bet not found")
+        current = bet.get("acknowledged_risks") or []
+        updated_risks = [r for r in current if r.get("risk_type") != risk_type]
+        idx = next(i for i, b in enumerate(_inmemory_bets) if b["id"] == bet_id)
+        _inmemory_bets[idx] = {**bet, "acknowledged_risks": updated_risks}
+        return updated_risks
+
+    bet = await get_bet(bet_id)
+    if not bet:
+        raise HTTPException(status_code=404, detail=f"Bet {bet_id} not found")
+    current = bet.get("acknowledged_risks") or []
+    if not isinstance(current, list):
+        current = []
+    updated_risks = [r for r in current if r.get("risk_type") != risk_type]
+    ok = await update_acknowledged_risks(bet_id, updated_risks)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Bet {bet_id} not found")
+    return updated_risks
 
 
 # ─────────────────────────────────────────────
@@ -546,6 +731,40 @@ async def reject_intervention_endpoint(
             detail=f"Intervention {intervention_id} not found or DB error",
         )
     return {"status": "rejected", "intervention_id": intervention_id}
+
+
+# ─────────────────────────────────────────────
+# SUPPRESSION RULES
+# ─────────────────────────────────────────────
+
+
+@app.get("/suppression-rules")
+async def list_suppression_rules_endpoint(
+    workspace_id: str = Query(...),
+):
+    """List active suppression rules for a workspace."""
+    if not is_db_configured():
+        return []
+    from db.repository import list_suppression_rules
+
+    return await list_suppression_rules(workspace_id)
+
+
+@app.delete("/suppression-rules/{rule_id}")
+async def delete_suppression_rule_endpoint(rule_id: str):
+    """Remove (unsuppress) a suppression rule by id."""
+    if not is_db_configured():
+        raise HTTPException(
+            status_code=404, detail=f"Suppression rule {rule_id} not found"
+        )
+    from db.repository import delete_suppression_rule
+
+    ok = await delete_suppression_rule(rule_id)
+    if not ok:
+        raise HTTPException(
+            status_code=404, detail=f"Suppression rule {rule_id} not found"
+        )
+    return {"deleted": rule_id}
 
 
 # ─────────────────────────────────────────────

@@ -31,12 +31,12 @@ export function GlassmorphicLayout({ children }: GlassmorphicLayoutProps) {
   }, []);
 
   const handleSessionSelect = useCallback((sessionId: string) => {
-    router.push(`/workspace?session=${sessionId}`);
+    router.push(`/workspace/chat?session=${sessionId}`);
     setSessionDrawerOpen(false);
   }, [router]);
 
   const handleNewSession = useCallback(() => {
-    router.push("/workspace");
+    router.push("/workspace/chat");
     setSessionDrawerOpen(false);
   }, [router]);
 

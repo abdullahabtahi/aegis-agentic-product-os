@@ -3,9 +3,9 @@
 import { useCoAgent } from "@copilotkit/react-core";
 import { useCopilotChatInternal } from "@copilotkit/react-core";
 import { randomId } from "@copilotkit/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useWorkspaceId } from "@/hooks/useWorkspaceId";
-import { getWorkspace } from "@/lib/api";
+import { getWorkspace, updateWorkspaceControlLevel } from "@/lib/api";
 import type { AegisPipelineState, ControlLevel } from "@/lib/types";
 
 const LEVELS: Array<{
@@ -39,6 +39,7 @@ const LEVELS: Array<{
 
 export default function SettingsPage() {
   const workspaceId = useWorkspaceId();
+  const queryClient = useQueryClient();
   const { state, setState } = useCoAgent<AegisPipelineState>({ name: "aegis" });
   const { sendMessage } = useCopilotChatInternal();
 
@@ -48,6 +49,12 @@ export default function SettingsPage() {
     queryFn: () => getWorkspace(workspaceId),
     staleTime: 60_000,
     enabled: workspaceId !== "default_workspace",
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: ({ level }: { level: ControlLevel }) =>
+      updateWorkspaceControlLevel(workspaceId, level),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workspace", workspaceId] }),
   });
 
   // Prefer AG-UI state (live), fall back to DB value, then default
@@ -60,6 +67,8 @@ export default function SettingsPage() {
     if (level === current) return;
     // Optimistically update AG-UI state so UI reflects immediately
     setState((prev) => ({ ...prev, control_level: level }));
+    // Persist to DB
+    updateMutation.mutate({ level });
     // Trigger adjust_autonomy tool via the agent
     sendMessage({ id: randomId(), role: "user", content: `Set autonomy level to ${level}` });
   }
@@ -75,10 +84,12 @@ export default function SettingsPage() {
         <div className="space-y-3">
           {LEVELS.map((l) => {
             const isActive = current === l.value;
+            const isPending = updateMutation.isPending && updateMutation.variables?.level === l.value;
             return (
               <button
                 key={l.value}
                 onClick={() => handleSelect(l.value)}
+                disabled={updateMutation.isPending}
                 className={[
                   "w-full rounded-xl border p-4 text-left transition-all",
                   isActive
@@ -91,8 +102,11 @@ export default function SettingsPage() {
                     {l.badge}
                   </span>
                   <span className="text-sm font-medium text-foreground/90">{l.label}</span>
-                  {isActive && (
+                  {isActive && !isPending && (
                     <span className="ml-auto text-xs text-indigo-400">Active</span>
+                  )}
+                  {isPending && (
+                    <span className="ml-auto text-xs text-indigo-300 animate-pulse">Saving…</span>
                   )}
                 </div>
                 <p className="mt-2 text-xs leading-relaxed text-foreground/50">
@@ -102,6 +116,11 @@ export default function SettingsPage() {
             );
           })}
         </div>
+        {updateMutation.isError && (
+          <p className="text-xs text-red-400">
+            Failed to save — {(updateMutation.error as Error).message}. Your selection was applied locally but may not persist after a reload.
+          </p>
+        )}
       </div>
   );
 }

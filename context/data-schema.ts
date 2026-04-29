@@ -149,6 +149,14 @@ export interface LinearSignals {
   scope_change_count: number
   read_window_days: number             // always 14 for bounded Signal Engine reads
   placebo_productivity_score?: number  // pct of closed issues in window that are NOT bet-mapped (L/N/O signal)
+  evidence_issues?: EvidenceIssue[]   // top-10 issues supporting the signals (sorted by rollover count)
+}
+
+export interface EvidenceIssue {
+  id: string
+  title: string
+  status: string
+  url: string
 }
 
 export interface Evidence {
@@ -231,7 +239,7 @@ export interface Bet {
   doc_refs: string[]
 
   created_at: string
-  last_monitored_at: string
+  last_monitored_at: string | null    // null until first scan runs; never set to now() on declaration
   completed_at?: string
 }
 
@@ -293,6 +301,7 @@ export interface RiskSignal {
   // Reframed as lost upside, never as threat (see product-principles.md)
   headline: string
   explanation: string
+  evidence_summary?: string           // one-line digest of raw Linear evidence (e.g. "3 issues rolled over 2+ cycles")
   product_principle_refs: string[]    // Lenny/Tigers-Elephants heuristic IDs cited
 
   status: "open" | "actioned" | "resolved" | "dismissed"
@@ -305,6 +314,7 @@ export interface Intervention {
   id: string
   risk_signal_id: string
   bet_id: string
+  workspace_id: string
 
   action_type: ActionType
   escalation_level: EscalationLevel   // 1–4; enforced by Coordinator escalation ladder
@@ -314,6 +324,10 @@ export interface Intervention {
 
   proposed_linear_action?: LinearAction
   blast_radius?: BlastRadiusPreview   // set by Governor for Level 3–4 or Jules actions
+  proposed_comment?: string           // pre-filled comment text for add_comment actions
+  proposed_issue_title?: string       // pre-filled title for create_issue actions
+  proposed_issue_description?: string // pre-filled description for create_issue actions
+  requires_double_confirm?: boolean   // Governor sets true for irreversible or L3+ actions
 
   confidence: number
 

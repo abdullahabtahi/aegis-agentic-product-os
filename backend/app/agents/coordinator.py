@@ -88,9 +88,9 @@ _COORD_SKIP_CHECKPOINTS = frozenset(
     {
         "coordinator_complete",
         "governor_complete",
-        "awaiting_founder_approval",
-        "founder_approved",
-        "founder_rejected",
+        "awaiting_approval",
+        "approved",
+        "rejected",
         "executor_complete",
     }
 )

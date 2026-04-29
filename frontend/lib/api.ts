@@ -4,7 +4,7 @@
  */
 
 import { BACKEND_URL } from "./constants";
-import type { Bet, Intervention, SessionSummary, ArtifactEntry, DiscoverBetsResponse } from "./types";
+import type { Bet, Intervention, SessionSummary, ArtifactEntry, DiscoverBetsResponse, ControlLevel, RiskType, AcknowledgedRisk, SuppressionRule } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BACKEND_URL}${path}`, {
@@ -105,7 +105,7 @@ export function getInterventionsByBet(workspaceId: string, betId: string): Promi
 
 export interface WorkspaceMeta {
   id: string;
-  control_level: string;
+  control_level: ControlLevel;
 }
 
 export function getWorkspace(workspaceId: string): Promise<WorkspaceMeta> {
@@ -137,4 +137,70 @@ export function getSessionMessages(
   return request<SessionMessage[]>(
     `/sessions/${encodeURIComponent(sessionId)}/messages?user_id=${encodeURIComponent(userId)}`,
   );
+}
+
+// ─── Bet mutations ───
+
+export function updateBet(betId: string, body: Partial<BetCreateRequest>): Promise<Bet> {
+  return request<Bet>(`/bets/${encodeURIComponent(betId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+export function archiveBet(betId: string): Promise<{ status: string; bet_id: string }> {
+  return request<{ status: string; bet_id: string }>(`/bets/${encodeURIComponent(betId)}/archive`, {
+    method: "POST",
+  });
+}
+
+// ─── Workspace mutations ───
+
+export function updateWorkspaceControlLevel(
+  workspaceId: string,
+  controlLevel: ControlLevel,
+): Promise<WorkspaceMeta> {
+  return request<WorkspaceMeta>(`/workspace/${encodeURIComponent(workspaceId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ control_level: controlLevel }),
+  });
+}
+
+// ─── Acknowledged risks ───
+
+export interface AcknowledgedRiskRequest {
+  risk_type: RiskType;
+  founder_note?: string;
+}
+
+export function addAcknowledgedRisk(
+  betId: string,
+  body: AcknowledgedRiskRequest,
+): Promise<AcknowledgedRisk[]> {
+  return request<AcknowledgedRisk[]>(`/bets/${encodeURIComponent(betId)}/acknowledged-risks`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function removeAcknowledgedRisk(
+  betId: string,
+  riskType: RiskType,
+): Promise<AcknowledgedRisk[]> {
+  return request<AcknowledgedRisk[]>(
+    `/bets/${encodeURIComponent(betId)}/acknowledged-risks/${encodeURIComponent(riskType)}`,
+    { method: "DELETE" },
+  );
+}
+
+// ─── Suppression rules ───
+
+export function getSuppressionRules(workspaceId: string): Promise<SuppressionRule[]> {
+  return request<SuppressionRule[]>(`/suppression-rules?workspace_id=${encodeURIComponent(workspaceId)}`);
+}
+
+export function deleteSuppressionRule(ruleId: string): Promise<{ deleted: string }> {
+  return request<{ deleted: string }>(`/suppression-rules/${encodeURIComponent(ruleId)}`, {
+    method: "DELETE",
+  });
 }

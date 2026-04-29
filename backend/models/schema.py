@@ -169,7 +169,7 @@ class LinearSignals(BaseModel):
     scope_change_count: int
     read_window_days: int = 14  # always 14 — bounded Signal Engine reads
     placebo_productivity_score: float | None = None
-    evidence_issues: list[EvidenceIssue] = Field(default_factory=list)
+    evidence_issues: list[EvidenceIssue] = Field(default_factory=list)  # top-10 issues for evidence citation
 
     model_config = {"frozen": True}
 
@@ -262,7 +262,7 @@ class Bet(BaseModel):
     linear_issue_ids: list[str] = Field(default_factory=list)
     doc_refs: list[str] = Field(default_factory=list)
     created_at: str
-    last_monitored_at: str
+    last_monitored_at: str | None = None  # null until first scan — never set to now() on declaration
     completed_at: str | None = None
 
     model_config = {"frozen": True}
@@ -315,6 +315,7 @@ class RiskSignal(BaseModel):
     evidence: list[Evidence] = Field(default_factory=list)
     headline: str
     explanation: str
+    evidence_summary: str = ""  # one-line digest of raw Linear evidence shown in UI
     product_principle_refs: list[str] = Field(default_factory=list)
     status: Literal["open", "actioned", "resolved", "dismissed"] = "open"
     detected_by: str
@@ -328,6 +329,7 @@ class Intervention(BaseModel):
     id: str
     risk_signal_id: str
     bet_id: str
+    workspace_id: str = ""  # denormalized for fast workspace-scoped queries
     action_type: ActionType
     escalation_level: EscalationLevel
     title: str
@@ -335,6 +337,10 @@ class Intervention(BaseModel):
     product_principle_refs: list[str] = Field(default_factory=list)
     proposed_linear_action: LinearAction | None = None
     blast_radius: BlastRadiusPreview | None = None
+    proposed_comment: str | None = None
+    proposed_issue_title: str | None = None
+    proposed_issue_description: str | None = None
+    requires_double_confirm: bool = False
     confidence: float
     status: InterventionStatus = "pending"
     decided_at: str | None = None

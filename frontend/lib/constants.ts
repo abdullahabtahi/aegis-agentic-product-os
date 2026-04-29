@@ -55,6 +55,7 @@ export const BET_STATUS_LABELS: Record<BetStatus, string> = {
   paused: "Paused",
   validated: "Validated",
   killed: "Killed",
+  archived: "Archived",
 };
 
 export const BET_STATUS_STYLES: Record<BetStatus, string> = {
@@ -63,6 +64,7 @@ export const BET_STATUS_STYLES: Record<BetStatus, string> = {
   paused: "bg-amber-50 text-amber-700 border-amber-200",
   validated: "bg-sky-50 text-sky-700 border-sky-200",
   killed: "bg-slate-100 text-slate-600 border-slate-200",
+  archived: "rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide border-slate-300 text-slate-400 bg-slate-50",
 };
 
 /** Health score → colour class (for progress bars and indicators) */

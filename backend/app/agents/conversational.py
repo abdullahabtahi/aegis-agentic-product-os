@@ -265,6 +265,8 @@ async def run_pipeline_scan(
             "awaiting_approval_intervention",
             "pending_intervention_id",
             "policy_checks",
+            "cynic_assessment",
+            "optimist_assessment",
         ):
             if key in pipeline_state:
                 tool_context.state[key] = pipeline_state[key]
@@ -273,7 +275,7 @@ async def run_pipeline_scan(
         tool_context.state["pipeline_status"] = final_status
         tool_context.state["current_stage"] = STAGE_NAMES[4]
 
-        if final_status == "awaiting_founder_approval":
+        if final_status == "awaiting_approval":
             # Governor approved — halted for founder review
             tool_context.state["stages"] = _make_stages(
                 4,
@@ -359,16 +361,19 @@ async def query_linear_issues(
     tool_context: ToolContext,
 ) -> dict[str, Any]:
     """
-    Query Linear issues for a workspace.
+    Fetch Linear issues from the user's workspace.
 
-    Use this to show evidence, explore work patterns, or answer questions
-    about what's in Linear.
+    Call this whenever the user asks about their Linear issues, tasks, or projects.
+    Always call this with query="all" to fetch all issues — do NOT pass search
+    operators like "*", "is:all", or Linear syntax. The tool returns up to 20 issues;
+    you reason over the returned list to answer the user's specific question.
 
     Args:
-        query: Search query (e.g., "issues without bet mention")
+        query: Use "all" to fetch all issues. For topic searches pass a plain
+               English description like "voice capture" or "onboarding".
 
     Returns:
-        List of matching issues with titles, status, URLs
+        List of issues with title, status, URL
     """
     api_key = os.environ.get("LINEAR_API_KEY", "").strip()
     if not api_key or os.environ.get("AEGIS_MOCK_LINEAR", "").lower() == "true":
@@ -386,10 +391,12 @@ async def query_linear_issues(
             ],
         }
 
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).isoformat()
     workspace_id = tool_context.state.get("workspace_id")
 
-    issue_filter: dict[str, Any] = {"updatedAt": {"gte": cutoff}}
+    # Conversational query: no date filter — we want ALL issues visible to the user,
+    # regardless of when they were last updated. The 14-day constraint applies only
+    # to the Signal Engine pipeline scan (CLAUDE.md invariant), not UI exploration.
+    issue_filter: dict[str, Any] = {}
 
     # Only filter by Linear project if a bet with real project IDs is active.
     # workspace_id is an Aegis internal ID (e.g. "ws-demo"), NOT a Linear project UUID.
@@ -433,10 +440,10 @@ async def query_linear_issues(
 
     nodes = data["data"]["issues"]["nodes"]
 
-    # Keyword filter when a specific query is provided
-    q = query.lower()
-    if q and q not in ("all", "recent", "latest", "issues"):
-        nodes = [n for n in nodes if q in n["title"].lower()]
+    # No Python-layer keyword filtering — the LLM receives all issues and reasons
+    # semantically over them. Python substring matching breaks on wildcard queries
+    # ("*", "is:all") and natural-language phrases ("last 5 issues"). Let the model
+    # do what it's good at.
 
     return {
         "status": "success",
@@ -629,7 +636,7 @@ async def declare_direction(
         "linear_issue_ids": [],
         "doc_refs": [],
         "created_at": now,
-        "last_monitored_at": now,
+        "last_monitored_at": None,  # null until first real scan — never mislead the health display
     }
 
     persisted = False
@@ -762,7 +769,7 @@ When you take autonomous actions, ALWAYS explain what you did and why. Include a
 **TOOLS AVAILABLE:**
 - declare_direction() → persist a new strategic direction (REQUIRED when user declares one)
 - run_pipeline_scan() → trigger full risk scan on current direction
-- query_linear_issues() → show Linear evidence
+- query_linear_issues(query="all") → fetch all Linear issues; ALWAYS pass query="all" unless filtering by a specific topic keyword (e.g. "voice capture"). NEVER pass "*", "is:all", or search-operator syntax.
 - get_intervention_history() → show past actions
 - explain_risk_type() → explain what risk means
 - adjust_autonomy() → change control level
