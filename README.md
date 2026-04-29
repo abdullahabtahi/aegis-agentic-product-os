@@ -395,11 +395,10 @@ aegis-agentic-product-os/
 
 ---
 
-## Built With
+## Built for Hackathon Project
 
-Built for the **Gen AI Academy Hackathon** by [@abdullahabtahi](https://github.com/abdullahabtahi).
+By [Abdullah Abtahi](https://www.linkedin.com/in/abdullahabtahi/) - Product Designer, Google UX Design Certified (Aspiring AI Engineer)
 
-Multi-agent development: Claude Code (Opus) + Google Jules + GitHub Copilot, orchestrated through a review-and-merge workflow with human oversight on every PR.
 
 ---
 

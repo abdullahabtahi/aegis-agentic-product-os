@@ -65,3 +65,7 @@ adk_eval_results/
 # ── Build outputs ─────────────────────────────────────────────────────────────
 *.whl
 *.tar.gz
+
+# — AI Context Files ————————————————————————————
+CLAUDE.md
+GEMINI.md
