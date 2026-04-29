@@ -167,8 +167,8 @@ gcloud storage buckets create "gs://${ARTIFACT_BUCKET}" \
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
-echo "==> Building backend image..."
-docker build -t "${BACKEND_IMAGE}" "${REPO_ROOT}/backend"
+echo "==> Building backend image (linux/amd64 for Cloud Run)..."
+docker build --platform linux/amd64 -t "${BACKEND_IMAGE}" "${REPO_ROOT}/backend"
 docker push "${BACKEND_IMAGE}"
 
 # ─── 7. Resolve Cloud Run service account ────────────────────────────────────
@@ -229,14 +229,18 @@ sleep 30
 
 echo "==> Deploying backend Cloud Run service..."
 
-# Build the --set-secrets flag only when secrets exist.
-SECRET_FLAGS=""
+# Build the --set-secrets flag — must be a SINGLE flag with comma-separated
+# key=secret:version pairs (multiple --set-secrets flags override each other).
+SECRET_PAIRS=""
 if [[ "${LINEAR_SECRET_EXISTS}" == "true" ]]; then
-  SECRET_FLAGS="--set-secrets=LINEAR_API_KEY=aegis-linear-key:latest"
+  SECRET_PAIRS="LINEAR_API_KEY=aegis-linear-key:latest"
 fi
 if [[ "${JULES_SECRET_EXISTS}" == "true" ]]; then
-  JULES_SECRET_FLAG="--set-secrets=JULES_API_KEY=aegis-jules-key:latest"
-  SECRET_FLAGS="${SECRET_FLAGS:+${SECRET_FLAGS} }${JULES_SECRET_FLAG}"
+  SECRET_PAIRS="${SECRET_PAIRS:+${SECRET_PAIRS},}JULES_API_KEY=aegis-jules-key:latest"
+fi
+SECRET_FLAGS=""
+if [[ -n "${SECRET_PAIRS}" ]]; then
+  SECRET_FLAGS="--set-secrets=${SECRET_PAIRS}"
 fi
 
 gcloud run deploy "${BACKEND_SERVICE}" \
@@ -310,8 +314,9 @@ echo "    Migrations complete."
 # NEXT_PUBLIC_BACKEND_URL must be baked into the Next.js bundle at build time.
 # We build the image here, after the backend URL is resolved.
 
-echo "==> Building frontend image (with NEXT_PUBLIC_BACKEND_URL baked in)..."
+echo "==> Building frontend image (linux/amd64, with NEXT_PUBLIC_BACKEND_URL baked in)..."
 docker build \
+  --platform linux/amd64 \
   --build-arg NEXT_PUBLIC_BACKEND_URL="${BACKEND_URL}" \
   -t "${FRONTEND_IMAGE}" \
   "${REPO_ROOT}/frontend"

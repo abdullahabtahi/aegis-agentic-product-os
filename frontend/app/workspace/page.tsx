@@ -4,31 +4,38 @@
  * Home Page — Perplexity-style glassmorphic workspace.
  *
  * Two states:
- * - HERO: centered logo + feature cards + chips + command bar (before any message)
- * - CHAT: messages fill screen, command bar stays at bottom (after first message)
+ * - HERO: centered logo + live agentic stats + pipeline strip + chips + command bar
+ * - CHAT: messages fill screen, command bar stays at bottom
  *
  * Backend health shown inline so connectivity issues are visible immediately.
  */
 
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { Shield, Radar, Brain, Zap, WifiOff, AlertTriangle, Sparkles, GitBranch } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Shield, WifiOff, AlertTriangle, Sparkles, ArrowRight, Network, Brain, GitBranch, Gavel, Terminal } from "lucide-react";
+import Link from "next/link";
+
+/** Lightweight relative time formatter — no external dependency. */
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
 import { CommandBar } from "@/components/chat/CommandBar";
 import { ChatMessages } from "@/components/chat/ChatMessages";
 import { BetDeclarationModal } from "@/components/bets/BetDeclarationModal";
 import { useChatController } from "@/hooks/useChatController";
 import { useAgentStateSync } from "@/hooks/useAgentStateSync";
 import { useBackendHealth } from "@/hooks/useBackendHealth";
-import { getSessionMessages } from "@/lib/api";
+import { useWorkspaceId } from "@/hooks/useWorkspaceId";
+import { getSessionMessages, listBets, getInterventions } from "@/lib/api";
 import type { SessionMessage } from "@/lib/api";
-
-const FEATURE_CARDS = [
-  { icon: Radar, title: "Signal Engine", description: "Monitors Linear for strategy drift, missing metrics, and execution blockers.", color: "text-indigo-500", bg: "bg-indigo-500/10" },
-  { icon: Brain, title: "Product Brain", description: "Debate-pattern risk classification with confidence scoring.", color: "text-violet-500", bg: "bg-violet-500/10" },
-  { icon: GitBranch, title: "Coordinator", description: "Orchestrates multi-agent responses and recommends bounded interventions.", color: "text-sky-500", bg: "bg-sky-500/10" },
-  { icon: Shield, title: "Governor", description: "8 deterministic policy checks — safe, bounded interventions.", color: "text-emerald-500", bg: "bg-emerald-500/10" },
-  { icon: Zap, title: "Executor", description: "Creates issues, adds comments, or escalates for approval.", color: "text-amber-500", bg: "bg-amber-500/10" },
-] as const;
+import type { PipelineStageName } from "@/lib/types";
 
 const QUICK_ACTIONS = [
   "Scan my active direction for risks",
@@ -37,29 +44,57 @@ const QUICK_ACTIONS = [
   "Explain strategy_unclear",
 ] as const;
 
+const PIPELINE_STAGE_NAMES: { key: PipelineStageName; label: string; icon: React.ElementType }[] = [
+  { key: "signal_engine", label: "Signal Engine", icon: Network },
+  { key: "product_brain", label: "Product Brain", icon: Brain },
+  { key: "coordinator", label: "Coordinator", icon: GitBranch },
+  { key: "governor", label: "Governor", icon: Gavel },
+  { key: "executor", label: "Executor", icon: Terminal },
+];
+
 export default function HomePage() {
   const { messages, sendMessage, isLoading, stopGeneration, hasMessages } = useChatController();
   const { state: pipelineState } = useAgentStateSync();
   const backendHealth = useBackendHealth();
+  const workspaceId = useWorkspaceId();
   const [showBetModal, setShowBetModal] = useState(false);
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session");
   const [restoredMessages, setRestoredMessages] = useState<SessionMessage[]>([]);
 
-  // When navigating to a prior session, fetch its messages for display.
-  // CopilotKit already has the threadId so the agent keeps full context;
-  // we just need to show the user what was said before.
+  // Live data for hero stats
+  const { data: bets = [], isLoading: betsLoading } = useQuery({
+    queryKey: ["bets", workspaceId],
+    queryFn: () => listBets(workspaceId),
+    staleTime: 15_000,
+    enabled: workspaceId !== "default_workspace",
+  });
+
+  const { data: interventions = [], isLoading: interventionsLoading } = useQuery({
+    queryKey: ["interventions", workspaceId],
+    queryFn: () => getInterventions(workspaceId),
+    staleTime: 15_000,
+    enabled: workspaceId !== "default_workspace",
+  });
+
+  const pendingCount = interventions.filter((i) => i.status === "pending").length;
+  const lastScan = bets.reduce<string | null>((latest, b) => {
+    if (!b.last_monitored_at) return latest;
+    return !latest || b.last_monitored_at > latest ? b.last_monitored_at : latest;
+  }, null);
+
   useEffect(() => {
-    if (!sessionId) {
+    if (!sessionId) return;
+    let active = true;
+    getSessionMessages(sessionId)
+      .then((msgs) => { if (active) setRestoredMessages(msgs); })
+      .catch(() => { if (active) setRestoredMessages([]); });
+    return () => {
+      active = false;
       setRestoredMessages([]);
-      return;
-    }
-    getSessionMessages(sessionId).then(setRestoredMessages).catch(() => {
-      setRestoredMessages([]);
-    });
+    };
   }, [sessionId]);
 
-  // When a direction is declared, send it as context to the agent and trigger a scan
   function handleBetDeclared(bet: Record<string, unknown>) {
     setShowBetModal(false);
     const name = String(bet.name ?? "");
@@ -103,26 +138,71 @@ export default function HomePage() {
             Autonomous pre-mortem for your strategic directions. Declare one and I&apos;ll scan it for risks automatically.
           </p>
 
-          {/* Feature cards */}
-          <div className="mt-8 grid w-full max-w-3xl grid-cols-2 gap-3 sm:grid-cols-5">
-            {FEATURE_CARDS.map((card) => {
-              const Icon = card.icon;
+          {/* ── Live stat cards ── */}
+          <div className="mt-8 grid w-full max-w-3xl grid-cols-3 gap-3">
+            {/* Active Directions */}
+            <Link
+              href="/workspace/directions"
+              className="glass-panel-subtle flex flex-col gap-1 rounded-xl p-4 transition-all hover:bg-white/35 group"
+            >
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Active Directions</p>
+              <p className="font-heading text-2xl font-bold text-foreground/90 group-hover:text-indigo-600 transition-colors">
+                {betsLoading ? "—" : bets.length}
+              </p>
+              <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                View all <ArrowRight size={9} />
+              </p>
+            </Link>
+
+            {/* Pending Approvals */}
+            <Link
+              href="/workspace/inbox"
+              className="glass-panel-subtle flex flex-col gap-1 rounded-xl p-4 transition-all hover:bg-white/35 group"
+            >
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Pending Approvals</p>
+              <p className={`font-heading text-2xl font-bold transition-colors ${interventionsLoading ? "text-foreground/90" : pendingCount > 0 ? "text-amber-600" : "text-foreground/90"} group-hover:text-indigo-600`}>
+                {interventionsLoading ? "—" : pendingCount}
+              </p>
+              <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                {pendingCount > 0 ? "Needs review" : "All clear"} <ArrowRight size={9} />
+              </p>
+            </Link>
+
+            {/* Last Scan */}
+            <div className="glass-panel-subtle flex flex-col gap-1 rounded-xl p-4">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Last Scan</p>
+              <p className="font-heading text-2xl font-bold text-foreground/90">
+                {betsLoading ? "—" : lastScan ? timeAgo(lastScan) : "Never"}
+              </p>
+              <p className="text-[10px] text-muted-foreground">
+                {lastScan ? "Aegis monitoring" : "Start by scanning a direction"}
+              </p>
+            </div>
+          </div>
+
+          {/* ── Pipeline status strip ── */}
+          <div className="mt-4 flex w-full max-w-3xl items-center gap-2 rounded-xl border border-white/8 bg-white/4 px-4 py-2.5">
+            <span className="text-[9px] font-semibold uppercase tracking-widest text-white/25 shrink-0 mr-1">Pipeline</span>
+            {PIPELINE_STAGE_NAMES.map(({ key, label, icon: Icon }) => {
+              const liveStage = pipelineState?.stages?.find((s) => s.name === key);
+              const status = liveStage?.status ?? "pending";
+              const dotColor =
+                status === "running" ? "bg-indigo-500 animate-pulse" :
+                status === "complete" ? "bg-emerald-500" :
+                status === "error" ? "bg-red-500" :
+                "bg-slate-400/50";
               return (
-                <div key={card.title} className="glass-panel-subtle flex flex-col gap-2.5 rounded-xl p-4 transition-all hover:bg-white/35">
-                  <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${card.bg}`}>
-                    <Icon size={18} className={card.color} />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-foreground/85">{card.title}</p>
-                    <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">{card.description}</p>
-                  </div>
+                <div key={key} className="flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1">
+                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotColor}`} />
+                  <Icon size={10} className="text-white/30 shrink-0" />
+                  <span className="text-[10px] text-white/50">{label}</span>
                 </div>
               );
             })}
           </div>
 
           {/* Quick action chips */}
-          <div className="mt-6 flex flex-wrap justify-center gap-2">
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
             {QUICK_ACTIONS.map((prompt) => (
               <button
                 key={prompt}

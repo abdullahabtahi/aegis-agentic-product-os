@@ -65,10 +65,10 @@ export default function SuppressionPage() {
             <div className="text-center py-16 space-y-2">
               <ShieldOff className="w-8 h-8 text-white/10 mx-auto" />
               <p className="text-[11px] text-white/20">
-                No suppressed interventions yet
+                No suppressions
               </p>
               <p className="text-[10px] text-white/12">
-                The Governor will log blocked interventions here
+                Governor is passing all interventions to your inbox
               </p>
             </div>
           )}

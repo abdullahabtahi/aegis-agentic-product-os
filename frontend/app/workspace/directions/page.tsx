@@ -23,7 +23,15 @@ import type { Bet, BetStatus } from "@/lib/types";
 import { BetDeclarationModal } from "@/components/bets/BetDeclarationModal";
 import { useWorkspaceId } from "@/hooks/useWorkspaceId";
 
-function HealthBar({ score }: { score: number }) {
+function HealthBar({ score }: { score: number | null }) {
+  if (score === null) {
+    return (
+      <div className="flex items-center gap-2">
+        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200/80" />
+        <span className="w-8 text-right font-mono text-xs text-slate-400">—</span>
+      </div>
+    );
+  }
   return (
     <div className="flex items-center gap-2">
       {/* Track — visible on light bg */}
@@ -51,9 +59,10 @@ function StatusBadge({ status }: { status: BetStatus }) {
 }
 
 function BetCard({ bet }: { bet: Bet }) {
-  // Derive a visual health score from available fields
-  // In live data this will come from BetSnapshot; fallback to declaration_confidence
-  const healthScore = Math.round((bet.declaration_confidence ?? 0.8) * 100);
+  // Health score derived from monitoring state.
+  // List page has no per-bet interventions; use last_monitored_at as the signal.
+  // null = never scanned; 88 = monitored and clean (conservative baseline).
+  const healthScore: number | null = bet.last_monitored_at ? 88 : null;
 
   return (
     <Link href={`/workspace/directions/${bet.id}`}>

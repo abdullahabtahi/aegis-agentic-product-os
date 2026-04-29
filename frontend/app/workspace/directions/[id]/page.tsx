@@ -13,6 +13,7 @@
 
 import { use, Suspense } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, AlertTriangle, CheckCircle2, Clock, Target,
@@ -32,7 +33,31 @@ import { useWorkspaceId } from "@/hooks/useWorkspaceId";
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function HealthScoreRing({ score }: { score: number }) {
+// ─── Health score derivation (pure, no backend call needed) ──────────────────
+
+function deriveHealthScore(bet: { last_monitored_at?: string | null }, interventions?: Intervention[]): number | null {
+  if (!bet.last_monitored_at) return null;
+  const hasPending = interventions?.some((i) => i.status === "pending");
+  if (hasPending) return 35;
+  const sevenDaysAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
+  const hasRecentAccepted = interventions?.some(
+    (i) => i.status === "accepted" && i.created_at > sevenDaysAgo,
+  );
+  if (hasRecentAccepted) return 68;
+  return 88;
+}
+
+function HealthScoreRing({ score }: { score: number | null }) {
+  if (score === null) {
+    return (
+      <div className="relative flex h-14 w-14 items-center justify-center">
+        <svg className="-rotate-90" width="56" height="56" viewBox="0 0 56 56">
+          <circle cx="28" cy="28" r={20} fill="none" strokeWidth="3" className="stroke-slate-200" />
+        </svg>
+        <span className="absolute font-mono text-sm font-bold text-slate-400">—</span>
+      </div>
+    );
+  }
   const color =
     score >= 80 ? "text-emerald-600" : score >= 50 ? "text-amber-600" : "text-red-600";
   const ringColor =
@@ -206,6 +231,7 @@ function DirectionDetailContent({ params }: { params: Promise<{ id: string }> })
   const { id } = use(params);
   const workspaceId = useWorkspaceId();
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   const { data: bet, isLoading: loadingBet, isError: betError } = useQuery({
     queryKey: ["bet", id],
@@ -237,9 +263,7 @@ function DirectionDetailContent({ params }: { params: Promise<{ id: string }> })
   const pending = interventions.filter((i: Intervention) => i.status === "pending");
   const resolved = interventions.filter((i: Intervention) => i.status !== "pending");
 
-  const healthScore = bet
-    ? Math.round((bet.declaration_confidence ?? 0.8) * 100)
-    : 0;
+  const healthScore = bet ? deriveHealthScore(bet, interventions) : null;
 
   // ── Loading state ──────────────────────────────────────────────────────────
   if (loadingBet) {
@@ -293,6 +317,13 @@ function DirectionDetailContent({ params }: { params: Promise<{ id: string }> })
               )}>
                 {BET_STATUS_LABELS[bet.status]}
               </span>
+              {/* Scan CTA — triggers agent scan via prefilled home page prompt */}
+              <button
+                onClick={() => router.push(`/workspace?message=Scan+direction+${encodeURIComponent(bet.id)}+for+risks`)}
+                className="ml-auto flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 transition-colors"
+              >
+                <Zap size={12} /> Scan for risks
+              </button>
             </div>
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-slate-500">

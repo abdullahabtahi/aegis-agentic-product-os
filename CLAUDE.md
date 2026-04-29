@@ -373,7 +373,7 @@ aegis-agentic-product-os/
 
 ---
 
-## Build State (as of 2026-04-08, end of day)
+## Build State (as of 2026-04-28, session 5)
 
 | Phase | Status | Gate |
 |-------|--------|------|
@@ -384,7 +384,8 @@ aegis-agentic-product-os/
 | 5 | ✅ UI rewrite done | Glassmorphic UI, Sidebar, Mission Control, Home, Inbox, HITL surfaces |
 | 5b | ✅ Frontend wired | Chat + pipeline live; Mission Control live; Directions list + detail pages |
 | 6 | ✅ Bet Declaration | `POST /bets`, `GET /bets`, `GET /bets/{id}`; BetDeclarationModal; session persistence (SQLite) |
-| 7 | — | HeuristicVersion canary rollout, EvalSynthesisJob, deployment hardening |
+| 7a | 🔨 In progress (4/5) | Specs created; workspace-id, risk-signal-cards, settings, control-level-persistence done; activity-log pending |
+| 7b | — | HeuristicVersion canary rollout, EvalSynthesisJob, deployment hardening |
 
 ### Key bugs fixed 2026-04-08 (sessions 3–4)
 
@@ -404,23 +405,29 @@ aegis-agentic-product-os/
 
 ## Next Steps (80/20 — production impact order)
 
-Phases 1–6 are complete. Current focus is Phase 7.
+Phases 1–6 + Phase 7a (4/5 features) complete. Branch: `feat/phase7-ui-completion` (uncommitted).
 
-### Priority 1 — Eval hardening (Phase 7 gate)
+### Priority 1 — Complete Phase 7a (one item left)
 
-1. **Run `make eval-all` and verify `tool_trajectory_avg_score` ≥ 0.8 across all 5 traces.**
+1. **Feature 5: Activity Log** — replace `frontend/app/workspace/activity/page.tsx` stub with timeline view.
+   - Create `frontend/components/interventions/StatusBadge.tsx`
+   - Use `getInterventions` + React Query (30s refetch), newest-first, filter `no_intervention`, click → `directions/[id]`
 
-### Priority 2 — Phase 7 build
+2. **Commit + push** all session 5 changes on `feat/phase7-ui-completion`.
 
-2. **HeuristicVersion canary rollout** — offline replay + manual promotion. Never auto-promote MAJOR versions.
-3. **EvalSynthesisJob** — aggregate eval results into a summary for ProductBrain heuristic tuning.
-4. **Deployment hardening** — production Docker, secrets via GCP Secret Manager, Cloud Run deployment.
+3. **Tighten `WorkspaceMeta.control_level`** in `frontend/lib/api.ts` from `string` → `ControlLevel`.
 
-### Priority 3 — Subject hygiene for Jules
+### Priority 2 — Eval hardening (Phase 7b gate)
 
-5. **`build_jules_subject`** — Add utility `build_jules_subject(bet, risk_signal, action_type) -> str` to `backend/tools/jules_service.py` to normalize subject format for Jules L3 actions.
+4. **Run `make eval-all` and verify `tool_trajectory_avg_score` ≥ 0.8 across all 5 traces.**
 
-### What to skip (YAGNI until Phase 7)
+### Priority 3 — Phase 7b build
+
+5. **HeuristicVersion canary rollout** — offline replay + manual promotion. Never auto-promote MAJOR versions.
+6. **EvalSynthesisJob** — aggregate eval results into a summary for ProductBrain heuristic tuning.
+7. **Deployment hardening** — production Docker, secrets via GCP Secret Manager, Cloud Run deployment.
+
+### What to skip (YAGNI until Phase 7b)
 - `BetOutcomeRecord` corpus — needs weeks of real data.
 - PDF digest, mobile fallback, SSE reconnect banner.
 

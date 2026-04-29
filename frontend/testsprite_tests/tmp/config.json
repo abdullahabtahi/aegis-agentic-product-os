@@ -1,17 +1,17 @@
 {
   "status": "commited",
-  "type": "frontend",
+  "type": "backend",
   "scope": "codebase",
-  "localEndpoint": "http://localhost:3000/workspace",
+  "localEndpoint": "http://localhost:3000",
+  "backendAuthType": "public",
   "executionArgs": {
-    "projectName": "aegis-agentic-product-os",
+    "projectName": "frontend",
     "projectPath": "/Users/abdullahabtahi/Hackathons/Gen AI Academy/Product OS - Hackathon/aegis-agentic-product-os/frontend",
     "testIds": [],
-    "additionalInstruction": "Permission issues have been addressed by the user. Execute the frontend test plan.",
+    "additionalInstruction": "Focus on the Directions dashboard, Mission Control, and Intervention Inbox. Make sure to log any UI failures or state sync issues.",
     "serverMode": "development",
     "envs": {
       "API_KEY": "sk-user-gkl2u6W3EIg5pP9uHqUHEzuM2xAdcIOUCBivEBJ7nezVPYj4sq48VubhREUvh3MyOcP6jLpkQny-A2vYNxusRq22U60nyqexaJvynJ54489TKJJToUAhuGQ7syIHmIrg81s"
     }
-  },
-  "serverPort": 51216
+  }
 }

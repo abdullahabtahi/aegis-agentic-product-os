@@ -25,12 +25,23 @@ import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Network, Brain, GitBranch, Gavel, Terminal,
-  AlertTriangle, CheckCircle2, ArrowRight, Zap
+  AlertTriangle, CheckCircle2, ArrowRight, Zap, Loader2
 } from "lucide-react";
-import { getInterventions, approveIntervention, rejectIntervention, listBets } from "@/lib/api";
+import { getInterventions, approveIntervention, rejectIntervention, listBets, discoverBets } from "@/lib/api";
 import { useAgentStateSync } from "@/hooks/useAgentStateSync";
 import { useWorkspaceId } from "@/hooks/useWorkspaceId";
 import type { PipelineStage, PipelineStageName } from "@/lib/types";
+
+/** Lightweight relative time formatter — no external dependency. */
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
 
 // ─── Live stage display derivation ───────────────────────────────────────────
 
@@ -147,10 +158,20 @@ export default function MissionControlPage() {
   const { data: liveBets = [], isLoading: loadingBets } = useQuery({
     queryKey: ["bets", workspaceId],
     queryFn: () => listBets(workspaceId, "active"),
-    staleTime: 60 * 1000,
+    staleTime: 10_000,
     refetchOnWindowFocus: false,
     enabled: workspaceId !== "default_workspace",
   });
+
+  const scanMutation = useMutation({
+    mutationFn: () => discoverBets(workspaceId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bets", workspaceId] }),
+  });
+
+  const lastScan = liveBets.reduce<string | null>((latest, b) => {
+    if (!b.last_monitored_at) return latest;
+    return !latest || b.last_monitored_at > latest ? b.last_monitored_at : latest;
+  }, null);
 
   const pendingInterventions = interventions.filter((i) => i.status === "pending");
 
@@ -170,6 +191,27 @@ export default function MissionControlPage() {
       {/* ── Pipeline Stage Cards ──────────────────────────────────────────── */}
       {/* Live: pipelineState.stages from useAgentStateSync (AG-UI StateDeltaEvent).
           Falls back to static PIPELINE_STAGES display when pipeline is idle. */}
+      <div className="flex items-center justify-between mb-1">
+        <div>
+          <span className="text-xs font-semibold text-slate-500 uppercase tracking-widest">Pipeline Stages</span>
+          <p className="text-[10px] text-slate-400 mt-0.5">
+            Last scan:{" "}
+            {loadingBets
+              ? "—"
+              : lastScan
+              ? timeAgo(lastScan)
+              : "Never"}
+          </p>
+        </div>
+        <button
+          onClick={() => scanMutation.mutate()}
+          disabled={scanMutation.isPending || workspaceId === "default_workspace"}
+          className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {scanMutation.isPending ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />}
+          Scan all
+        </button>
+      </div>
       <section className="grid grid-cols-5 gap-3">
         {PIPELINE_STAGES.map((stage) => {
           const Icon = stage.icon;

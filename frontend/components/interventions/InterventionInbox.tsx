@@ -85,8 +85,9 @@ export function InterventionInbox({ workspaceId, className }: InterventionInboxP
         )}
 
         {pending.length === 0 && !loading && (
-          <div className="text-center py-10 text-[11px] text-white/20">
-            No pending interventions
+          <div className="text-center py-10 text-[11px] text-white/20 space-y-2">
+            <p>No pending approvals</p>
+            <p className="text-[10px] text-white/15">Aegis is monitoring your directions</p>
           </div>
         )}
 

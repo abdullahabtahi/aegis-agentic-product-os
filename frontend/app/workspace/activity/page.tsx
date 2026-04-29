@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, RefreshCw, AlertTriangle } from "lucide-react";
 import { useWorkspaceId } from "@/hooks/useWorkspaceId";
@@ -58,10 +59,16 @@ export default function ActivityPage() {
         )}
 
         {!isError && !isLoading && items.length === 0 && (
-          <div className="text-center py-16 space-y-2">
+          <div className="text-center py-16 space-y-3">
             <Activity className="w-8 h-8 text-white/10 mx-auto" />
             <p className="text-[11px] text-white/20">No activity yet</p>
-            <p className="text-[10px] text-white/12">Interventions will appear here as Aegis monitors your bets</p>
+            <p className="text-[10px] text-white/12">Interventions will appear here as Aegis monitors your directions</p>
+            <Link
+              href="/workspace"
+              className="inline-flex items-center gap-1 text-[10px] text-indigo-400/60 hover:text-indigo-400 transition-colors"
+            >
+              Start by scanning a direction →
+            </Link>
           </div>
         )}
 
