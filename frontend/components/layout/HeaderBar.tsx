@@ -19,6 +19,7 @@ const STATUS_CONFIG: Record<PipelineStatus, { label: string; dot: string }> = {
   scanning: { label: "Scanning...", dot: "bg-indigo-500 animate-pulse" },
   analyzing: { label: "Analyzing...", dot: "bg-indigo-500 animate-pulse" },
   awaiting_approval: { label: "Awaiting Approval", dot: "bg-amber-500 animate-pulse" },
+  approved: { label: "Approved", dot: "bg-emerald-500" },
   executing: { label: "Executing...", dot: "bg-indigo-500 animate-pulse" },
   complete: { label: "Complete", dot: "bg-emerald-500" },
   error: { label: "Error", dot: "bg-red-500" },

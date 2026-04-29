@@ -164,18 +164,6 @@ class MockLinearMCP:
                 continue
         return []
 
-    async def get_linear_signals_from_fixture(
-        self,
-        project_id: str,
-    ) -> dict[str, Any]:
-        """Returns the pre-computed linear_signals dict from the fixture.
-
-        Used by SignalEngineAgent in Phase 1 to avoid re-computing what the fixture
-        already has. Phase 2+: replace with actual Signal Engine computation.
-        """
-        fixture = self._fixture_for_project(project_id)
-        return fixture["linear_signals"]
-
     async def write_action(self, action: dict[str, Any]) -> dict[str, str]:
         """Mock write — logs the action but does NOT call Linear API.
 
@@ -188,70 +176,6 @@ class MockLinearMCP:
             "status": "mock_success",
             "message": f"[MOCK] Linear action '{action_type}' recorded. No live write performed.",
         }
-
-
-# ADK FunctionTool wrappers delegation
-# Executed in the context of the Signal Engine agent.
-
-
-async def list_linear_issues(project_ids: str, days: int = 14) -> dict:
-    """List Linear issues for given project IDs (comma-separated) bounded to 14 days.
-
-    Args:
-        project_ids: Comma-separated Linear project IDs to read from.
-        days: Read window in days. Maximum 14 (Signal Engine invariant).
-
-    Returns:
-        dict with 'issues' list and 'total' count.
-    """
-    ids = [p.strip() for p in project_ids.split(",") if p.strip()]
-    client = get_linear_mcp()
-    issues = await client.list_issues(project_ids=ids, days=days)
-    return {
-        "status": "success",
-        "issues": [
-            {
-                "id": i.id,
-                "title": i.title,
-                "status": i.status,
-                "project_id": i.project_id,
-                "description": i.description,
-                "rolled_over": i.rolled_over,
-                "roll_count": i.roll_count,
-            }
-            for i in issues
-        ],
-        "total": len(issues),
-    }
-
-
-async def list_linear_relations(issue_ids: str) -> dict:
-    """List blocked_by/blocks/related relations for given issue IDs (comma-separated).
-
-    Args:
-        issue_ids: Comma-separated Linear issue IDs to get relations for.
-
-    Returns:
-        dict with 'relations' list and cross-team count.
-    """
-    ids = [i.strip() for i in issue_ids.split(",") if i.strip()]
-    client = get_linear_mcp()
-    relations = await client.list_issue_relations(issue_ids=ids)
-    cross_team = [r for r in relations if r.to_team is not None]
-    return {
-        "status": "success",
-        "relations": [
-            {
-                "from_issue": r.from_issue,
-                "type": r.type,
-                "to_issue": r.to_issue,
-                "to_team": r.to_team,
-                "is_cross_team": r.to_team is not None,
-            }
-            for r in relations
-        ],
-        "cross_team_count": len(cross_team),
-    }
 
 
 # ─────────────────────────────────────────────
@@ -321,10 +245,9 @@ class RealLinearMCP:
         }
         # Long-lived client for connection reuse across calls within a pipeline cycle.
         # Signal Engine always calls list_issues then list_issue_relations — reusing
-        # the same TCP/TLS connection saves ~100–200ms per scan.
+        # the same TCP/TLS connection saves ~100-200ms per scan.
         self._client = httpx.AsyncClient(
             timeout=30.0,
-            http2=True,
         )
         # Relations cache populated by list_issues; consumed by list_issue_relations.
         # This avoids a second round-trip since Signal Engine always calls

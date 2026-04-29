@@ -259,7 +259,7 @@ async def update_intervention_status(
         accepted = status == "accepted"
         async with get_session() as session:
             # 1. Update the intervention
-            await session.execute(
+            result = await session.execute(
                 text("""
                     UPDATE interventions
                     SET status = :status,
@@ -276,6 +276,8 @@ async def update_intervention_status(
                     "founder_note": founder_note,
                 },
             )
+            if result.rowcount == 0:
+                return False
 
             # 2. Backfill human_accepted for tracing/eval feedback
             # Find the risk_signal_id linked to this intervention
@@ -442,6 +444,34 @@ async def upsert_workspace(workspace: dict) -> str | None:
     except Exception as exc:
         logger.warning("Failed to upsert workspace: %s", exc)
         return None
+
+
+async def update_workspace_control_level(
+    workspace_id: str, control_level: str
+) -> bool:
+    """Update control_level on an existing workspace. Returns True on success."""
+    if not is_db_configured():
+        return False
+    try:
+        async with get_session() as session:
+            await session.execute(
+                text("""
+                    INSERT INTO workspaces (id, linear_team_id, strategy_doc_refs, active_bet_ids, control_level, github_repo, created_at)
+                    VALUES (:id, '', '{}', '{}', :control_level, NULL, :created_at)
+                    ON CONFLICT (id) DO UPDATE SET control_level = :control_level
+                """),
+                {
+                    "id": workspace_id,
+                    "control_level": control_level,
+                    "created_at": _now_iso(),
+                },
+            )
+        return True
+    except Exception as exc:
+        logger.warning(
+            "Failed to update control_level for workspace %s: %s", workspace_id, exc
+        )
+        return False
 
 
 async def get_workspace(workspace_id: str) -> dict | None:

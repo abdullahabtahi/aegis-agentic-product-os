@@ -19,17 +19,9 @@ import {
   BET_STATUS_LABELS, BET_STATUS_STYLES, healthColor,
 } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import type { Bet, BetStatus, RiskType } from "@/lib/types";
+import type { Bet, BetStatus } from "@/lib/types";
 import { BetDeclarationModal } from "@/components/bets/BetDeclarationModal";
-
-const WORKSPACE_ID = "default_workspace";
-
-const RISK_ACCENT: Record<RiskType, string> = {
-  strategy_unclear: "border-l-red-400",
-  alignment_issue: "border-l-amber-400",
-  execution_issue: "border-l-orange-400",
-  placebo_productivity: "border-l-violet-400",
-};
+import { useWorkspaceId } from "@/hooks/useWorkspaceId";
 
 function HealthBar({ score }: { score: number }) {
   return (
@@ -168,15 +160,17 @@ const FILTER_TABS: { label: string; value: BetStatus | "all" }[] = [
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DirectionsPage() {
+  const workspaceId = useWorkspaceId();
   const [filter, setFilter] = useState<BetStatus | "all">("all");
   const [showDeclareModal, setShowDeclareModal] = useState(false);
 
   const { data: bets = [], isLoading, isError, refetch, isFetching } = useQuery({
-    queryKey: ["bets", WORKSPACE_ID, filter],
-    queryFn: () => listBets(WORKSPACE_ID, filter === "all" ? undefined : filter),
+    queryKey: ["bets", workspaceId, filter],
+    queryFn: () => listBets(workspaceId, filter === "all" ? undefined : filter),
     staleTime: 5_000,
-    refetchInterval: 8_000,   // poll so bets created via chat/other paths also appear
+    refetchInterval: 8_000,
     refetchOnWindowFocus: true,
+    enabled: workspaceId !== "default_workspace",
   });
 
   const [isScanning, setIsScanning] = useState(false);
@@ -186,7 +180,7 @@ export default function DirectionsPage() {
     setIsScanning(true);
     setScanFeedback(null);
     try {
-      const result = await discoverBets(WORKSPACE_ID);
+      const result = await discoverBets(workspaceId);
       if (result.created.length === 0) {
         setScanFeedback({ kind: "info", message: "No new directions found — all clusters already exist." });
         setTimeout(() => setScanFeedback(null), 6000);
@@ -331,7 +325,7 @@ export default function DirectionsPage() {
       {/* Declare modal */}
       <BetDeclarationModal
         open={showDeclareModal}
-        workspaceId={WORKSPACE_ID}
+        workspaceId={workspaceId}
         onClose={() => setShowDeclareModal(false)}
         onBetDeclared={() => {
           setShowDeclareModal(false);

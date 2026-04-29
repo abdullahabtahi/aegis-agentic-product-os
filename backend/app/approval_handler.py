@@ -26,16 +26,16 @@ def approve_intervention(session_state: dict) -> dict:
         ValueError: If pipeline_status is not "awaiting_founder_approval".
     """
     current_status = session_state.get("pipeline_status")
-    if current_status != "awaiting_founder_approval":
+    if current_status != "awaiting_approval":
         raise ValueError(
             f"Cannot approve: pipeline_status is '{current_status}', "
-            "expected 'awaiting_founder_approval'."
+            "expected 'awaiting_approval'."
         )
 
     return {
         **session_state,
-        "pipeline_status": "founder_approved",
-        "pipeline_checkpoint": "founder_approved",
+        "pipeline_status": "approved",
+        "pipeline_checkpoint": "approved",
         "founder_decided_at": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -45,21 +45,23 @@ def reject_intervention(
     rejection_reason: RejectionReasonCategory,
     founder_note: str | None = None,
 ) -> dict:
-    """Transition pipeline from awaiting_founder_approval → founder_rejected.
+    """Transition pipeline from awaiting_approval → complete (rejected).
 
     Stores rejection reason on the intervention payload and appends to
     rejection_history for Override & Teach (Governor reads this on next cycle).
+    pipeline_status is set to "complete" (terminal state); pipeline_checkpoint
+    is set to "rejected" so downstream readers can distinguish outcome.
 
     Returns a NEW dict — does NOT mutate the input.
 
     Raises:
-        ValueError: If pipeline_status is not "awaiting_founder_approval".
+        ValueError: If pipeline_status is not "awaiting_approval".
     """
     current_status = session_state.get("pipeline_status")
-    if current_status != "awaiting_founder_approval":
+    if current_status != "awaiting_approval":
         raise ValueError(
             f"Cannot reject: pipeline_status is '{current_status}', "
-            "expected 'awaiting_founder_approval'."
+            "expected 'awaiting_approval'."
         )
 
     now = datetime.now(timezone.utc).isoformat()
@@ -89,8 +91,8 @@ def reject_intervention(
 
     return {
         **session_state,
-        "pipeline_status": "founder_rejected",
-        "pipeline_checkpoint": "founder_rejected",
+        "pipeline_status": "complete",
+        "pipeline_checkpoint": "rejected",
         "founder_decided_at": now,
         "awaiting_approval_intervention": updated_intervention,
         "rejection_history": updated_history,

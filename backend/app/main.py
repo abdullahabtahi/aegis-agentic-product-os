@@ -96,10 +96,11 @@ if "*" in _allowed_origins and not os.environ.get("AEGIS_LOCAL_DEV"):
         "Set ALLOWED_ORIGINS to your frontend URL in production."
     )
 
+_has_wildcard = "*" in _allowed_origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_allowed_origins,
-    allow_credentials=True,
+    allow_credentials=not _has_wildcard,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -221,6 +222,7 @@ async def get_taxonomy(response: Response):
 async def list_interventions(
     response: Response,
     workspace_id: str = Query(...),
+    bet_id: str | None = Query(None),
     if_none_match: str | None = Header(None, alias="If-None-Match"),
 ):
     """Return pending/recent interventions for a workspace.
@@ -239,22 +241,23 @@ async def list_interventions(
         from db.engine import get_session
 
         async with get_session() as session:
-            result = await session.execute(
-                text("""
-                    SELECT i.id, i.bet_id, i.action_type, i.escalation_level,
-                           i.status, i.rejection_reason AS denial_reason,
-                           i.rationale, i.confidence, i.created_at, i.decided_at AS resolved_at,
-                           i.requires_double_confirm, i.blast_radius,
-                           i.proposed_comment, i.proposed_issue_title, i.proposed_issue_description,
-                           b.name AS bet_name
-                    FROM interventions i
-                    LEFT JOIN bets b ON b.id = i.bet_id
-                    WHERE i.workspace_id = :wid
-                    ORDER BY i.created_at DESC
-                    LIMIT 50
-                """),
-                {"wid": workspace_id},
-            )
+            query = """
+                SELECT i.id, i.bet_id, i.workspace_id, i.action_type, i.escalation_level,
+                       i.status, i.rejection_reason AS denial_reason,
+                       i.rationale, i.confidence, i.created_at, i.decided_at AS resolved_at,
+                       i.requires_double_confirm, i.blast_radius,
+                       i.proposed_comment, i.proposed_issue_title, i.proposed_issue_description,
+                       b.name AS bet_name
+                FROM interventions i
+                LEFT JOIN bets b ON b.id = i.bet_id
+                WHERE i.workspace_id = :wid
+            """
+            params: dict = {"wid": workspace_id}
+            if bet_id is not None:
+                query += " AND i.bet_id = :bet_id"
+                params["bet_id"] = bet_id
+            query += " ORDER BY i.created_at DESC LIMIT 50"
+            result = await session.execute(text(query), params)
             rows = [dict(row._mapping) for row in result]
 
         # Generate ETag from data hash
@@ -364,6 +367,16 @@ async def create_bet(body: BetCreateBody):
         _inmemory_bets.append(bet)
 
     return {**bet, "persisted": persisted}
+
+
+@app.get("/workspace/{workspace_id}")
+async def get_workspace_endpoint(workspace_id: str):
+    """Return workspace metadata including control_level."""
+    from db.repository import get_workspace
+    ws = await get_workspace(workspace_id)
+    if ws is None:
+        return {"id": workspace_id, "control_level": "draft_only"}
+    return {"id": ws["id"], "control_level": ws.get("control_level", "draft_only")}
 
 
 @app.get("/bets")

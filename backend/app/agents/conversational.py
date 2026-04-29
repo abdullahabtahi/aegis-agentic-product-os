@@ -390,8 +390,12 @@ async def query_linear_issues(
     workspace_id = tool_context.state.get("workspace_id")
 
     issue_filter: dict[str, Any] = {"updatedAt": {"gte": cutoff}}
-    if workspace_id:
-        issue_filter["project"] = {"id": {"in": [workspace_id]}}
+
+    # Only filter by Linear project if a bet with real project IDs is active.
+    # workspace_id is an Aegis internal ID (e.g. "ws-demo"), NOT a Linear project UUID.
+    bet = tool_context.state.get("bet")
+    if bet and isinstance(bet, dict) and bet.get("linear_project_ids"):
+        issue_filter["project"] = {"id": {"in": bet["linear_project_ids"]}}
 
     # Lightweight query — no history/rollover fields (those belong to Signal Engine only)
     gql = """
@@ -552,8 +556,10 @@ async def adjust_autonomy(
             "message": f"Invalid control level. Must be one of: {', '.join(valid_levels)}",
         }
 
-    # TODO: Update workspace.control_level in AlloyDB
     tool_context.state["control_level"] = control_level
+    from db.repository import update_workspace_control_level  # local import — avoids circular dep
+    workspace_id = tool_context.state.get("workspace_id", "default_workspace")
+    await update_workspace_control_level(workspace_id, control_level)
 
     level_names = {
         "draft_only": "L1 (Approval Required)",

@@ -101,6 +101,17 @@ export function getInterventionsByBet(workspaceId: string, betId: string): Promi
   return request<Intervention[]>(`/interventions?workspace_id=${workspaceId}&bet_id=${encodeURIComponent(betId)}`);
 }
 
+// ─── Workspace ───
+
+export interface WorkspaceMeta {
+  id: string;
+  control_level: string;
+}
+
+export function getWorkspace(workspaceId: string): Promise<WorkspaceMeta> {
+  return request<WorkspaceMeta>(`/workspace/${encodeURIComponent(workspaceId)}`);
+}
+
 // ─── Bet Discovery ───
 
 export function discoverBets(workspaceId: string): Promise<DiscoverBetsResponse> {

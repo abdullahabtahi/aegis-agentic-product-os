@@ -91,11 +91,12 @@ class ExecutorAgent(BaseAgent):
       "outcome_check_scheduled_at"    → ISO 8601 (14 days from now)
     """
 
-    _linear_mcp: LinearMCPClient = get_linear_mcp()
-
     async def _run_async_impl(
         self, ctx: InvocationContext
     ) -> AsyncGenerator[Event, None]:
+        # Lazy-init the Linear MCP client (can't store as class attr —
+        # httpx.AsyncClient contains an RLock which Pydantic can't deepcopy)
+        linear_mcp = get_linear_mcp()
         # Checkpoint guard — skip if already completed
         checkpoint = ctx.session.state.get("pipeline_checkpoint", "")
         if checkpoint == "executor_complete":
@@ -115,7 +116,7 @@ class ExecutorAgent(BaseAgent):
 
         # Only execute if founder approved
         pipeline_status = ctx.session.state.get("pipeline_status", "")
-        if pipeline_status != "founder_approved":
+        if pipeline_status != "approved":
             yield Event(
                 invocation_id=ctx.invocation_id,
                 author=self.name,
@@ -123,7 +124,7 @@ class ExecutorAgent(BaseAgent):
                     role="model",
                     parts=[
                         types.Part.from_text(
-                            text=f"[Executor] Skipped — pipeline_status='{pipeline_status}', need 'founder_approved'"
+                            text=f"[Executor] Skipped — pipeline_status='{pipeline_status}', need 'approved'"
                         )
                     ],
                 ),
@@ -141,7 +142,7 @@ class ExecutorAgent(BaseAgent):
                 error=None,
             )
             ctx.session.state["executor_result"] = result.model_dump()
-            ctx.session.state["pipeline_status"] = "executed"
+            ctx.session.state["pipeline_status"] = "complete"
             ctx.session.state["pipeline_checkpoint"] = "executor_complete"
             yield Event(
                 invocation_id=ctx.invocation_id,
@@ -179,7 +180,7 @@ class ExecutorAgent(BaseAgent):
             )
             ctx.session.state["executor_result"] = result.model_dump()
             ctx.session.state["pipeline_status"] = (
-                "executed" if executed else "execution_failed"
+                "complete" if executed else "error"
             )
             ctx.session.state["pipeline_checkpoint"] = "executor_complete"
             if executed:
@@ -217,7 +218,7 @@ class ExecutorAgent(BaseAgent):
                 linear_write_result={"status": "no_linear_action_mapped"},
             )
             ctx.session.state["executor_result"] = result.model_dump()
-            ctx.session.state["pipeline_status"] = "executed"
+            ctx.session.state["pipeline_status"] = "complete"
             ctx.session.state["pipeline_checkpoint"] = "executor_complete"
             yield Event(
                 invocation_id=ctx.invocation_id,
@@ -226,7 +227,7 @@ class ExecutorAgent(BaseAgent):
                     role="model",
                     parts=[
                         types.Part.from_text(
-                            text=f"[Executor] {action_type} — no Linear action mapped, marked executed"
+                            text=f"[Executor] {action_type} — no Linear action mapped, marked complete"
                         )
                     ],
                 ),
@@ -234,14 +235,14 @@ class ExecutorAgent(BaseAgent):
             return
 
         try:
-            write_result = await self._linear_mcp.write_action(linear_action)
+            write_result = await linear_mcp.write_action(linear_action)
             result = ExecutorResult(
                 executed=True,
                 action_type=action_type,
                 linear_write_result=write_result,
             )
             ctx.session.state["executor_result"] = result.model_dump()
-            ctx.session.state["pipeline_status"] = "executed"
+            ctx.session.state["pipeline_status"] = "complete"
             ctx.session.state["pipeline_checkpoint"] = "executor_complete"
             ctx.session.state["outcome_check_scheduled_at"] = (
                 datetime.now(timezone.utc) + timedelta(days=_OUTCOME_CHECK_DELAY_DAYS)
@@ -255,7 +256,7 @@ class ExecutorAgent(BaseAgent):
                 error=str(exc),
             )
             ctx.session.state["executor_result"] = result.model_dump()
-            ctx.session.state["pipeline_status"] = "execution_failed"
+            ctx.session.state["pipeline_status"] = "error"
             ctx.session.state["pipeline_checkpoint"] = "executor_complete"
             msg = f"[Executor] FAILED — {action_type}: {exc}"
 

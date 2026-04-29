@@ -9,4 +9,4 @@ from __future__ import annotations
 
 async def get_workspace_facts(workspace_id: str) -> list[dict]:
     """Stub: Phase 4+ WorkspaceFact node retrieval."""
-    return []
+    raise NotImplementedError("WorkspaceFact node retrieval deferred to Phase 4+")

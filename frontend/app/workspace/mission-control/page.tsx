@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { getInterventions, approveIntervention, rejectIntervention, listBets } from "@/lib/api";
 import { useAgentStateSync } from "@/hooks/useAgentStateSync";
+import { useWorkspaceId } from "@/hooks/useWorkspaceId";
 import type { PipelineStage, PipelineStageName } from "@/lib/types";
 
 // ─── Live stage display derivation ───────────────────────────────────────────
@@ -130,36 +131,37 @@ const CHART_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-const WORKSPACE_ID = "default_workspace";
-
 export default function MissionControlPage() {
+  const workspaceId = useWorkspaceId();
   const { state: pipelineState } = useAgentStateSync();
   const queryClient = useQueryClient();
 
   const { data: interventions = [], isLoading: loadingInterventions } = useQuery({
-    queryKey: ["interventions", WORKSPACE_ID],
-    queryFn: () => getInterventions(WORKSPACE_ID),
+    queryKey: ["interventions", workspaceId],
+    queryFn: () => getInterventions(workspaceId),
     staleTime: 15_000,
+    enabled: workspaceId !== "default_workspace",
   });
 
   // Live bets from /bets API (gracefully empty when DB not configured)
   const { data: liveBets = [], isLoading: loadingBets } = useQuery({
-    queryKey: ["bets", WORKSPACE_ID],
-    queryFn: () => listBets(WORKSPACE_ID, "active"),
+    queryKey: ["bets", workspaceId],
+    queryFn: () => listBets(workspaceId, "active"),
     staleTime: 60 * 1000,
     refetchOnWindowFocus: false,
+    enabled: workspaceId !== "default_workspace",
   });
 
   const pendingInterventions = interventions.filter((i) => i.status === "pending");
 
   const approveMutation = useMutation({
     mutationFn: (id: string) => approveIntervention(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["interventions", WORKSPACE_ID] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["interventions", workspaceId] }),
   });
 
   const rejectMutation = useMutation({
     mutationFn: (id: string) => rejectIntervention(id, "other"),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["interventions", WORKSPACE_ID] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["interventions", workspaceId] }),
   });
 
   return (

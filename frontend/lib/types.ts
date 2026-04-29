@@ -11,6 +11,8 @@ export type RiskType =
   | "execution_issue"
   | "placebo_productivity";
 
+export type ControlLevel = "draft_only" | "require_approval" | "autonomous_low_risk";
+
 export type Severity = "low" | "medium" | "high" | "critical";
 
 // Mirrors data-schema.ts InterventionStatus exactly. "snoozed" is a local
@@ -187,6 +189,7 @@ export type PipelineStatus =
   | "scanning"
   | "analyzing"
   | "awaiting_approval"
+  | "approved"
   | "executing"
   | "complete"
   | "error";
@@ -242,6 +245,7 @@ export interface AegisPipelineState {
   current_stage?: PipelineStageName;
   stages?: PipelineStage[];
   session_title?: string;
+  control_level?: ControlLevel;
 }
 
 export interface WorkspaceStats {

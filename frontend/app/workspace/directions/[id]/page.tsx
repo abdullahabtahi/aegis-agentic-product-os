@@ -28,8 +28,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ApprovalCard } from "@/components/interventions/ApprovalCard";
 import type { Intervention, RiskSignal, ProductPrincipleRef } from "@/lib/types";
-
-const WORKSPACE_ID = "default_workspace";
+import { useWorkspaceId } from "@/hooks/useWorkspaceId";
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -205,6 +204,7 @@ export default function DirectionDetailPage({ params }: { params: Promise<{ id: 
 
 function DirectionDetailContent({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const workspaceId = useWorkspaceId();
   const queryClient = useQueryClient();
 
   const { data: bet, isLoading: loadingBet, isError: betError } = useQuery({
@@ -214,22 +214,23 @@ function DirectionDetailContent({ params }: { params: Promise<{ id: string }> })
   });
 
   const { data: interventions = [], isLoading: loadingInterventions } = useQuery({
-    queryKey: ["interventions-by-bet", WORKSPACE_ID, id],
-    queryFn: () => getInterventionsByBet(WORKSPACE_ID, id),
+    queryKey: ["interventions-by-bet", workspaceId, id],
+    queryFn: () => getInterventionsByBet(workspaceId, id),
     staleTime: 15_000,
+    enabled: workspaceId !== "default_workspace",
   });
 
   const approveMutation = useMutation({
     mutationFn: (interventionId: string) => approveIntervention(interventionId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["interventions-by-bet", WORKSPACE_ID, id] });
+      queryClient.invalidateQueries({ queryKey: ["interventions-by-bet", workspaceId, id] });
     },
   });
 
   const rejectMutation = useMutation({
     mutationFn: (interventionId: string) => rejectIntervention(interventionId, "other"),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["interventions-by-bet", WORKSPACE_ID, id] });
+      queryClient.invalidateQueries({ queryKey: ["interventions-by-bet", workspaceId, id] });
     },
   });
 

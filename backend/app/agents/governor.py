@@ -312,8 +312,8 @@ class GovernorAgent(BaseAgent):
         checkpoint = ctx.session.state.get("pipeline_checkpoint", "")
         if checkpoint in (
             "governor_complete",
-            "awaiting_founder_approval",
-            "founder_approved",
+            "awaiting_approval",
+            "approved",
             "founder_rejected",
             "executor_complete",
         ):
@@ -517,16 +517,16 @@ class GovernorAgent(BaseAgent):
 
             if auto_exec:
                 # autonomous_low_risk + L1 + low severity → skip HITL, auto-approve
-                ctx.session.state["pipeline_status"] = "founder_approved"
-                ctx.session.state["pipeline_checkpoint"] = "founder_approved"
+                ctx.session.state["pipeline_status"] = "approved"
+                ctx.session.state["pipeline_checkpoint"] = "approved"
                 msg = (
                     f"[Governor] AUTO-APPROVED (autonomous_low_risk). "
                     f"action_type={action_type}, level={escalation_level}"
                 )
             else:
                 # Standard path: halt and await founder approval via CopilotKit
-                ctx.session.state["pipeline_status"] = "awaiting_founder_approval"
-                ctx.session.state["pipeline_checkpoint"] = "awaiting_founder_approval"
+                ctx.session.state["pipeline_status"] = "awaiting_approval"
+                ctx.session.state["pipeline_checkpoint"] = "awaiting_approval"
                 # Emit tool args so CopilotKit useRenderTool renders InlineApprovalCard
                 ctx.session.state["request_founder_approval_args"] = {
                     "intervention_title": proposal.get(

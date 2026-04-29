@@ -12,6 +12,8 @@ import { Loader2, Shield, History } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { PipelineProgressCard } from "./PipelineProgressCard";
+import { RiskSignalCard } from "./RiskSignalCard";
+import { parseRiskSignal } from "@/lib/parseRiskSignal";
 import type { ChatMessage } from "@/hooks/useChatController";
 import type { AegisPipelineState } from "@/lib/types";
 import type { SessionMessage } from "@/lib/api";
@@ -172,7 +174,6 @@ export function ChatMessages({ messages, isLoading, pipelineState, restoredMessa
               <div className="flex-1">
                 <PipelineProgressCard
                   status={pipelineState.pipeline_status!}
-                  currentStage={pipelineState.current_stage}
                   stages={pipelineState.stages}
                 />
               </div>
@@ -180,6 +181,21 @@ export function ChatMessages({ messages, isLoading, pipelineState, restoredMessa
           )}
         </div>
       ))}
+
+      {pipelineState?.pipeline_status === "complete" &&
+        pipelineState.risk_signal_draft &&
+        (() => {
+          const signal = parseRiskSignal(pipelineState.risk_signal_draft);
+          return signal ? (
+            <div className="flex gap-3">
+              <div className="w-8 shrink-0" />
+              <div className="flex-1">
+                <RiskSignalCard signal={signal} />
+              </div>
+            </div>
+          ) : null;
+        })()
+      }
 
       {/* Typing indicator */}
       {isLoading && (

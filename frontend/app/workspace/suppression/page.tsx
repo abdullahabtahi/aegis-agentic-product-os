@@ -11,9 +11,8 @@
  * Language here is neutral — "Governor blocked" not "Aegis failed."
  */
 
-import { AppShell } from "@/components/layout/AppShell";
 import { useInterventionInbox } from "@/hooks/useInterventionInbox";
-import { useWorkspaceState } from "@/hooks/useWorkspaceState";
+import { useWorkspaceId } from "@/hooks/useWorkspaceId";
 import { ACTION_LABELS } from "@/lib/constants";
 import type { Intervention } from "@/lib/types";
 import { ShieldOff, RefreshCw } from "lucide-react";
@@ -32,7 +31,7 @@ const DENIAL_REASON_LABELS: Record<string, string> = {
 };
 
 export default function SuppressionPage() {
-  const { workspaceId } = useWorkspaceState();
+  const workspaceId = useWorkspaceId();
   const { pending, resolved, loading, refresh } = useInterventionInbox(workspaceId);
 
   const suppressed = [...pending, ...resolved].filter(
@@ -42,8 +41,7 @@ export default function SuppressionPage() {
   );
 
   return (
-    <AppShell>
-      <div className="h-full flex flex-col">
+    <div className="h-full flex flex-col">
         {/* Page header */}
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/8 shrink-0">
           <div className="flex items-center gap-2">
@@ -88,7 +86,6 @@ export default function SuppressionPage() {
           )}
         </div>
       </div>
-    </AppShell>
   );
 }
 

@@ -14,7 +14,7 @@ interface WorkspaceState {
 }
 
 const DEFAULT_WORKSPACE_ID =
-  process.env.NEXT_PUBLIC_DEFAULT_WORKSPACE_ID ?? "ws-agentic-os";
+  process.env.NEXT_PUBLIC_DEFAULT_WORKSPACE_ID ?? "default_workspace";
 
 const BOOTSTRAP_BET: Bet = {
   id: "bet-agentic-os",

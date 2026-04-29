@@ -10,4 +10,4 @@ from __future__ import annotations
 
 async def query_temporal_kg(entity_id: str, query: str) -> dict:
     """Stub: Phase 4+ Graphiti temporal KG query."""
-    return {"status": "stub", "entity_id": entity_id, "results": []}
+    raise NotImplementedError("Graphiti temporal KG deferred to Phase 4+")

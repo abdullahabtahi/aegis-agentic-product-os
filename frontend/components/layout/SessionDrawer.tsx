@@ -27,6 +27,7 @@ const STATUS_DOT: Record<PipelineStatus, string> = {
   scanning: "bg-indigo-500 animate-pulse",
   analyzing: "bg-indigo-500 animate-pulse",
   awaiting_approval: "bg-amber-500 animate-pulse",
+  approved: "bg-emerald-500",
   executing: "bg-indigo-500 animate-pulse",
   complete: "bg-emerald-500",
   error: "bg-red-500",

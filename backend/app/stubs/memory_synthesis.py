@@ -9,4 +9,4 @@ from __future__ import annotations
 
 async def run_memory_synthesis(workspace_id: str) -> dict:
     """Stub: Phase 4+ MemorySynthesisJob."""
-    return {"status": "stub", "workspace_id": workspace_id}
+    raise NotImplementedError("MemorySynthesisJob deferred to Phase 4+")

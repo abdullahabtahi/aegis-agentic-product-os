@@ -23,7 +23,6 @@ import type {
 
 interface PipelineProgressCardProps {
   status: PipelineStatus;
-  currentStage?: PipelineStageName;
   stages?: PipelineStage[];
 }
 
@@ -40,6 +39,7 @@ const STATUS_LABELS: Record<PipelineStatus, string> = {
   scanning: "Scanning signals...",
   analyzing: "Analyzing risks...",
   awaiting_approval: "Awaiting approval",
+  approved: "Approved",
   executing: "Executing action...",
   complete: "Complete",
   error: "Error",
