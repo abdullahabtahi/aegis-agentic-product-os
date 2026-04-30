@@ -21,6 +21,9 @@ import {
 import { cn } from "@/lib/utils";
 import type { Bet, BetStatus } from "@/lib/types";
 import { BetDeclarationModal } from "@/components/bets/BetDeclarationModal";
+import { KillCriteriaStatusBadge } from "@/components/bets/KillCriteriaStatusBadge";
+// ConvictionLabel is imported for future use when BetSnapshot data is available on this page
+import { ConvictionLabel } from "@/components/bets/ConvictionLabel";
 import { useWorkspaceId } from "@/hooks/useWorkspaceId";
 
 function HealthBar({ score }: { score: number | null }) {
@@ -82,9 +85,18 @@ function BetCard({ bet }: { bet: Bet }) {
               <p className="mt-0.5 text-xs text-slate-500">{bet.target_segment}</p>
             )}
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <StatusBadge status={bet.status} />
-            <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-slate-500 transition-colors" />
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <div className="flex items-center gap-2">
+              <StatusBadge status={bet.status} />
+              <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-slate-500 transition-colors" />
+            </div>
+            {bet.kill_criteria && (
+              <KillCriteriaStatusBadge
+                status={bet.kill_criteria.status}
+                deadline={bet.kill_criteria.deadline}
+                className="mt-1"
+              />
+            )}
           </div>
         </div>
 
@@ -99,6 +111,9 @@ function BetCard({ bet }: { bet: Bet }) {
         <div className="mb-3">
           <div className="mb-1 flex items-center justify-between">
             <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Health</span>
+            {/* TODO: show <ConvictionLabel score={snapshot.conviction_score} /> once
+                BetSnapshot data is loaded on this page (conviction_score lives on BetSnapshot,
+                not on Bet — requires a separate snapshot query or embedding in the list API). */}
           </div>
           <HealthBar score={healthScore} />
         </div>

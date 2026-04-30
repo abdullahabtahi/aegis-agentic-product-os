@@ -4,7 +4,7 @@
  */
 
 import { BACKEND_URL } from "./constants";
-import type { Bet, Intervention, SessionSummary, ArtifactEntry, DiscoverBetsResponse, ControlLevel, RiskType, AcknowledgedRisk, SuppressionRule } from "./types";
+import type { Bet, Intervention, SessionSummary, ArtifactEntry, DiscoverBetsResponse, ControlLevel, RiskType, AcknowledgedRisk, SuppressionRule, KillCriteriaAction } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BACKEND_URL}${path}`, {
@@ -78,6 +78,12 @@ export interface BetCreateRequest {
   success_metrics?: Array<{ name: string; target_value: string; unit: string }>;
   time_horizon?: string;
   linear_project_ids?: string[];
+  kill_criteria?: {
+    condition: string;
+    deadline: string;
+    committed_action: KillCriteriaAction;
+    status: "pending";
+  } | null;
 }
 
 export function createBet(body: BetCreateRequest): Promise<Record<string, unknown>> {

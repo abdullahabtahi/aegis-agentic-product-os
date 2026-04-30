@@ -94,6 +94,7 @@ export type EvidenceType =
   | "bet_fragmentation"      // work spread too thin across unrelated areas
   | "strategy_doc_mismatch"  // Linear work doesn't match strategy doc contents
   | "placebo_productivity"   // high ticket close rate but few/none are bet-mapped
+  | "kill_criteria_triggered" // deadline passed and founder has not marked condition as met
 
 export type TraceType =
   | "bet_clustering"
@@ -213,6 +214,29 @@ export interface Workspace {
   created_at: string
 }
 
+// ─────────────────────────────────────────────
+// FEATURE 007: KILL CRITERIA
+// ─────────────────────────────────────────────
+
+export type KillCriteriaAction = "pivot" | "kill" | "extend"
+
+export type KillCriteriaStatus =
+  | "pending"      // deadline not yet reached — monitoring
+  | "triggered"    // deadline passed AND founder has not marked it met
+  | "met"          // founder explicitly marked the condition as met before deadline
+  | "waived"       // founder manually waived this criterion
+
+export interface KillCriteria {
+  condition: string             // "Ship to 3 paying users by May 1"
+  deadline: string              // ISO 8601 date (YYYY-MM-DD)
+  committed_action: KillCriteriaAction
+  status: KillCriteriaStatus    // computed by Signal Engine; default "pending"
+  triggered_at?: string         // ISO 8601; set when status → "triggered"
+  met_at?: string               // ISO 8601; set when founder marks as met
+  waived_at?: string            // ISO 8601; set when founder waives
+  waived_reason?: string
+}
+
 export interface Bet {
   id: string
   workspace_id: string
@@ -232,6 +256,9 @@ export interface Bet {
   health_baseline: BetHealthBaseline
 
   acknowledged_risks: AcknowledgedRisk[]  // prevents re-surfacing accepted noise
+
+  // Feature 007: Pre-declared failure condition (single criterion for MVP)
+  kill_criteria?: KillCriteria
 
   // Linked artifacts
   linear_project_ids: string[]
@@ -254,6 +281,9 @@ export interface BetSnapshot {
   risk_types_present: RiskType[]
   status: ScanStatus                  // "ok" | "error" — always set; UI shows scan freshness
   error_code?: ScanErrorCode          // set if status === "error"
+
+  // Feature 008: conviction score — augments health_score with named dimensions
+  conviction_score?: ConvictionScore  // null until first scan; populated by Signal Engine
 
   // Hypothesis lifecycle signals (Phase 2 — requires HypothesisExperiment table)
   // null = not yet computed (Phase 2 not active). 0 = tested today. Never use 0 as default.
@@ -335,6 +365,9 @@ export interface Intervention {
   decided_at?: string
   founder_note?: string
   rejection_reason?: RejectionReasonCategory  // set on rejection; feeds Governor suppress loop
+
+  // Feature 010: 4Ps Pivot Diagnosis — attached after conversational session
+  pivot_diagnosis?: PivotDiagnosis
 
   created_at: string
 }
@@ -441,6 +474,86 @@ export interface ProductHeuristic {
   example_pattern: string
   suggested_action: ActionType
   confidence_weight: number           // tuned by AutoResearch per workspace
+}
+
+// ─────────────────────────────────────────────
+// FEATURE 008: CONVICTION SCORE
+// ─────────────────────────────────────────────
+
+export type ConvictionLevel = "strong" | "developing" | "nascent" | "critical"
+
+export interface ConvictionDimension {
+  name: string                        // e.g. "Kill criteria defined"
+  key: string                         // snake_case identifier
+  points_earned: number               // 0 or partial
+  points_max: number
+  met: boolean
+}
+
+export interface ConvictionScore {
+  total: number                       // 0–100
+  level: ConvictionLevel              // strong/developing/nascent/critical
+  dimensions: ConvictionDimension[]   // always 6 items
+  computed_at: string                 // ISO 8601
+}
+
+// ─────────────────────────────────────────────
+// FEATURE 009: WEEKLY FOUNDER BRIEF
+// ─────────────────────────────────────────────
+
+export interface BriefBetSummary {
+  bet_id: string
+  bet_name: string
+  conviction_delta: number | null     // +N or -N vs prior week snapshot; null if no baseline
+  conviction_level: ConvictionLevel
+  conviction_total: number
+  kill_criteria_status?: KillCriteriaStatus
+  kill_criteria_condition?: string
+}
+
+export interface FounderBrief {
+  workspace_id: string
+  generated_at: string
+  week_label: string                  // "Week of April 28, 2026"
+  bets_improving: BriefBetSummary[]   // conviction_delta > 0; max 3
+  bets_at_risk: BriefBetSummary[]     // conviction "critical" OR kill_criteria triggered; max 3
+  pending_intervention_count: number
+  most_urgent_intervention?: {
+    id: string
+    bet_name: string
+    action_type: ActionType
+    severity: Severity
+    headline: string
+  }
+  weekly_question: string
+  total_bets: number
+  avg_conviction: number | null       // null if no bets have been scanned
+  scans_this_week: number
+}
+
+// ─────────────────────────────────────────────
+// FEATURE 010: PIVOT DIAGNOSIS
+// ─────────────────────────────────────────────
+
+export type PivotRecommendation = "stay_course" | "small_pivot" | "large_pivot" | "kill"
+
+export interface PivotPScore {
+  p: "problem" | "persona" | "product" | "positioning"
+  label: string
+  confidence: number | null           // 1–5; null when skipped
+  founder_note: string                // empty string when not provided, never null
+  is_weakest: boolean
+}
+
+export interface PivotDiagnosis {
+  id: string
+  intervention_id: string | null      // null when no linked intervention
+  bet_id: string
+  conducted_at: string
+  scores: PivotPScore[]               // always 4 items, one per P
+  recommendation: PivotRecommendation
+  recommendation_rationale: string
+  weakest_p: "problem" | "persona" | "product" | "positioning"
 }
 
 // ─────────────────────────────────────────────

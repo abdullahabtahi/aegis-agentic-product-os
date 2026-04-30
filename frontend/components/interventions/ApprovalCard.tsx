@@ -8,6 +8,7 @@ import {
 import { ACTION_LABELS, ESCALATION_LABELS, RISK_LABELS, SEVERITY_BG } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { Intervention } from "@/lib/types";
+import { PivotDiagnosisCard } from "./PivotDiagnosisCard";
 
 interface ApprovalCardProps {
   intervention: Intervention;
@@ -194,6 +195,14 @@ export function ApprovalCard({
             <p className="text-[11px] leading-relaxed text-white/50 italic">
               &ldquo;{i.risk_signal.headline}&rdquo;
             </p>
+          )}
+
+          {/* Pivot diagnosis — shown when agent ran 4Ps analysis */}
+          {i.pivot_diagnosis && (
+            <PivotDiagnosisCard
+              diagnosis={i.pivot_diagnosis}
+              className="mt-4"
+            />
           )}
         </div>
       )}

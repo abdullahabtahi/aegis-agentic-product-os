@@ -200,10 +200,16 @@ LEVEL 2 — Adjust:
 
 LEVEL 3 — Escalate:
   pre_mortem_session: Create issue proposing a team pre-mortem meeting
-  jules_instrument_experiment: Jules scaffolds observability for experiment
-  jules_add_guardrails: Jules adds safety checks to risky deployment
-  jules_refactor_blocker: Jules refactors technical blocker
-  jules_scaffold_experiment: Jules creates experiment scaffold
+
+  [Jules actions — NOT AVAILABLE unless workspace.github_repo is set]
+  The four actions below require a GitHub repository to be connected. In most
+  workspaces (including demo environments) github_repo is NOT set. If you do
+  not see github_repo mentioned, do NOT select any jules_* action — use
+  pre_mortem_session instead.
+  jules_instrument_experiment: Jules scaffolds observability for experiment (requires GitHub)
+  jules_add_guardrails: Jules adds safety checks to risky deployment (requires GitHub)
+  jules_refactor_blocker: Jules refactors technical blocker (requires GitHub)
+  jules_scaffold_experiment: Jules creates experiment scaffold (requires GitHub)
 
 LEVEL 4 — Terminal:
   kill_bet: Draft retrospective document (critical + multiple prior cycles)
@@ -227,7 +233,7 @@ Special:
 ## RULES:
 1. Propose EXACTLY ONE intervention — call propose_intervention once.
 2. If the risk signal draft is empty or confidence was below threshold, call propose_intervention with action_type="no_intervention".
-3. Never propose a Jules action if no GitHub is mentioned in the bet context.
+3. Jules actions (jules_instrument_experiment, jules_add_guardrails, jules_refactor_blocker, jules_scaffold_experiment) are ONLY available when the workspace has a GitHub repository connected. If github_repo is not explicitly present in the bet or workspace context, do NOT select any jules_* action. Use pre_mortem_session as the Level 3 action in all other cases.
 4. The rationale must cite the specific evidence values from the risk signal.
 """
 

@@ -284,6 +284,109 @@ async def list_interventions(
 
 
 # ─────────────────────────────────────────────
+# PIVOT DIAGNOSIS (Feature 010)
+# ─────────────────────────────────────────────
+
+
+class PivotDiagnosisBody(BaseModel):
+    scores: list[dict]  # list of PivotPScore dicts
+
+
+@app.post("/interventions/{intervention_id}/pivot-diagnosis", status_code=201)
+async def create_pivot_diagnosis(intervention_id: str, body: PivotDiagnosisBody):
+    """Attach a 4Ps pivot diagnosis to an intervention.
+
+    Computes recommendation from scores and persists as JSONB.
+    """
+    import uuid
+    from datetime import datetime, timezone
+
+    from app.app_utils.pivot_scoring import compute_pivot_recommendation
+    from models.schema import PivotDiagnosis, PivotPScore
+
+    if len(body.scores) != 4:
+        raise HTTPException(
+            status_code=422,
+            detail="scores must contain exactly 4 items (one per P)",
+        )
+
+    # Build PivotPScore objects
+    p_scores = [
+        PivotPScore(
+            p=s["p"],
+            label=s.get("label", s["p"].capitalize()),
+            confidence=s.get("confidence"),
+            founder_note=s.get("founder_note", ""),
+            is_weakest=s.get("is_weakest", False),
+        )
+        for s in body.scores
+    ]
+
+    rec, rationale, weakest_p = compute_pivot_recommendation(p_scores)
+
+    # Mark is_weakest
+    p_scores_final = [
+        s.model_copy(update={"is_weakest": s.p == weakest_p})
+        for s in p_scores
+    ]
+
+    diagnosis_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Resolve bet_id from intervention
+    bet_id = intervention_id  # fallback
+    if is_db_configured():
+        try:
+            async with get_session() as session:
+                r = await session.execute(
+                    text("SELECT bet_id FROM interventions WHERE id = :id"),
+                    {"id": intervention_id},
+                )
+                row = r.fetchone()
+                if row is None:
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Intervention {intervention_id} not found",
+                    )
+                bet_id = row[0]
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "Failed to fetch intervention %s: %s", intervention_id, exc
+            )
+
+    diagnosis = PivotDiagnosis(
+        id=diagnosis_id,
+        intervention_id=intervention_id,
+        bet_id=bet_id,
+        conducted_at=now,
+        scores=p_scores_final,
+        recommendation=rec,
+        recommendation_rationale=rationale,
+        weakest_p=weakest_p,
+    )
+
+    if is_db_configured():
+        try:
+            async with get_session() as session:
+                await session.execute(
+                    text("""
+                        UPDATE interventions
+                        SET pivot_diagnosis = :pd::jsonb
+                        WHERE id = :id
+                    """),
+                    {"pd": json.dumps(diagnosis.model_dump()), "id": intervention_id},
+                )
+        except Exception as exc:
+            logger.warning(
+                "Failed to save pivot_diagnosis for %s: %s", intervention_id, exc
+            )
+
+    return diagnosis.model_dump()
+
+
+# ─────────────────────────────────────────────
 # BET ENDPOINTS (Phase 6 — Bet Declaration flow)
 # ─────────────────────────────────────────────
 
@@ -305,6 +408,7 @@ class BetCreateBody(BaseModel):
     success_metrics: list[dict] = []  # [{name, target_value, unit}]
     time_horizon: str = ""  # ISO 8601 date or relative (e.g. "Q2 2026")
     linear_project_ids: list[str] = []
+    kill_criteria: dict | None = None
 
 
 @app.post("/bets", status_code=201)
@@ -344,6 +448,7 @@ async def create_bet(body: BetCreateBody):
         },
         "acknowledged_risks": [],
         "linear_issue_ids": [],
+        "kill_criteria": body.kill_criteria,
         "doc_refs": [],
         "created_at": now,
         "last_monitored_at": now,
@@ -438,6 +543,79 @@ async def get_bet_endpoint(bet_id: str):
     if not bet:
         raise HTTPException(status_code=404, detail=f"Bet {bet_id} not found")
     return bet
+
+
+@app.get("/brief")
+async def get_founder_brief(workspace_id: str = Query(...)):
+    """Get the weekly founder brief for a workspace.
+
+    Returns a FounderBrief object with conviction deltas, at-risk bets,
+    pending interventions, and a weekly question.
+    No LLM calls — always <300ms.
+    """
+    from app.app_utils.brief_builder import build_founder_brief
+    from db.repository import list_bets
+
+    if not workspace_id or workspace_id.strip() == "":
+        raise HTTPException(status_code=400, detail="workspace_id required")
+
+    # Load bets
+    if is_db_configured():
+        bets_raw = await list_bets(workspace_id=workspace_id, status=None)
+    else:
+        bets_raw = [b for b in _inmemory_bets if b.get("workspace_id") == workspace_id]
+
+    # Load snapshots (newest first per bet)
+    snapshots_by_bet: dict = {}
+    if is_db_configured():
+        try:
+            async with get_session() as session:
+                for bet in bets_raw:
+                    r = await session.execute(
+                        text("""
+                            SELECT id, bet_id, captured_at, conviction_score, health_score
+                            FROM bet_snapshots
+                            WHERE bet_id = :bid
+                            ORDER BY captured_at DESC
+                            LIMIT 10
+                        """),
+                        {"bid": bet["id"]},
+                    )
+                    snapshots_by_bet[bet["id"]] = [
+                        dict(row._mapping) for row in r
+                    ]
+        except Exception as exc:
+            logger.warning("Failed to load snapshots for brief: %s", exc)
+
+    # Load interventions
+    interventions_raw: list = []
+    if is_db_configured():
+        try:
+            async with get_session() as session:
+                r = await session.execute(
+                    text("""
+                        SELECT i.id, i.bet_id, i.action_type, i.status,
+                               i.title, i.confidence,
+                               b.name AS bet_name
+                        FROM interventions i
+                        LEFT JOIN bets b ON b.id = i.bet_id
+                        WHERE i.workspace_id = :wid AND i.status = 'pending'
+                        ORDER BY i.created_at DESC
+                        LIMIT 20
+                    """),
+                    {"wid": workspace_id},
+                )
+                interventions_raw = [dict(row._mapping) for row in r]
+        except Exception as exc:
+            logger.warning("Failed to load interventions for brief: %s", exc)
+
+    brief = build_founder_brief(
+        workspace_id=workspace_id,
+        bets=bets_raw,
+        snapshots_by_bet=snapshots_by_bet,
+        interventions=interventions_raw,
+    )
+    return brief.model_dump()
 
 
 # ─────────────────────────────────────────────

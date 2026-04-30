@@ -82,6 +82,7 @@ EvidenceType = Literal[
     "bet_fragmentation",
     "strategy_doc_mismatch",
     "placebo_productivity",
+    "kill_criteria_triggered",  # Feature 007: deadline passed, not marked met
 ]
 
 TraceType = Literal[
@@ -230,6 +231,127 @@ class LinearAction(BaseModel):
 # ─────────────────────────────────────────────
 
 
+# ─────────────────────────────────────────────
+# FEATURE 007: KILL CRITERIA
+# ─────────────────────────────────────────────
+
+KillCriteriaAction = Literal["pivot", "kill", "extend"]
+KillCriteriaStatus = Literal["pending", "triggered", "met", "waived"]
+
+
+class KillCriteria(BaseModel):
+    condition: str                    # "Ship to 3 paying users by May 1"
+    deadline: str                     # ISO 8601 date (YYYY-MM-DD)
+    committed_action: KillCriteriaAction
+    status: KillCriteriaStatus = "pending"
+    triggered_at: str | None = None
+    met_at: str | None = None
+    waived_at: str | None = None
+    waived_reason: str | None = None
+
+    model_config = {"frozen": True}
+
+
+# ─────────────────────────────────────────────
+# FEATURE 008: CONVICTION SCORE
+# ─────────────────────────────────────────────
+
+ConvictionLevel = Literal["strong", "developing", "nascent", "critical"]
+
+
+class ConvictionDimension(BaseModel):
+    name: str
+    key: str
+    points_earned: float
+    points_max: float
+    met: bool
+
+    model_config = {"frozen": True}
+
+
+class ConvictionScore(BaseModel):
+    total: float           # 0–100
+    level: ConvictionLevel
+    dimensions: list[ConvictionDimension] = Field(default_factory=list)
+    computed_at: str
+
+    model_config = {"frozen": True}
+
+
+# ─────────────────────────────────────────────
+# FEATURE 009: WEEKLY FOUNDER BRIEF
+# ─────────────────────────────────────────────
+
+
+class BriefMostUrgentIntervention(BaseModel):
+    id: str
+    bet_name: str
+    action_type: ActionType
+    severity: Severity
+    headline: str
+
+    model_config = {"frozen": True}
+
+
+class BriefBetSummary(BaseModel):
+    bet_id: str
+    bet_name: str
+    conviction_delta: float | None = None
+    conviction_level: ConvictionLevel
+    conviction_total: float
+    kill_criteria_status: KillCriteriaStatus | None = None
+    kill_criteria_condition: str | None = None
+
+    model_config = {"frozen": True}
+
+
+class FounderBrief(BaseModel):
+    workspace_id: str
+    generated_at: str
+    week_label: str
+    bets_improving: list[BriefBetSummary] = Field(default_factory=list)
+    bets_at_risk: list[BriefBetSummary] = Field(default_factory=list)
+    pending_intervention_count: int = 0
+    most_urgent_intervention: BriefMostUrgentIntervention | None = None
+    weekly_question: str
+    total_bets: int = 0
+    avg_conviction: float | None = None
+    scans_this_week: int = 0
+
+    model_config = {"frozen": True}
+
+
+# ─────────────────────────────────────────────
+# FEATURE 010: PIVOT DIAGNOSIS
+# ─────────────────────────────────────────────
+
+PivotRecommendation = Literal["stay_course", "small_pivot", "large_pivot", "kill"]
+PivotP = Literal["problem", "persona", "product", "positioning"]
+
+
+class PivotPScore(BaseModel):
+    p: PivotP
+    label: str
+    confidence: int | None = None     # 1–5; None when skipped
+    founder_note: str = ""
+    is_weakest: bool = False
+
+    model_config = {"frozen": True}
+
+
+class PivotDiagnosis(BaseModel):
+    id: str
+    intervention_id: str | None = None
+    bet_id: str
+    conducted_at: str
+    scores: list[PivotPScore] = Field(default_factory=list)
+    recommendation: PivotRecommendation
+    recommendation_rationale: str
+    weakest_p: PivotP
+
+    model_config = {"frozen": True}
+
+
 class Workspace(BaseModel):
     id: str
     linear_team_id: str
@@ -258,6 +380,8 @@ class Bet(BaseModel):
     status: BetStatus
     health_baseline: BetHealthBaseline
     acknowledged_risks: list[AcknowledgedRisk] = Field(default_factory=list)
+    # Feature 007: pre-declared failure condition
+    kill_criteria: KillCriteria | None = None
     linear_project_ids: list[str] = Field(default_factory=list)
     linear_issue_ids: list[str] = Field(default_factory=list)
     doc_refs: list[str] = Field(default_factory=list)
@@ -279,6 +403,9 @@ class BetSnapshot(BaseModel):
     risk_types_present: list[RiskType] = Field(default_factory=list)
     status: ScanStatus
     error_code: ScanErrorCode | None = None
+
+    # Feature 008: conviction score — augments health_score with named dimensions
+    conviction_score: ConvictionScore | None = None
 
     # Phase 2: null = not yet computed (Phase 2 not active). 0 = tested today. Never default to 0.
     hypothesis_staleness_days: int | None = None
@@ -346,6 +473,8 @@ class Intervention(BaseModel):
     decided_at: str | None = None
     founder_note: str | None = None
     rejection_reason: RejectionReasonCategory | None = None
+    # Feature 010: 4Ps pivot diagnosis — attached after conversational session
+    pivot_diagnosis: PivotDiagnosis | None = None
     created_at: str
 
     model_config = {"frozen": True}

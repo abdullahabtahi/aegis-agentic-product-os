@@ -68,6 +68,105 @@ export interface DeclarationSource {
 
 export type BetStatus = "detecting" | "active" | "paused" | "validated" | "killed" | "archived";
 
+// ─────────────────────────────────────────────
+// FEATURE 007: KILL CRITERIA
+// ─────────────────────────────────────────────
+
+export type KillCriteriaAction = "pivot" | "kill" | "extend";
+export type KillCriteriaStatus = "pending" | "triggered" | "met" | "waived";
+
+export interface KillCriteria {
+  condition: string;
+  deadline: string;           // ISO 8601 date (YYYY-MM-DD)
+  committed_action: KillCriteriaAction;
+  status: KillCriteriaStatus;
+  triggered_at?: string | null;
+  met_at?: string | null;
+  waived_at?: string | null;
+  waived_reason?: string | null;
+}
+
+// ─────────────────────────────────────────────
+// FEATURE 008: CONVICTION SCORE
+// ─────────────────────────────────────────────
+
+export type ConvictionLevel = "strong" | "developing" | "nascent" | "critical";
+
+export interface ConvictionDimension {
+  name: string;
+  key: string;
+  points_earned: number;
+  points_max: number;
+  met: boolean;
+}
+
+export interface ConvictionScore {
+  total: number;
+  level: ConvictionLevel;
+  dimensions: ConvictionDimension[];
+  computed_at: string;
+}
+
+// ─────────────────────────────────────────────
+// FEATURE 009: WEEKLY FOUNDER BRIEF
+// ─────────────────────────────────────────────
+
+export interface BriefBetSummary {
+  bet_id: string;
+  bet_name: string;
+  conviction_delta: number | null;
+  conviction_level: ConvictionLevel;
+  conviction_total: number;
+  kill_criteria_status?: KillCriteriaStatus;
+  kill_criteria_condition?: string;
+}
+
+export interface FounderBrief {
+  workspace_id: string;
+  generated_at: string;
+  week_label: string;
+  bets_improving: BriefBetSummary[];
+  bets_at_risk: BriefBetSummary[];
+  pending_intervention_count: number;
+  most_urgent_intervention?: {
+    id: string;
+    bet_name: string;
+    action_type: ActionType;
+    severity: Severity;
+    headline: string;
+  };
+  weekly_question: string;
+  total_bets: number;
+  avg_conviction: number | null;
+  scans_this_week: number;
+}
+
+// ─────────────────────────────────────────────
+// FEATURE 010: PIVOT DIAGNOSIS
+// ─────────────────────────────────────────────
+
+export type PivotRecommendation = "stay_course" | "small_pivot" | "large_pivot" | "kill";
+export type PivotP = "problem" | "persona" | "product" | "positioning";
+
+export interface PivotPScore {
+  p: PivotP;
+  label: string;
+  confidence: number | null;  // 1–5; null when skipped
+  founder_note: string;
+  is_weakest: boolean;
+}
+
+export interface PivotDiagnosis {
+  id: string;
+  intervention_id: string | null;
+  bet_id: string;
+  conducted_at: string;
+  scores: PivotPScore[];
+  recommendation: PivotRecommendation;
+  recommendation_rationale: string;
+  weakest_p: PivotP;
+}
+
 export interface Bet {
   id: string;
   workspace_id: string;
@@ -85,6 +184,8 @@ export interface Bet {
   linear_project_ids: string[];
   linear_issue_ids: string[];
   doc_refs: string[];
+  // Feature 007: pre-declared failure condition
+  kill_criteria?: KillCriteria | null;
   created_at: string;
   last_monitored_at: string | null;  // null until first scan — never set on declaration
   completed_at?: string | null;
@@ -113,6 +214,8 @@ export interface BetSnapshot {
   risk_types_present: RiskType[];
   status: "ok" | "error";
   error_code?: string | null;
+  // Feature 008: conviction score
+  conviction_score?: ConvictionScore | null;
   hypothesis_staleness_days: number | null;
   hypothesis_experiment_count: number;
   last_experiment_outcome: string | null;
@@ -156,6 +259,8 @@ export interface Intervention {
   proposed_issue_title?: string;
   proposed_issue_description?: string;
   blast_radius?: BlastRadiusPreview;
+  // Feature 010: 4Ps pivot diagnosis
+  pivot_diagnosis?: PivotDiagnosis | null;
   created_at: string;
   resolved_at?: string;
   denial_reason?: string;

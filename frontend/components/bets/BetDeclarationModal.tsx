@@ -12,6 +12,8 @@
 import { useState, useRef, useEffect } from "react";
 import { X, Target, Loader2, ChevronDown, ChevronUp } from "lucide-react";
 import { createBet } from "@/lib/api";
+import { type KillCriteriaAction } from "@/lib/types";
+import { KillCriteriaStep } from "./KillCriteriaStep";
 
 interface BetDeclarationModalProps {
   open: boolean;
@@ -32,6 +34,12 @@ export function BetDeclarationModal({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [step, setStep] = useState<1 | 2>(1);
+  const [killCriteria, setKillCriteria] = useState<{
+    condition: string;
+    deadline: string;
+    committed_action: KillCriteriaAction;
+  }>({ condition: "", deadline: "", committed_action: "kill" });
 
   // Form state
   const [name, setName] = useState("");
@@ -64,6 +72,8 @@ export function BetDeclarationModal({
     setMetricUnit("");
     setShowAdvanced(false);
     setError(null);
+    setStep(1);
+    setKillCriteria({ condition: "", deadline: "", committed_action: "kill" });
   }
 
   function handleClose() {
@@ -71,15 +81,13 @@ export function BetDeclarationModal({
     onClose();
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function doSubmit(killCriteriaPayload?: {
+    condition: string;
+    deadline: string;
+    committed_action: KillCriteriaAction;
+    status: "pending";
+  }) {
     setError(null);
-
-    if (!name.trim() || !targetSegment.trim() || !problemStatement.trim()) {
-      setError("Name, target segment, and problem statement are required.");
-      return;
-    }
-
     const successMetrics =
       metricName.trim()
         ? [{ name: metricName.trim(), target_value: metricTarget.trim(), unit: metricUnit.trim() }]
@@ -95,11 +103,10 @@ export function BetDeclarationModal({
         hypothesis: hypothesis.trim(),
         success_metrics: successMetrics,
         time_horizon: timeHorizon.trim(),
+        ...(killCriteriaPayload ? { kill_criteria: killCriteriaPayload } : {}),
       });
-      // Warn if the backend is running without a DB (in-memory only, resets on restart)
       if (bet.persisted === false) {
         setError("Direction saved in memory only — no database configured. It will be lost on backend restart.");
-        // Still call onBetDeclared so the list refreshes with the in-memory bet
         onBetDeclared(bet);
         setIsLoading(false);
         return;
@@ -111,6 +118,17 @@ export function BetDeclarationModal({
     } finally {
       setIsLoading(false);
     }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+
+    if (!name.trim() || !targetSegment.trim() || !problemStatement.trim()) {
+      setError("Name, target segment, and problem statement are required.");
+      return;
+    }
+    setStep(2);
   }
 
   return (
@@ -140,7 +158,15 @@ export function BetDeclarationModal({
         </button>
       </div>
 
-      {/* Form */}
+      {/* Step indicator */}
+      <div className="flex items-center gap-2 px-6 pt-4">
+        <div className={`h-1.5 w-8 rounded-full transition-colors ${step >= 1 ? "bg-indigo-400" : "bg-slate-200"}`} />
+        <div className={`h-1.5 w-8 rounded-full transition-colors ${step >= 2 ? "bg-indigo-400" : "bg-slate-200"}`} />
+        <span className="text-xs text-muted-foreground ml-1">Step {step} of 2</span>
+      </div>
+
+      {/* Form — Step 1 */}
+      {step === 1 && (
       <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
         {/* Direction name */}
         <div className="space-y-1.5">
@@ -269,14 +295,32 @@ export function BetDeclarationModal({
           </button>
           <button
             type="submit"
-            disabled={isLoading}
             className="flex items-center gap-1.5 rounded-lg bg-indigo-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-600 disabled:opacity-60"
           >
-            {isLoading && <Loader2 size={13} className="animate-spin" />}
-            {isLoading ? "Declaring..." : "Declare Direction"}
+            Continue →
           </button>
         </div>
       </form>
+      )}
+
+      {/* Kill Criteria — Step 2 */}
+      {step === 2 && (
+        <div className="px-6 py-5">
+          <KillCriteriaStep
+            value={killCriteria}
+            onChange={setKillCriteria}
+            onBack={() => setStep(1)}
+            onSkip={() => doSubmit()}
+            onSubmit={() =>
+              doSubmit({ ...killCriteria, status: "pending" })
+            }
+            isSubmitting={isLoading}
+          />
+          {error && (
+            <p className="rounded-lg bg-red-400/10 px-3 py-2 text-xs text-red-600 mt-4">{error}</p>
+          )}
+        </div>
+      )}
     </dialog>
   );
 }

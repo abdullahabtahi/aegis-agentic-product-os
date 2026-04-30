@@ -512,6 +512,7 @@ async def save_bet(bet: dict) -> str | None:
                         declaration_source, declaration_confidence,
                         status, health_baseline, acknowledged_risks,
                         linear_project_ids, linear_issue_ids, doc_refs,
+                        kill_criteria,
                         created_at, last_monitored_at
                     ) VALUES (
                         :id, :workspace_id, :name, :target_segment, :problem_statement,
@@ -519,6 +520,7 @@ async def save_bet(bet: dict) -> str | None:
                         :declaration_source::jsonb, :declaration_confidence,
                         :status, :health_baseline::jsonb, :acknowledged_risks::jsonb,
                         :linear_project_ids, :linear_issue_ids, :doc_refs,
+                        :kill_criteria::jsonb,
                         :created_at, :last_monitored_at
                     )
                 """),
@@ -557,6 +559,7 @@ async def save_bet(bet: dict) -> str | None:
                     "linear_project_ids": bet.get("linear_project_ids", []),
                     "linear_issue_ids": bet.get("linear_issue_ids", []),
                     "doc_refs": bet.get("doc_refs", []),
+                    "kill_criteria": _json_str(bet.get("kill_criteria")),
                     "created_at": bet.get("created_at", now),
                     "last_monitored_at": bet.get("last_monitored_at", now),
                 },

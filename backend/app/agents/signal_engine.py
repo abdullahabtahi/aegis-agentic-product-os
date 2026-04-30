@@ -16,6 +16,7 @@ Contract (from CLAUDE.md):
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
@@ -38,6 +39,8 @@ from tools.linear_tools import MockLinearMCP, RealLinearMCP, get_linear_mcp
 
 # Union type alias — Signal Engine accepts both Mock and Real
 LinearMCPClient = MockLinearMCP | RealLinearMCP
+
+logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────
@@ -121,6 +124,45 @@ def _placebo_productivity_score(issues: list, project_ids: set[str]) -> float | 
         return None
     unmapped_done = sum(1 for i in done if i.project_id not in project_ids)
     return round(unmapped_done / len(done), 4)
+
+
+def _evaluate_kill_criteria(
+    bet: "Bet",
+    now: datetime,
+) -> "Evidence | None":
+    """Check if kill criteria deadline has passed without being marked met.
+
+    Returns Evidence if triggered, None otherwise.
+    Kill criteria is evaluated at deadline boundary only — not before.
+    The founder must explicitly mark it as 'met' to suppress.
+    """
+    from models.schema import Evidence
+
+    kc = bet.kill_criteria
+    if kc is None:
+        return None
+    if kc.status in ("met", "waived"):
+        return None
+
+    try:
+        from datetime import date
+        deadline = date.fromisoformat(kc.deadline)
+        if now.date() < deadline:
+            return None
+    except (ValueError, AttributeError):
+        return None
+
+    return Evidence(
+        type="kill_criteria_triggered",
+        description=(
+            f"Kill criteria deadline passed: \"{kc.condition}\" "
+            f"(committed action: {kc.committed_action})"
+        ),
+        linear_refs=[],
+        observed_value=kc.deadline,
+        threshold_value=kc.deadline,
+        period_days=0,
+    )
 
 
 def _compute_health_score(
@@ -299,6 +341,36 @@ async def compute_signals(
         health_score = _compute_health_score(signals, bet.health_baseline)
         risk_types_present = _detect_risk_types(signals, bet.health_baseline)
 
+        # Kill criteria evaluation (Feature 007)
+        kc_evidence = _evaluate_kill_criteria(bet, now)
+        if kc_evidence is not None and "strategy_unclear" not in risk_types_present:
+            risk_types_present = [*risk_types_present, "strategy_unclear"]
+
+        # Feature 008: compute conviction score using bet + signals
+        from app.app_utils.conviction_scoring import compute_conviction_score
+
+        _provisional = BetSnapshot(
+            id="__temp__",
+            bet_id=bet.id,
+            captured_at=now.isoformat(),
+            period_start=period_start,
+            period_end=period_end,
+            linear_signals=signals,
+            health_score=health_score,
+            risk_types_present=risk_types_present,
+            status="ok",
+            hypothesis_staleness_days=None,
+            hypothesis_experiment_count=0,
+            last_experiment_outcome=None,
+            similar_bet_outcome_pct=None,
+            outcome_pattern_source_count=0,
+        )
+        try:
+            conviction = compute_conviction_score(bet, _provisional)
+        except Exception as _exc:
+            logger.warning("compute_conviction_score failed: %s", _exc)
+            conviction = None
+
         return BetSnapshot(
             id=str(uuid.uuid4()),
             bet_id=bet.id,
@@ -315,6 +387,7 @@ async def compute_signals(
             last_experiment_outcome=None,
             similar_bet_outcome_pct=None,
             outcome_pattern_source_count=0,
+            conviction_score=conviction,
         )
 
     except ValueError:

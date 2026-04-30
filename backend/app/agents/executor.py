@@ -33,7 +33,6 @@ from google.adk.events import Event
 from google.genai import types
 
 from models.responses import ExecutorResult
-from tools.jules_service import get_jules_client
 from tools.linear_tools import MockLinearMCP, RealLinearMCP, get_linear_mcp
 
 # Union type alias
@@ -158,18 +157,23 @@ class ExecutorAgent(BaseAgent):
             )
             return
 
-        # Handle Jules actions — create coding session via Jules API
+        # Handle Jules actions — requires GitHub + JULES_API_KEY (not yet configured).
+        # Governor's jules_gate check (#4) blocks these in normal pipeline flow;
+        # this stub handles any case that slips through and makes the gap explicit.
         if action_type.startswith("jules_"):
             workspace = ctx.session.state.get("workspace", {})
             github_repo = workspace.get("github_repo", "")
 
-            jules_client = get_jules_client()
-            jules_result = await jules_client.create_session(
-                action_type=action_type,
-                title=proposal.get("title", action_type),
-                rationale=proposal.get("rationale", ""),
-                github_repo=github_repo,
-            )
+            jules_result = {
+                "status": "not_available",
+                "error": (
+                    f"Jules integration is not configured (JULES_API_KEY not set). "
+                    f"Action '{action_type}' requires Jules API access. "
+                    "Connect Jules at https://jules.google.com to enable this."
+                ),
+                "session_id": None,
+                "jules_url": None,
+            }
 
             executed = jules_result.get("status") == "session_created"
             result = ExecutorResult(

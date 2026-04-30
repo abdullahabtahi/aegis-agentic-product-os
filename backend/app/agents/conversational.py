@@ -29,6 +29,24 @@ logger = logging.getLogger(__name__)
 # Pipeline stage names matching data-schema.ts PipelineStageName
 STAGE_NAMES = ["signal_engine", "product_brain", "coordinator", "governor", "executor"]
 
+# Keys that must be copied from sub-pipeline state back to the conversational
+# agent's tool_context.state after _run_sub_pipeline() completes.
+# IMPORTANT: Add new pipeline output fields here AND to the sub-pipeline agents
+# that produce them. Missing a key here causes silent data loss.
+_PIPELINE_OUTPUT_KEYS: frozenset[str] = frozenset(
+    {
+        "risk_signal_draft",
+        "governor_decision",
+        "pipeline_status",
+        "intervention_proposal",
+        "awaiting_approval_intervention",
+        "pending_intervention_id",
+        "policy_checks",
+        "cynic_assessment",
+        "optimist_assessment",
+    }
+)
+
 
 def _make_stages(
     current_idx: int, statuses: dict[str, str] | None = None
@@ -256,18 +274,10 @@ async def run_pipeline_scan(
             parent_state=tool_context.state,
         )
 
-        # Forward pipeline outputs to the conversational tool context
-        for key in (
-            "risk_signal_draft",
-            "governor_decision",
-            "pipeline_status",
-            "intervention_proposal",
-            "awaiting_approval_intervention",
-            "pending_intervention_id",
-            "policy_checks",
-            "cynic_assessment",
-            "optimist_assessment",
-        ):
+        # Forward pipeline outputs to the conversational tool context.
+        # _PIPELINE_OUTPUT_KEYS is the single source of truth for which keys
+        # are copied — add new pipeline fields there, not here.
+        for key in _PIPELINE_OUTPUT_KEYS:
             if key in pipeline_state:
                 tool_context.state[key] = pipeline_state[key]
 
