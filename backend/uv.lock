@@ -54,15 +54,6 @@ wheels = [
 ]
 
 [[package]]
-name = "aiofiles"
-version = "25.1.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/41/c3/534eac40372d8ee36ef40df62ec129bee4fdb5ad9706e58a29be53b2c970/aiofiles-25.1.0.tar.gz", hash = "sha256:a8d728f0a29de45dc521f18f07297428d56992a742f0cd2701ba86e44d23d5b2", size = 46354, upload-time = "2025-10-09T20:51:04.358Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/bc/8a/340a1555ae33d7354dbca4faa54948d76d89a27ceef032c8c3bc661d003e/aiofiles-25.1.0-py3-none-any.whl", hash = "sha256:abe311e527c862958650f9438e859c1fa7568a141b22abcd015e120e86a85695", size = 14668, upload-time = "2025-10-09T20:51:03.174Z" },
-]
-
-[[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -410,7 +401,6 @@ dependencies = [
     { name = "fastapi" },
     { name = "gcsfs" },
     { name = "google-adk" },
-    { name = "google-cloud-alloydb-connector", extra = ["asyncpg"] },
     { name = "google-cloud-logging" },
     { name = "greenlet" },
     { name = "httpx" },
@@ -452,7 +442,6 @@ requires-dist = [
     { name = "gcsfs", specifier = ">=2024.11.0" },
     { name = "google-adk", specifier = ">=1.15.0,<2.0.0" },
     { name = "google-adk", extras = ["eval"], marker = "extra == 'eval'", specifier = ">=1.15.0,<2.0.0" },
-    { name = "google-cloud-alloydb-connector", extras = ["asyncpg"], specifier = ">=1.4.0,<2.0.0" },
     { name = "google-cloud-logging", specifier = ">=3.12.0,<4.0.0" },
     { name = "greenlet", specifier = ">=3.3.2" },
     { name = "httpx", specifier = ">=0.27.0,<1.0.0" },
@@ -1243,46 +1232,6 @@ evaluation = [
     { name = "scikit-learn", version = "1.5.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "scikit-learn", version = "1.8.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "tqdm" },
-]
-
-[[package]]
-name = "google-cloud-alloydb"
-version = "0.9.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "google-api-core", extra = ["grpc"] },
-    { name = "google-auth" },
-    { name = "grpc-google-iam-v1" },
-    { name = "grpcio" },
-    { name = "proto-plus" },
-    { name = "protobuf" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/7a/31/920111700f32dfc3fb12d41cac58cc68973b55d479dc299222cda58c0c4e/google_cloud_alloydb-0.9.0.tar.gz", hash = "sha256:c9339e0bc7fdc9968d9b4901c74bd328ac6d79fe6bbcd87ca7d97971271ca5dd", size = 700898, upload-time = "2026-03-30T22:51:24.508Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/7a/ea/2da8703ff5dce4e4d2319b8e046adb67cd311693818728dd16d6a6e527fd/google_cloud_alloydb-0.9.0-py3-none-any.whl", hash = "sha256:ee1e69a752fd26d36f5db686a71f8886f0c22b6b88b213f7e265c45568f766f4", size = 536940, upload-time = "2026-03-30T22:49:09.212Z" },
-]
-
-[[package]]
-name = "google-cloud-alloydb-connector"
-version = "1.12.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "aiofiles" },
-    { name = "cryptography" },
-    { name = "google-api-core" },
-    { name = "google-auth" },
-    { name = "google-cloud-alloydb" },
-    { name = "protobuf" },
-    { name = "requests" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/bb/6d/8df5574d9d23b37969f04bf6f6d047bfe934d31bf6411d141a6a596fa7da/google_cloud_alloydb_connector-1.12.1.tar.gz", hash = "sha256:0fe27f328136a9f8b0e0fe2927e684725a21e6891fe5fd09212e078f295d43df", size = 31548, upload-time = "2026-03-05T23:30:02.424Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/85/b9/93430e9b10157f40efe28fe1d653cfd86f32419804c198c5802b774b1f84/google_cloud_alloydb_connector-1.12.1-py3-none-any.whl", hash = "sha256:360c9f549c9dadfa6326247ebc8cf8c1d32887ef7ea6c0bd96decf2d285b0632", size = 44101, upload-time = "2026-03-05T23:30:00.661Z" },
-]
-
-[package.optional-dependencies]
-asyncpg = [
-    { name = "asyncpg" },
 ]
 
 [[package]]

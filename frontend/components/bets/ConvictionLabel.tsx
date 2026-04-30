@@ -13,12 +13,19 @@ const LEVEL_CONFIG: Record<
 };
 
 interface ConvictionLabelProps {
-  score: ConvictionScore;
+  score: ConvictionScore | null;
   className?: string;
 }
 
 export function ConvictionLabel({ score, className = "" }: ConvictionLabelProps) {
-  const config = LEVEL_CONFIG[score.level];
+  if (!score) {
+    return (
+      <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold bg-slate-100 text-slate-400 ${className}`}>
+        — Unscanned
+      </span>
+    );
+  }
+  const config = LEVEL_CONFIG[score.level] ?? LEVEL_CONFIG["critical"];
   return (
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${config.bgClass} ${config.textClass} ${className}`}

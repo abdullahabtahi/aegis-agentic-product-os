@@ -15,14 +15,24 @@ export function useBackendHealth(): HealthStatus {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${BACKEND_URL}/debug/ping`, { signal: AbortSignal.timeout(4000) })
-      .then((r) => {
-        if (!cancelled) setStatus(r.ok ? "online" : "offline");
-      })
-      .catch(() => {
-        if (!cancelled) setStatus("offline");
-      });
-    return () => { cancelled = true; };
+
+    const check = () => {
+      fetch(`${BACKEND_URL}/debug/ping`, { signal: AbortSignal.timeout(4000) })
+        .then((r) => {
+          if (!cancelled) setStatus(r.ok ? "online" : "offline");
+        })
+        .catch(() => {
+          if (!cancelled) setStatus("offline");
+        });
+    };
+
+    check();
+    // Retry every 5 s so the banner clears automatically when the backend boots
+    const interval = setInterval(check, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
   }, []);
 
   return status;

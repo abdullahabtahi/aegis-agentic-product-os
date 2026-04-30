@@ -6,6 +6,7 @@
   <img src="https://img.shields.io/badge/Google_ADK-Gemini_3-4285F4?logo=google&logoColor=white" />
   <img src="https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&logoColor=white" />
   <img src="https://img.shields.io/badge/CopilotKit-AG--UI-6366f1" />
+  <img src="https://img.shields.io/badge/Gemini_Live-Boardroom-8B5CF6?logo=google&logoColor=white" />
   <img src="https://img.shields.io/badge/Tests-127_passing-4ade80" />
 </p>
 
@@ -63,6 +64,47 @@ Each stage is a separate agent. Each feeds the next. No parallelism — by desig
 | 5 | **Executor** | Deterministic | Runs the approved intervention — a Linear comment, a new issue, a label change, or a Jules task. Never improvises. Only writes what was approved. |
 
 **Why this sequence matters:** Strategy problems need clarification, not process. Alignment problems need reprioritization, not better tools. Execution problems need unblocking, not strategy rethinking. The pipeline classifies first, then prescribes — so the intervention actually matches the disease.
+
+---
+
+## Capstone Feature: Aegis Boardroom
+
+The Boardroom is a live, voice-first AI panel that stress-tests a product decision using **actual Aegis pipeline data** — not generic opinions.
+
+The founder opens the Boardroom from any active bet, states their decision question and key assumption, then speaks. Three AI advisors debate them in real time, citing the risk signals Aegis already computed for this bet.
+
+| Advisor | Persona | Role |
+|---------|---------|------|
+| **Jordan** (Bear) | The Skeptic | Opens with the pipeline's risk signals. Challenges every assumption. |
+| **Maya** (Bull) | The Champion | Argues the strongest case for the bet. |
+| **Ren** (Sage) | The Operator | Bridges Bear and Bull. Always closes with 2-3 concrete experiments. |
+
+After the session: a structured verdict (confidence score, proceed/pause/pivot recommendation, per-advisor assessments, key risks, next experiments) is synthesised by an ADK verdict agent and anchored in the Aegis audit trail as an Intervention.
+
+### Technical Implementation
+
+- **Transport:** Single Gemini Live WebSocket (`gemini-3.1-flash-live-preview` via AI Studio)
+- **Voice capture:** `AudioWorklet` at 16kHz off the main thread — no render-cycle stalls
+- **Playback:** `AudioContext` at 24kHz with queue draining
+- **Speaker attribution:** `[BEAR]/[BULL]/[SAGE]` tags parsed in real time by `useTurnCapture` for per-advisor UI highlighting
+- **Session resilience:** `GoAway` frame handling for network interruption recovery
+- **Autoplay compliance:** `AudioContext` created synchronously in the user gesture handler and passed as a prop — satisfies Chrome and Safari autoplay policies
+- **Verdict synthesis:** Separate ADK verdict agent reads the full session transcript → produces `BoardroomVerdict` stored as an Intervention in PostgreSQL
+
+### Boardroom UI (10 components)
+
+| Component | Purpose |
+|-----------|---------|
+| `AdvisorTile` | Active-speaker: scale(1.03), SoundWaveBars animation. Idle: PulsingDot. `useReducedMotion()` compliant. |
+| `BoardroomSetupForm` | 2-step form: decision question (200 chars) + key assumption (150 chars). Char count + touched-state validation. |
+| `BoardroomSessionTimer` | Elapsed display. Amber warning at 13 min, hard stop at 15 min. |
+| `BoardroomConnectionBanner` | Status → label/icon/color for all connection states. |
+| `BoardroomUserPiP` | Picture-in-picture with `MotionValue`-driven waveform (zero re-renders per frame). |
+| `BoardroomControls` | Mute / end session. 44×44px touch targets. |
+| `BoardroomIntroScreen` | Staggered advisor card entrance (spring animation). Context preview accordion. |
+| `DeliberatingOverlay` | Full-screen blur + animated dots while verdict agent synthesises. |
+| `VerdictPanel` | 3 tabs: Verdict / Key Risks / Next Experiments. SVG circular confidence gauge. |
+| `BoardroomRoom` | Orchestrator: session lifecycle, `AudioWorklet` init, forward-only phase machine. |
 
 ---
 
@@ -179,11 +221,13 @@ The script: provisions Cloud SQL PostgreSQL (g1-small, ~$26/month), builds both 
 
 | Variable | Required | What It Does |
 |----------|----------|-------------|
-| `GOOGLE_CLOUD_PROJECT` | Yes | GCP project for Vertex AI / Gemini |
+| `GOOGLE_CLOUD_PROJECT` | Yes | GCP project for Vertex AI / Gemini (pipeline agents) |
 | `GOOGLE_CLOUD_LOCATION` | Yes | Must be `global` (not us-central1) |
+| `GEMINI_API_KEY` | Yes (Boardroom) | Google AI Studio key — used **exclusively** for Boardroom Live WebSocket. Not for the pipeline. |
 | `LINEAR_API_KEY` | No | Live workspace reads. Omit = mock data |
 | `AEGIS_MOCK_LINEAR` | No | Force mock even with API key set |
 | `DATABASE_URL` | Cloud Run | Set automatically by deploy.sh via Cloud SQL unix socket |
+| `BOARDROOM_MODEL` | No | Overrides Boardroom model. Default: `gemini-3.1-flash-live-preview`. Do not change for the pipeline. |
 
 ---
 
@@ -192,7 +236,8 @@ The script: provisions Cloud SQL PostgreSQL (g1-small, ~$26/month), builds both 
 | Layer | Choice | Why |
 |-------|--------|-----|
 | **Agent framework** | Google ADK ≥1.15 | Native sequential pipelines, built-in eval, Vertex AI integration |
-| **LLM** | Gemini 3-flash-preview + gemini-3.1-pro-preview | Flash for speed (debate agents, temperature=0.0), Pro for synthesis (temperature=0.2) |
+| **LLM (pipeline)** | Gemini 3-flash-preview + gemini-3.1-pro-preview | Flash for debate agents (temperature=0.0), Pro for synthesis (temperature=0.2) |
+| **LLM (Boardroom)** | Gemini Live `gemini-3.1-flash-live-preview` via AI Studio | Only Live API with multi-turn real-time voice + speaker tag support |
 | **Backend** | Python 3.12, FastAPI, Uvicorn | ADK ecosystem, async SSE streaming, Pydantic v2 validation |
 | **Frontend** | Next.js 16, React 19, TypeScript 5 | App Router, Server Components, streaming |
 | **Agent-UI bridge** | CopilotKit + AG-UI protocol | Real-time SSE streaming from ADK → React, HITL approval surfaces |
@@ -216,10 +261,10 @@ The script: provisions Cloud SQL PostgreSQL (g1-small, ~$26/month), builds both 
 │  Frontend (Next.js 16)                                                  │
 │  ┌──────────────────────────────────────────────────────────────────┐   │
 │  │  GlassmorphicLayout                                              │   │
-│  │  ┌──────────┐ ┌────────────────────────────────┐ ┌────────────┐ │   │
-│  │  │ Sidebar  │ │ Mission Control / Inbox / Home  │ │ Chat Panel │ │   │
-│  │  │ (nav)    │ │ (pipeline view, HITL approvals) │ │ (AG-UI)   │ │   │
-│  │  └──────────┘ └────────────────────────────────┘ └────────────┘ │   │
+│  │  ┌──────────┐ ┌──────────────────────────────┐ ┌────────────┐  │   │
+│  │  │ Sidebar  │ │ Mission Control / Inbox /     │ │ Chat Panel │  │   │
+│  │  │ (nav)    │ │ Directions / Boardroom        │ │ (AG-UI)    │  │   │
+│  │  └──────────┘ └──────────────────────────────┘ └────────────┘  │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
 │                              │ CopilotKit / AG-UI SSE                   │
 └──────────────────────────────┼──────────────────────────────────────────┘
@@ -232,11 +277,17 @@ The script: provisions Cloud SQL PostgreSQL (g1-small, ~$26/month), builds both 
 │  ┌─────────────────────────────────────────────────────────────────┐   │
 │  │  ConversationalAgent (unified entry point)                       │   │
 │  │  └── SequentialAgent("aegis_pipeline")                          │   │
-│  │      ├── Signal Engine ──── deterministic, reads Linear          │   │
+│  │      ├── Signal Engine ──── deterministic, reads Linear (MCP)   │   │
 │  │      ├── Product Brain ──── Cynic + Optimist + Pro synthesis     │   │
 │  │      ├── Coordinator ────── selects intervention from taxonomy   │   │
 │  │      ├── Governor ────────── 8 policy checks, no LLM            │   │
 │  │      └── Executor ────────── writes to Linear (if approved)      │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │  Boardroom (separate from pipeline)                              │   │
+│  │  ├── Gemini Live WebSocket ─ real-time voice (AI Studio)         │   │
+│  │  ├── AudioWorklet ────────── 16kHz capture, off main thread      │   │
+│  │  └── VerdictAgent (ADK) ──── transcript → structured verdict     │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────────────┐   │
 │  │ MockLinearMCP│ │ RealLinearMCP│ │ Cloud SQL PostgreSQL 16      │   │
@@ -302,6 +353,7 @@ Full data schema: [`context/data-schema.ts`](context/data-schema.ts)
 - **Session history re-hydration is incomplete.** After a page revisit, the chat history component does not yet re-hydrate from stored sessions. Pipeline state is persisted correctly in PostgreSQL; the UI rendering of prior conversation is a known gap.
 - **No real-time Linear webhooks.** Scans are triggered manually or on a cron schedule — not on every issue update. Signal latency is up to 7 days between scans.
 - **Eval scores measure tool trajectory only.** `tool_trajectory_avg_score ≥ 0.8` measures whether the right tools were called in the right order. It does not measure the quality of the risk classification headline or intervention rationale — those require human review.
+- **Boardroom requires AI Studio key, not Vertex AI.** Gemini Live API is not yet available on Vertex AI endpoints. The `GEMINI_API_KEY` must be from [aistudio.google.com/apikey](https://aistudio.google.com/apikey) — the pipeline's `GOOGLE_CLOUD_PROJECT` credentials do not grant access to the Live WebSocket.
 - **Advisory, not prescriptive.** Aegis surfaces findings; the founder decides. It will never auto-close a ticket, auto-reassign work, or take any action without explicit approval.
 
 ---
@@ -318,6 +370,7 @@ Full data schema: [`context/data-schema.ts`](context/data-schema.ts)
 | 5b | Frontend ↔ Backend wiring — chat, pipeline, Directions live | ✅ Done |
 | 6 | Bet Declaration API + modal, SQLite session persistence | ✅ Done |
 | 7 | Cloud SQL PostgreSQL, GCS artifacts, Cloud Run deploy hardening | ✅ Done |
+| 011 | Boardroom — Gemini Live voice panel, 10 UI components, VerdictAgent | ✅ Done |
 
 ---
 
@@ -333,8 +386,14 @@ cd backend && make eval-all
 # Backend — lint + type check
 cd backend && make lint
 
+# Frontend — type check (no server start)
+cd frontend && npm run build
+
 # Frontend — lint
 cd frontend && npm run lint
+
+# Frontend — E2E (Playwright)
+cd frontend && npm run test
 ```
 
 ---
@@ -374,11 +433,18 @@ aegis-agentic-product-os/
 │   └── Makefile
 ├── frontend/
 │   ├── app/workspace/               # Pages: home, inbox, mission-control, directions
+│   │   └── boardroom/[betId]/       # Boardroom route — setup → intro → live → verdict
 │   ├── components/
-│   │   ├── layout/                  # LinearLayout, Sidebar, Providers (CopilotKit)
+│   │   ├── layout/                  # GlassmorphicLayout, Sidebar, Providers (CopilotKit)
 │   │   ├── interventions/           # ApprovalCard, InterventionInbox, SuppressionLog
-│   │   └── chat/                    # Conversational agent surface
-│   ├── hooks/                       # useWorkspaceState, useAgentStateSync, etc.
+│   │   ├── chat/                    # Conversational agent surface
+│   │   └── boardroom/               # 10 Boardroom components (AdvisorTile, VerdictPanel, …)
+│   ├── hooks/
+│   │   ├── useWorkspaceId.ts        # Single source of workspace ID
+│   │   ├── useBoardroomStore.ts     # Zustand phase machine (setup→intro→live→deliberating→verdict)
+│   │   ├── useGeminiLive.ts         # WebSocket lifecycle, GoAway handling
+│   │   ├── useAudioPipeline.ts      # AudioWorklet capture (16kHz) + playback (24kHz)
+│   │   └── useTurnCapture.ts        # [BEAR]/[BULL]/[SAGE] tag parsing → per-advisor captions
 │   └── lib/                         # types.ts, constants.ts, api.ts
 ├── context/                         # Read before coding
 │   ├── data-schema.ts               # Source of truth for all entities and fields

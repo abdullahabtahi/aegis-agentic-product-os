@@ -89,7 +89,7 @@ export function useInterventionInbox(workspaceId: string) {
   );
 
   const pending = useMemo(
-    () => visible.filter((i) => i.status === "pending"),
+    () => visible.filter((i) => i.status === "pending" && i.action_type !== "no_intervention"),
     [visible]
   );
 

@@ -1,6 +1,10 @@
-import type { ActionType, BetStatus, EscalationLevel, RiskType, Severity } from "./types";
+import type { ActionType, BetStatus, EscalationLevel, PipelineStageName, RiskType, Severity } from "./types";
+import {
+  Network, Brain, GitBranch, Gavel, Terminal,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
-export const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000";
+export const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8080";
 
 export const ESCALATION_LABELS: Record<EscalationLevel, string> = {
   1: "L1 · Clarify",
@@ -17,6 +21,7 @@ export const ACTION_LABELS: Record<ActionType, string> = {
   align_team: "Align Team",
   redesign_experiment: "Redesign Experiment",
   pre_mortem_session: "Pre-Mortem Session",
+  boardroom_verdict: "Boardroom Verdict",
   jules_instrument_experiment: "Jules: Instrument Experiment",
   jules_add_guardrails: "Jules: Add Guardrails",
   jules_refactor_blocker: "Jules: Refactor Blocker",
@@ -80,3 +85,31 @@ export const RATE_CAP_DAYS = 7;
 /** Auto-suppression: if same pattern rejected 2x in 30 days */
 export const AUTO_SUPPRESS_THRESHOLD = 2;
 export const AUTO_SUPPRESS_WINDOW_DAYS = 30;
+
+// ─────────────────────────────────────────────
+// PIPELINE STAGE CONFIG (shared across pages)
+// ─────────────────────────────────────────────
+
+export interface PipelineStageConfig {
+  num: string;
+  key: PipelineStageName;
+  label: string;
+  icon: LucideIcon;
+  description: string;
+}
+
+export const PIPELINE_STAGES: PipelineStageConfig[] = [
+  { num: "1", key: "signal_engine",  label: "Signal Engine",  icon: Network,   description: "Reads 14-day Linear window, computes 9 risk signals" },
+  { num: "2", key: "product_brain",  label: "Product Brain",  icon: Brain,     description: "Cynic ↔ Optimist debate → Synthesis classification" },
+  { num: "3", key: "coordinator",    label: "Coordinator",    icon: GitBranch, description: "Picks escalation level & action type for the risk" },
+  { num: "4", key: "governor",       label: "Governor",       icon: Gavel,     description: "8 deterministic policy checks — no LLM, hard rules" },
+  { num: "5", key: "executor",       label: "Executor",       icon: Terminal,  description: "Posts Linear comment, creates issue, or awaits approval" },
+];
+
+export const PIPELINE_STATUS_CONFIG = {
+  running:  { label: "RUNNING",  cls: "text-indigo-600 bg-indigo-600/10",   dot: "bg-indigo-500 animate-pulse" },
+  complete: { label: "COMPLETE", cls: "text-emerald-600 bg-emerald-500/10", dot: "bg-emerald-500" },
+  error:    { label: "ERROR",    cls: "text-red-600 bg-red-500/10",         dot: "bg-red-500" },
+  pending:  { label: "IDLE",     cls: "text-slate-500 bg-slate-200/50",     dot: "bg-slate-300" },
+} as const;
+

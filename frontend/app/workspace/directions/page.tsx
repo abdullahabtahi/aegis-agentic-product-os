@@ -15,16 +15,16 @@ import {
   ChevronRight, Zap, Plus, RefreshCw, Search, Loader2,
 } from "lucide-react";
 import { listBets, discoverBets } from "@/lib/api";
-import {
-  BET_STATUS_LABELS, BET_STATUS_STYLES, healthColor,
-} from "@/lib/constants";
+import { healthColor } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { Bet, BetStatus } from "@/lib/types";
 import { BetDeclarationModal } from "@/components/bets/BetDeclarationModal";
+import { BetStatusBadge } from "@/components/bets/BetStatusBadge";
 import { KillCriteriaStatusBadge } from "@/components/bets/KillCriteriaStatusBadge";
-// ConvictionLabel is imported for future use when BetSnapshot data is available on this page
+import { KillCriteriaTriggeredAlert } from "@/components/bets/KillCriteriaTriggeredAlert";
 import { ConvictionLabel } from "@/components/bets/ConvictionLabel";
 import { useWorkspaceId } from "@/hooks/useWorkspaceId";
+import { deriveConvictionFromBet } from "@/lib/utils";
 
 function HealthBar({ score }: { score: number | null }) {
   if (score === null) {
@@ -50,22 +50,9 @@ function HealthBar({ score }: { score: number | null }) {
   );
 }
 
-function StatusBadge({ status }: { status: BetStatus }) {
-  return (
-    <span className={cn(
-      "rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide",
-      BET_STATUS_STYLES[status],
-    )}>
-      {BET_STATUS_LABELS[status]}
-    </span>
-  );
-}
-
 function BetCard({ bet }: { bet: Bet }) {
-  // Health score derived from monitoring state.
-  // List page has no per-bet interventions; use last_monitored_at as the signal.
-  // null = never scanned; 88 = monitored and clean (conservative baseline).
-  const healthScore: number | null = bet.last_monitored_at ? 88 : null;
+  // Health score from last scan result. null = never scanned (show "—").
+  const healthScore: number | null = bet.last_health_score ?? null;
 
   return (
     <Link href={`/workspace/directions/${bet.id}`}>
@@ -87,7 +74,7 @@ function BetCard({ bet }: { bet: Bet }) {
           </div>
           <div className="flex flex-col items-end gap-1 shrink-0">
             <div className="flex items-center gap-2">
-              <StatusBadge status={bet.status} />
+              <BetStatusBadge status={bet.status} />
               <ChevronRight className="h-4 w-4 text-slate-300 group-hover:text-slate-500 transition-colors" />
             </div>
             {bet.kill_criteria && (
@@ -107,13 +94,11 @@ function BetCard({ bet }: { bet: Bet }) {
           </p>
         )}
 
-        {/* Health bar */}
+        {/* Conviction score */}
         <div className="mb-3">
           <div className="mb-1 flex items-center justify-between">
-            <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Health</span>
-            {/* TODO: show <ConvictionLabel score={snapshot.conviction_score} /> once
-                BetSnapshot data is loaded on this page (conviction_score lives on BetSnapshot,
-                not on Bet — requires a separate snapshot query or embedding in the list API). */}
+            <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Conviction</span>
+            <ConvictionLabel score={bet.conviction_score ?? deriveConvictionFromBet(bet)} />
           </div>
           <HealthBar score={healthScore} />
         </div>
@@ -194,7 +179,7 @@ export default function DirectionsPage() {
     staleTime: 5_000,
     refetchInterval: 8_000,
     refetchOnWindowFocus: true,
-    enabled: workspaceId !== "default_workspace",
+    enabled: !!workspaceId,
   });
 
   const [isScanning, setIsScanning] = useState(false);
@@ -339,11 +324,14 @@ export default function DirectionsPage() {
       ) : bets.length === 0 ? (
         <EmptyState onDeclare={() => setShowDeclareModal(true)} />
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {bets.map((bet) => (
-            <BetCard key={bet.id} bet={bet} />
-          ))}
-        </div>
+        <>
+          <KillCriteriaTriggeredAlert bets={bets} />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {bets.map((bet) => (
+              <BetCard key={bet.id} bet={bet} />
+            ))}
+          </div>
+        </>
       )}
 
       {/* Declare modal */}

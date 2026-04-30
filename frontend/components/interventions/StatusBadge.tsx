@@ -21,7 +21,7 @@ const STATUS_STYLES: Record<BadgeStatus, { label: string; className: string }> =
   error:             { label: "Error",             className: "bg-red-500/15 text-red-400 border-red-500/20" },
   pending:           { label: "Pending",           className: "bg-amber-500/15 text-amber-400 border-amber-500/20" },
   awaiting_approval: { label: "Awaiting Approval", className: "bg-amber-500/15 text-amber-400 border-amber-500/20" },
-  dismissed:         { label: "Dismissed",         className: "bg-white/8 text-white/30 border-white/10" },
+  dismissed:         { label: "Dismissed",         className: "bg-slate-100 text-slate-500 border-slate-200" },
   no_intervention:   { label: "",                  className: "" },
 };
 

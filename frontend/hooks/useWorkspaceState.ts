@@ -43,6 +43,7 @@ const BOOTSTRAP_BET: Bet = {
   doc_refs: [],
   created_at: "2026-04-06T12:00:00Z",
   last_monitored_at: "2026-04-06T12:00:00Z",
+  last_health_score: null,
 };
 
 export function useWorkspaceState() {

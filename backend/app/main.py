@@ -19,7 +19,15 @@ import google.auth
 # config.py loads .env before instantiating Config, so LINEAR_API_KEY etc. are
 # available in os.environ for all downstream modules (agent.py, linear_tools.py).
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
-from fastapi import FastAPI, Header, HTTPException, Query, Response, status
+from fastapi import (
+    BackgroundTasks,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    Response,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
@@ -27,6 +35,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from app.agent import conversational_agent
+from app.cache import cache
 from app.config import config  # singleton — resolves secrets after env is loaded
 from app.session_store import get_session_service
 from db.engine import close_connector, get_session, is_db_configured
@@ -226,61 +235,69 @@ async def list_interventions(
     if_none_match: str | None = Header(None, alias="If-None-Match"),
 ):
     """Return pending/recent interventions for a workspace.
-    Reads from AlloyDB; returns empty list when DB not configured (local dev).
+    Reads from AlloyDB; falls back to file-backed store when DB not configured.
     Supports ETag-based conditional requests (304 Not Modified).
     """
     from db.engine import is_db_configured
 
     if not is_db_configured():
-        # Local dev without AlloyDB — return empty, not an error
-        return []
-    try:
-        # Repository is bet-scoped; aggregate across all bets for the workspace
-        from sqlalchemy import text
-
-        from db.engine import get_session
-
-        async with get_session() as session:
-            query = """
-                SELECT i.id, i.bet_id, i.workspace_id, i.action_type, i.escalation_level,
-                       i.status, i.rejection_reason AS denial_reason,
-                       i.rationale, i.confidence, i.created_at, i.decided_at AS resolved_at,
-                       i.requires_double_confirm, i.blast_radius,
-                       i.proposed_comment, i.proposed_issue_title, i.proposed_issue_description,
-                       b.name AS bet_name
-                FROM interventions i
-                LEFT JOIN bets b ON b.id = i.bet_id
-                WHERE i.workspace_id = :wid
-            """
-            params: dict = {"wid": workspace_id}
-            if bet_id is not None:
-                query += " AND i.bet_id = :bet_id"
-                params["bet_id"] = bet_id
-            query += " ORDER BY i.created_at DESC LIMIT 50"
-            result = await session.execute(text(query), params)
-            rows = [dict(row._mapping) for row in result]
-
-        # Generate ETag from data hash
-        data_json = json.dumps(rows, default=str, sort_keys=True)
-        etag = f'"{md5(data_json.encode()).hexdigest()}"'
-
-        # Check If-None-Match header for conditional request
-        if if_none_match == etag:
-            response.status_code = status.HTTP_304_NOT_MODIFIED
-            return Response(
-                status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag}
-            )
-
-        # Set cache headers: short TTL (30s), revalidate with ETag
-        response.headers["Cache-Control"] = "private, max-age=30, must-revalidate"
-        response.headers["ETag"] = etag
-
+        # Local dev — read from file-backed store written by Governor
+        from app.intervention_store import inmemory_interventions as _store
+        rows = [
+            i for i in _store
+            if i.get("workspace_id") == workspace_id
+            and (bet_id is None or i.get("bet_id") == bet_id)
+            and i.get("action_type") != "no_intervention"
+        ]
+        # Sort newest first, limit 50
+        rows = sorted(rows, key=lambda x: x.get("created_at", ""), reverse=True)[:50]
         return rows
-    except Exception as exc:
-        logger.warning(
-            "Failed to list interventions for workspace %s: %s", workspace_id, exc
-        )
-        return []
+
+    cache_key = f"interventions:{workspace_id}:{bet_id or ''}"
+    cached_rows = cache.get(cache_key)
+    if cached_rows is None:
+        try:
+            # Repository is bet-scoped; aggregate across all bets for the workspace
+            from sqlalchemy import text
+
+            from db.engine import get_session
+
+            async with get_session() as session:
+                query = """
+                    SELECT i.id, i.bet_id, i.workspace_id, i.action_type, i.escalation_level,
+                           i.status, i.rejection_reason AS denial_reason,
+                           i.rationale, i.confidence, i.created_at, i.decided_at AS resolved_at,
+                           i.requires_double_confirm, i.blast_radius,
+                           i.proposed_comment, i.proposed_issue_title, i.proposed_issue_description,
+                           b.name AS bet_name
+                    FROM interventions i
+                    LEFT JOIN bets b ON b.id = i.bet_id
+                    WHERE i.workspace_id = :wid
+                """
+                params: dict = {"wid": workspace_id}
+                if bet_id is not None:
+                    query += " AND i.bet_id = :bet_id"
+                    params["bet_id"] = bet_id
+                query += " ORDER BY i.created_at DESC LIMIT 50"
+                result = await session.execute(text(query), params)
+                cached_rows = [dict(row._mapping) for row in result]
+            cache.set(cache_key, cached_rows, ttl=15.0)
+        except Exception as exc:
+            logger.warning(
+                "Failed to list interventions for workspace %s: %s", workspace_id, exc
+            )
+            return []
+
+    rows = cached_rows
+
+    # ETag for conditional requests (304 Not Modified)
+    data_json = json.dumps(rows, default=str, sort_keys=True)
+    etag = f'"{md5(data_json.encode()).hexdigest()}"'
+    if if_none_match == etag:
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag})
+    response.headers["Cache-Control"] = "private, max-age=15, must-revalidate"
+    response.headers["ETag"] = etag
+    return rows
 
 
 # ─────────────────────────────────────────────
@@ -331,7 +348,7 @@ async def create_pivot_diagnosis(intervention_id: str, body: PivotDiagnosisBody)
     ]
 
     diagnosis_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc).isoformat()  # PivotDiagnosis.conducted_at is str
 
     # Resolve bet_id from intervention
     bet_id = intervention_id  # fallback
@@ -396,6 +413,11 @@ async def create_pivot_diagnosis(intervention_id: str, body: PivotDiagnosisBody)
 from app.bet_store import inmemory_bets as _inmemory_bets
 from app.services.bet_discovery import discover_bets_from_linear
 
+# In-memory boardroom stores (used when DB not configured)
+_inmemory_boardroom_sessions: dict[str, dict] = {}
+_inmemory_boardroom_turns: dict[str, list[dict]] = {}
+_inmemory_boardroom_verdicts: dict[str, dict] = {}  # keyed by session_id
+
 
 class BetCreateBody(BaseModel):
     """Minimal fields required to declare a new bet. Defaults applied for optional fields."""
@@ -411,6 +433,91 @@ class BetCreateBody(BaseModel):
     kill_criteria: dict | None = None
 
 
+_VALID_KC_ACTIONS = frozenset({"pivot", "kill", "extend"})
+_VALID_KC_STATUSES = frozenset({"pending", "triggered", "met", "waived"})
+
+
+def _validate_and_normalise_kill_criteria(kc: dict | None, today) -> dict | None:
+    """Validate kill_criteria payload from BetCreateBody. Returns normalised dict or raises 400.
+
+    Per spec 007 BR-KC-01: deadline must not be in the past at submission time.
+    Returns None if input is None.
+    """
+    if kc is None:
+        return None
+    from datetime import date as _date
+
+    condition = (kc.get("condition") or "").strip()
+    if len(condition) < 10:
+        raise HTTPException(
+            status_code=400,
+            detail="Kill criteria condition must be at least 10 characters.",
+        )
+
+    deadline_raw = kc.get("deadline")
+    if not deadline_raw:
+        raise HTTPException(status_code=400, detail="Kill criteria deadline is required.")
+    try:
+        deadline = _date.fromisoformat(str(deadline_raw))
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail="Kill criteria deadline must be ISO format YYYY-MM-DD.",
+        ) from e
+    if deadline < today:
+        raise HTTPException(
+            status_code=400,
+            detail="Kill criteria deadline cannot be in the past.",
+        )
+
+    action = kc.get("committed_action")
+    if action not in _VALID_KC_ACTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"committed_action must be one of: {sorted(_VALID_KC_ACTIONS)}",
+        )
+
+    status_in = kc.get("status", "pending")
+    if status_in not in _VALID_KC_STATUSES:
+        status_in = "pending"
+
+    return {
+        "condition": condition,
+        "deadline": deadline.isoformat(),
+        "committed_action": action,
+        "status": status_in,
+        "triggered_at": kc.get("triggered_at"),
+        "met_at": kc.get("met_at"),
+        "waived_at": kc.get("waived_at"),
+    }
+
+
+def _compute_kc_status_for_read(bet: dict) -> dict:
+    """Compute kill_criteria.status at read time.
+
+    If status is 'pending' but the deadline has passed, surface as 'triggered'
+    even if Signal Engine has not yet scanned. Returns a NEW dict (no mutation).
+    """
+    kc = bet.get("kill_criteria")
+    if not isinstance(kc, dict):
+        return bet
+    if kc.get("status") != "pending":
+        return bet
+    deadline_raw = kc.get("deadline")
+    if not deadline_raw:
+        return bet
+    from datetime import date as _date, datetime as _dt, timezone as _tz
+    try:
+        deadline = _date.fromisoformat(str(deadline_raw))
+    except ValueError:
+        return bet
+    today = _dt.now(_tz.utc).date()
+    if today < deadline:
+        return bet
+    new_kc = {**kc, "status": "triggered"}
+    return {**bet, "kill_criteria": new_kc}
+
+
 @app.post("/bets", status_code=201)
 async def create_bet(body: BetCreateBody):
     """Declare a new strategic bet.
@@ -424,7 +531,8 @@ async def create_bet(body: BetCreateBody):
 
     from db.repository import save_bet, upsert_workspace
 
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(timezone.utc)  # asyncpg needs datetime; FastAPI auto-serialises to ISO
+    kill_criteria_clean = _validate_and_normalise_kill_criteria(body.kill_criteria, now.date())
     bet_id = str(uuid.uuid4())
 
     bet = {
@@ -448,10 +556,11 @@ async def create_bet(body: BetCreateBody):
         },
         "acknowledged_risks": [],
         "linear_issue_ids": [],
-        "kill_criteria": body.kill_criteria,
+        "kill_criteria": kill_criteria_clean,
         "doc_refs": [],
         "created_at": now,
         "last_monitored_at": now,
+        "last_health_score": None,
     }
 
     persisted = False
@@ -467,7 +576,21 @@ async def create_bet(body: BetCreateBody):
         )
         saved_id = await save_bet(bet)
         persisted = saved_id is not None
+        # Invalidate bet list cache for this workspace
+        cache.delete_prefix(f"bets:{body.workspace_id}:")
     else:
+        # Dedup: reject if a bet with the same name already exists in this workspace
+        normalised_name = body.name.strip().lower()
+        existing = next(
+            (
+                b for b in _inmemory_bets
+                if b.get("name", "").strip().lower() == normalised_name
+                and b.get("workspace_id") == body.workspace_id
+            ),
+            None,
+        )
+        if existing:
+            return {**existing, "persisted": True, "duplicate": True}
         # No DB — keep bet in process memory so GET /bets reflects it this session
         _inmemory_bets.append(bet)
 
@@ -477,11 +600,16 @@ async def create_bet(body: BetCreateBody):
 @app.get("/workspace/{workspace_id}")
 async def get_workspace_endpoint(workspace_id: str):
     """Return workspace metadata including control_level."""
+    cache_key = f"workspace:{workspace_id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     from db.repository import get_workspace
     ws = await get_workspace(workspace_id)
-    if ws is None:
-        return {"id": workspace_id, "control_level": "draft_only"}
-    return {"id": ws["id"], "control_level": ws.get("control_level", "draft_only")}
+    result = {"id": workspace_id, "control_level": "draft_only"} if ws is None else {"id": ws["id"], "control_level": ws.get("control_level", "draft_only")}
+    cache.set(cache_key, result, ttl=60.0)
+    return result
 
 
 _VALID_CONTROL_LEVELS = frozenset(
@@ -507,8 +635,10 @@ async def update_workspace_endpoint(workspace_id: str, body: WorkspaceUpdateBody
     from db.repository import update_workspace_control_level
 
     if not is_db_configured():
+        cache.delete(f"workspace:{workspace_id}")
         return {"id": workspace_id, "control_level": body.control_level}
     await update_workspace_control_level(workspace_id, body.control_level)
+    cache.delete(f"workspace:{workspace_id}")
     return {"id": workspace_id, "control_level": body.control_level}
 
 
@@ -521,12 +651,19 @@ async def list_bets_endpoint(
     from db.repository import list_bets
 
     if not is_db_configured():
-        # Serve from process-scoped fallback (local dev / CI)
         result = [b for b in _inmemory_bets if b["workspace_id"] == workspace_id]
         if status:
             result = [b for b in result if b["status"] == status]
-        return result
-    return await list_bets(workspace_id=workspace_id, status=status)
+        return [_compute_kc_status_for_read(b) for b in result]
+
+    cache_key = f"bets:{workspace_id}:{status or ''}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return [_compute_kc_status_for_read(b) for b in cached]
+
+    result = await list_bets(workspace_id=workspace_id, status=status)
+    cache.set(cache_key, result, ttl=15.0)
+    return [_compute_kc_status_for_read(b) for b in result]
 
 
 @app.get("/bets/{bet_id}")
@@ -538,11 +675,11 @@ async def get_bet_endpoint(bet_id: str):
         bet = next((b for b in _inmemory_bets if b["id"] == bet_id), None)
         if not bet:
             raise HTTPException(status_code=404, detail="Bet not found")
-        return bet
+        return _compute_kc_status_for_read(bet)
     bet = await get_bet(bet_id)
     if not bet:
         raise HTTPException(status_code=404, detail=f"Bet {bet_id} not found")
-    return bet
+    return _compute_kc_status_for_read(bet)
 
 
 @app.get("/brief")
@@ -655,7 +792,10 @@ async def update_bet_endpoint(bet_id: str, body: BetUpdateBody):
     ok = await update_bet(bet_id, fields)
     if not ok:
         raise HTTPException(status_code=404, detail=f"Bet {bet_id} not found")
-    return await get_bet(bet_id)
+    updated = await get_bet(bet_id)
+    if updated:
+        cache.delete_prefix(f"bets:{updated.get('workspace_id', '')}:")
+    return updated
 
 
 @app.post("/bets/{bet_id}/archive")
@@ -671,7 +811,7 @@ async def archive_bet_endpoint(bet_id: str):
         bet = next((b for b in _inmemory_bets if b["id"] == bet_id), None)
         if not bet:
             raise HTTPException(status_code=404, detail="Bet not found")
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(timezone.utc)  # bare datetime — kept var name for diff readability
         idx = next(i for i, b in enumerate(_inmemory_bets) if b["id"] == bet_id)
         _inmemory_bets[idx] = {**bet, "status": "archived", "completed_at": now_iso}
         return {"bet_id": bet_id, "status": "archived"}
@@ -713,7 +853,7 @@ async def upsert_acknowledged_risk(bet_id: str, body: AcknowledgedRiskBody):
 
     from db.repository import get_bet, update_acknowledged_risks
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(timezone.utc)  # bare datetime — FastAPI serialises to ISO in JSON
     new_entry: dict = {
         "risk_type": body.risk_type,
         "acknowledged_at": now_iso,
@@ -810,9 +950,10 @@ async def discover_bets_endpoint(body: DiscoverBody):
 
     # Upsert workspace ONCE (not per bet)
     if is_db_configured() and new_bets:
-        from db.repository import upsert_workspace
         from datetime import datetime, timezone
-        now = datetime.now(timezone.utc).isoformat()
+
+        from db.repository import upsert_workspace
+        now = datetime.now(timezone.utc)
         await upsert_workspace({
             "id": body.workspace_id,
             "linear_team_id": "",
@@ -850,34 +991,111 @@ class RejectBody(BaseModel):
     reason: str = "other"  # RejectionReasonCategory — default "other" is always valid
 
 
-@app.post("/interventions/{intervention_id}/approve")
-async def approve_intervention_endpoint(intervention_id: str):
-    """Mark an intervention accepted.
+async def _execute_approved_intervention(intervention_id: str) -> None:
+    """Background task: Invocation 2 of the two-invocation model.
 
-    Directly updates AlloyDB via update_intervention_status.
-    The approval_handler module handles ADK in-memory session state transitions
-    (two-invocation model); this REST endpoint is the founder-facing HTTP path.
+    After founder approval, load the stored intervention and execute the
+    Linear write directly. The Executor is fully deterministic (no LLM) so
+    we call write_action() directly rather than going through the ADK Runner
+    (ADK InMemorySessionService returns deep copies — state mutations during
+    run_async don't propagate back to the caller's session reference).
+    """
+    from app.agents.executor import _build_linear_action_from_proposal
+    from app.intervention_store import inmemory_interventions as _store
+    from tools.linear_tools import get_linear_mcp
+
+    intervention = next(
+        (i for i in _store if i.get("id") == intervention_id), None
+    )
+    if intervention is None:
+        logger.warning("[Executor] Intervention %s not found in store", intervention_id)
+        return
+
+    proposal = dict(intervention)
+    linear_action = _build_linear_action_from_proposal(proposal)
+    if linear_action is None:
+        logger.info(
+            "[Executor] intervention=%s action_type=%s — no Linear action mapped",
+            intervention_id, proposal.get("action_type"),
+        )
+        for idx, item in enumerate(_store):
+            if item.get("id") == intervention_id:
+                _store[idx] = {
+                    **item,
+                    "executor_result": {"status": "no_linear_action_mapped"},
+                    "executor_status": "complete",
+                }
+                break
+        return
+
+    try:
+        linear_mcp = get_linear_mcp()
+        write_result = await linear_mcp.write_action(linear_action)
+        logger.info(
+            "[Executor] intervention=%s write_result=%s",
+            intervention_id, write_result,
+        )
+        for idx, item in enumerate(_store):
+            if item.get("id") == intervention_id:
+                _store[idx] = {
+                    **item,
+                    "executor_result": write_result,
+                    "executor_status": "executed",
+                }
+                break
+
+    except Exception as exc:
+        logger.exception(
+            "[Executor] Background task failed for intervention %s: %s",
+            intervention_id, exc,
+        )
+        for idx, item in enumerate(_store):
+            if item.get("id") == intervention_id:
+                _store[idx] = {
+                    **item,
+                    "executor_result": {"status": "error", "error": str(exc)},
+                    "executor_status": "execution_failed",
+                }
+                break
+
+
+@app.post("/interventions/{intervention_id}/approve")
+async def approve_intervention_endpoint(
+    intervention_id: str,
+    background_tasks: BackgroundTasks,
+    workspace_id: str | None = Query(None),
+):
+    """Mark an intervention accepted and trigger Executor (Invocation 2).
+
+    Updates intervention status to 'accepted', then kicks off the Executor
+    as a background task so it writes to Linear without blocking the response.
     """
     from db.repository import update_intervention_status
 
-    if not is_db_configured():
-        return {
-            "status": "accepted",
-            "intervention_id": intervention_id,
-            "persisted": False,
-        }
     ok = await update_intervention_status(intervention_id, status="accepted")
     if not ok:
         raise HTTPException(
             status_code=404,
-            detail=f"Intervention {intervention_id} not found or DB error",
+            detail=f"Intervention {intervention_id} not found",
         )
+
+    # Invalidate intervention cache so the inbox reflects the status change
+    if workspace_id:
+        cache.delete_prefix(f"interventions:{workspace_id}:")
+    else:
+        cache.delete_prefix("interventions:")
+
+    # Invocation 2 — runs Executor in background, writes to Linear
+    background_tasks.add_task(_execute_approved_intervention, intervention_id)
+
     return {"status": "accepted", "intervention_id": intervention_id}
 
 
 @app.post("/interventions/{intervention_id}/reject")
 async def reject_intervention_endpoint(
-    intervention_id: str, body: RejectBody | None = None
+    intervention_id: str,
+    body: RejectBody | None = None,
+    workspace_id: str | None = Query(None),
 ):
     """Mark an intervention rejected.
 
@@ -894,20 +1112,19 @@ async def reject_intervention_endpoint(
         "other",
     }
     reason = (body.reason if body and body.reason in _valid else None) or "other"
-    if not is_db_configured():
-        return {
-            "status": "rejected",
-            "intervention_id": intervention_id,
-            "persisted": False,
-        }
     ok = await update_intervention_status(
         intervention_id, status="rejected", rejection_reason=reason
     )
     if not ok:
         raise HTTPException(
             status_code=404,
-            detail=f"Intervention {intervention_id} not found or DB error",
+            detail=f"Intervention {intervention_id} not found",
         )
+    # Invalidate intervention cache so the inbox reflects the status change
+    if workspace_id:
+        cache.delete_prefix(f"interventions:{workspace_id}:")
+    else:
+        cache.delete_prefix("interventions:")
     return {"status": "rejected", "intervention_id": intervention_id}
 
 
@@ -1160,6 +1377,490 @@ async def debug_agent_test():
             "error": str(e),
             "hint": "Check GCP auth and GOOGLE_CLOUD_PROJECT env var",
         }
+
+
+# ─────────────────────────────────────────────
+# BOARDROOM ENDPOINTS (Feature 011)
+# ─────────────────────────────────────────────
+
+import uuid as _uuid
+from datetime import datetime, timezone
+
+import google.auth.transport.requests as _gauth_requests
+
+# Rate-limit: max 10 token mints per workspace per hour (FR-BR-11)
+_TOKEN_RATE_LIMIT = 10
+_TOKEN_RATE_WINDOW_S = 3600.0
+_boardroom_token_mints: dict[str, list[float]] = {}
+
+
+class BoardroomSessionCreateBody(BaseModel):
+    workspace_id: str
+    bet_id: str | None = None
+    decision_question: str = Field(..., min_length=3, max_length=200)
+    key_assumption: str = Field(..., min_length=3, max_length=150)
+
+
+class BoardroomTurnBody(BaseModel):
+    speaker: str = Field(..., pattern="^(user|bear|bull|sage)$")
+    text: str = Field(..., min_length=1)
+    sequence_number: int = Field(..., ge=1)
+
+
+@app.post("/boardroom/token")
+async def mint_boardroom_token(workspace_id: str = Header(..., alias="workspace-id")):
+    """Mint a short-lived Vertex AI credential for Gemini Live.
+
+    GCP service account needs roles/aiplatform.user.
+    Returns 503 with hint on auth failure — never a bare 500.
+
+    Returns:
+      access_token: ephemeral OAuth token (TTL ~3600s)
+      expires_in:   token lifetime in seconds
+      model:        full Vertex AI publisher model path
+      websocket_url: WSS endpoint (region-aware)
+    """
+    import time as _time
+
+    # Rate-limit: max 10 mints per workspace per hour (FR-BR-11)
+    now_ts = _time.monotonic()
+    window_start = now_ts - _TOKEN_RATE_WINDOW_S
+    mints = _boardroom_token_mints.get(workspace_id, [])
+    mints = [t for t in mints if t > window_start]  # prune stale
+    if len(mints) >= _TOKEN_RATE_LIMIT:
+        _boardroom_token_mints[workspace_id] = mints
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "error": "rate_limit_exceeded",
+                "hint": f"Maximum {_TOKEN_RATE_LIMIT} token mints per hour per workspace.",
+            },
+        )
+    mints.append(now_ts)
+    _boardroom_token_mints[workspace_id] = mints
+
+    # ── Prefer Gemini API key (AI Studio) for Live API — boardroom ONLY ──
+    # GEMINI_API_KEY must NOT be used for the agent pipeline (uses Vertex AI via
+    # GOOGLE_GENAI_USE_VERTEXAI=True). This path is exclusively for the boardroom
+    # Gemini Live WebSocket connection.
+    gemini_api_key = os.environ.get("GEMINI_API_KEY")
+    if gemini_api_key:
+        model_short = os.environ.get("BOARDROOM_MODEL", "gemini-3.1-flash-live-preview")
+        model_path = f"models/{model_short}"
+        # Key is embedded in the URL — frontend opens it directly (no access_token needed)
+        websocket_url = (
+            "wss://generativelanguage.googleapis.com/ws/"
+            "google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"
+            f"?key={gemini_api_key}"
+        )
+        return {
+            "access_token": "",  # empty — key is already embedded in websocket_url
+            "expires_in": 3600,
+            "model": model_path,
+            "websocket_url": websocket_url,
+        }
+
+    # ── Fallback: Vertex AI OAuth (requires roles/aiplatform.user) ──
+    try:
+        credentials, project = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        credentials.refresh(_gauth_requests.Request())
+
+        gcp_project = os.environ.get("GOOGLE_CLOUD_PROJECT") or project or ""
+        location = os.environ.get("GOOGLE_CLOUD_LOCATION", "global")
+        model_short = os.environ.get("BOARDROOM_MODEL", "gemini-3.1-flash-live-preview")
+        model_path = (
+            f"projects/{gcp_project}/locations/{location}/"
+            f"publishers/google/models/{model_short}"
+        )
+
+        ws_host = (
+            "aiplatform.googleapis.com"
+            if location == "global"
+            else f"{location}-aiplatform.googleapis.com"
+        )
+        websocket_url = (
+            f"wss://{ws_host}/ws/"
+            "google.cloud.aiplatform.v1beta1.LlmBidiService/BidiGenerateContent"
+        )
+
+        return {
+            "access_token": credentials.token,
+            "expires_in": 3600,
+            "model": model_path,
+            "websocket_url": websocket_url,
+        }
+    except Exception as exc:
+        logger.error("[boardroom/token] Auth failed for workspace %s: %s", workspace_id, exc)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "vertex_auth_failed",
+                "hint": "Set GEMINI_API_KEY for AI Studio Live, or check GOOGLE_CLOUD_PROJECT IAM",
+            },
+        ) from exc
+
+
+@app.post("/boardroom/sessions", status_code=201)
+async def create_boardroom_session(body: BoardroomSessionCreateBody):
+    """Create a new boardroom session. Enforces 1 active session per workspace."""
+    now = datetime.now(timezone.utc)  # keep as datetime — asyncpg rejects ISO strings
+    session_id = str(_uuid.uuid4())
+
+    if not is_db_configured():
+        # Idempotency: if an active session exists for this workspace with the
+        # same decision/assumption, return it (handles StrictMode + client retries).
+        for s in _inmemory_boardroom_sessions.values():
+            if s["workspace_id"] == body.workspace_id and s["status"] == "active":
+                if (
+                    s.get("decision_question") == body.decision_question
+                    and s.get("key_assumption") == body.key_assumption
+                ):
+                    return s
+                raise HTTPException(
+                    status_code=409,
+                    detail="A boardroom session is already active for this workspace",
+                )
+        session_obj = {
+            "id": session_id,
+            "workspace_id": body.workspace_id,
+            "bet_id": body.bet_id,
+            "decision_question": body.decision_question,
+            "key_assumption": body.key_assumption,
+            "status": "active",
+            "started_at": now,
+            "ended_at": None,
+            "created_at": now,
+        }
+        _inmemory_boardroom_sessions[session_id] = session_obj
+        _inmemory_boardroom_turns[session_id] = []
+        return session_obj
+
+    try:
+        async with get_session() as session:
+            # Idempotency: if an active session exists for this workspace with the
+            # same decision/assumption, return it (handles StrictMode + client retries).
+            existing = await session.execute(
+                text(
+                    "SELECT * FROM boardroom_sessions "
+                    "WHERE workspace_id = :wid AND status = 'active' LIMIT 1"
+                ),
+                {"wid": body.workspace_id},
+            )
+            existing_row = existing.fetchone()
+            if existing_row is not None:
+                existing_data = dict(existing_row._mapping)
+                if (
+                    existing_data.get("decision_question") == body.decision_question
+                    and existing_data.get("key_assumption") == body.key_assumption
+                ):
+                    return existing_data
+                raise HTTPException(
+                    status_code=409,
+                    detail="A boardroom session is already active for this workspace",
+                )
+
+            await session.execute(
+                text("""
+                    INSERT INTO boardroom_sessions
+                        (id, workspace_id, bet_id, decision_question, key_assumption,
+                         status, started_at, created_at)
+                    VALUES
+                        (:id, :wid, :bid, :dq, :ka, 'active', :now, :now)
+                """),
+                {
+                    "id": session_id,
+                    "wid": body.workspace_id,
+                    "bid": body.bet_id,
+                    "dq": body.decision_question,
+                    "ka": body.key_assumption,
+                    "now": now,
+                },
+            )
+
+        return {
+            "id": session_id,
+            "workspace_id": body.workspace_id,
+            "bet_id": body.bet_id,
+            "decision_question": body.decision_question,
+            "key_assumption": body.key_assumption,
+            "status": "active",
+            "started_at": now,
+            "ended_at": None,
+            "created_at": now,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[boardroom/sessions] Failed to create session: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to create boardroom session") from exc
+
+
+@app.post("/boardroom/sessions/{session_id}/turns", status_code=201)
+async def save_boardroom_turn(session_id: str, body: BoardroomTurnBody):
+    """Persist a completed speaker turn. Minimum 3 words enforced."""
+    word_count = len(body.text.strip().split())
+    if word_count < 3:
+        raise HTTPException(status_code=422, detail="Turn text must be at least 3 words")
+
+    turn_id = str(_uuid.uuid4())
+    now = datetime.now(timezone.utc)  # asyncpg needs datetime, not ISO string
+
+    if not is_db_configured():
+        turn_obj = {
+            "id": turn_id,
+            "session_id": session_id,
+            "speaker": body.speaker,
+            "text": body.text,
+            "sequence_number": body.sequence_number,
+            "created_at": now,
+        }
+        _inmemory_boardroom_turns.setdefault(session_id, []).append(turn_obj)
+        return turn_obj
+
+    try:
+        async with get_session() as session:
+            await session.execute(
+                text("""
+                    INSERT INTO boardroom_turns
+                        (id, session_id, speaker, text, sequence_number, created_at)
+                    VALUES (:id, :sid, :speaker, :text, :seq, :now)
+                    ON CONFLICT DO NOTHING
+                """),
+                {
+                    "id": turn_id,
+                    "sid": session_id,
+                    "speaker": body.speaker,
+                    "text": body.text,
+                    "seq": body.sequence_number,
+                    "now": now,
+                },
+            )
+        return {
+            "id": turn_id,
+            "session_id": session_id,
+            "speaker": body.speaker,
+            "text": body.text,
+            "sequence_number": body.sequence_number,
+            "created_at": now,
+        }
+    except Exception as exc:
+        logger.warning("[boardroom/turns] Failed to save turn: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to save turn") from exc
+
+
+@app.post("/boardroom/sessions/{session_id}/end")
+async def end_boardroom_session(session_id: str, background_tasks: BackgroundTasks):
+    """Mark session completed and trigger async verdict agent."""
+    now = datetime.now(timezone.utc)  # asyncpg needs datetime, not ISO string
+
+    if not is_db_configured():
+        sess = _inmemory_boardroom_sessions.get(session_id)
+        if sess is None:
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+        if sess["status"] != "active":
+            raise HTTPException(status_code=404, detail=f"Session {session_id} already completed")
+        _inmemory_boardroom_sessions[session_id] = {**sess, "status": "completed", "ended_at": now}
+        background_tasks.add_task(_run_verdict_agent_inmemory, session_id)
+        return {"status": "completed", "session_id": session_id}
+
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                text(
+                    "UPDATE boardroom_sessions SET status = 'completed', ended_at = :now "
+                    "WHERE id = :sid AND status = 'active' RETURNING id"
+                ),
+                {"now": now, "sid": session_id},
+            )
+            if not result.fetchone():
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Session {session_id} not found or already completed",
+                )
+
+        background_tasks.add_task(_run_verdict_agent, session_id)
+        return {"status": "completed", "session_id": session_id}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[boardroom/end] Failed to end session %s: %s", session_id, exc)
+        raise HTTPException(status_code=503, detail="Failed to end session") from exc
+
+
+@app.get("/boardroom/sessions/{session_id}/verdict")
+async def get_boardroom_verdict(session_id: str):
+    """Poll for verdict. Returns 404 while agent is still running."""
+    if not is_db_configured():
+        verdict = _inmemory_boardroom_verdicts.get(session_id)
+        if verdict is None:
+            raise HTTPException(status_code=404, detail="Verdict not ready yet")
+        return verdict
+
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                text("SELECT * FROM boardroom_verdicts WHERE session_id = :sid LIMIT 1"),
+                {"sid": session_id},
+            )
+            row = result.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="Verdict not ready yet")
+            return dict(row._mapping)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[boardroom/verdict] Failed to fetch verdict: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to fetch verdict") from exc
+
+
+@app.post("/boardroom/verdicts/{verdict_id}/intervention", status_code=201)
+async def create_verdict_intervention(verdict_id: str):
+    """Create an Aegis Intervention from a boardroom verdict. Idempotent."""
+    import json as _json
+
+    if not is_db_configured():
+        intervention_id = str(_uuid.uuid4())
+        return {"intervention_id": intervention_id}
+
+    try:
+        async with get_session() as session:
+            # Idempotency check
+            existing = await session.execute(
+                text("SELECT intervention_id FROM boardroom_verdicts WHERE id = :vid"),
+                {"vid": verdict_id},
+            )
+            row = existing.fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail=f"Verdict {verdict_id} not found")
+            if row[0]:
+                return {"intervention_id": row[0]}
+
+            # Fetch full verdict
+            v_result = await session.execute(
+                text("SELECT * FROM boardroom_verdicts WHERE id = :vid"),
+                {"vid": verdict_id},
+            )
+            verdict_row = dict(v_result.fetchone()._mapping)
+
+            now = datetime.now(timezone.utc)  # asyncpg needs datetime, not ISO string
+            intervention_id = str(_uuid.uuid4())
+
+            # Fetch workspace_id from session
+            s_result = await session.execute(
+                text("SELECT workspace_id FROM boardroom_sessions WHERE id = :sid"),
+                {"sid": verdict_row["session_id"]},
+            )
+            ws_row = s_result.fetchone()
+            workspace_id = ws_row[0] if ws_row else "unknown"
+
+            summary = verdict_row.get("summary", "")
+            recommendation = verdict_row.get("recommendation", "proceed")
+            confidence = verdict_row.get("confidence_score", 0)
+            next_exp = verdict_row.get("next_experiments", [])
+            if isinstance(next_exp, str):
+                next_exp = _json.loads(next_exp)
+
+            rationale = (
+                f"Boardroom verdict ({recommendation.upper()}, confidence {confidence}%): {summary}"
+            )
+            proposed_comment = (
+                f"**Aegis Boardroom Verdict** — {recommendation.upper()}\n\n"
+                f"{summary}\n\n"
+                + (
+                    "**Next experiments:**\n"
+                    + "\n".join(
+                        f"- {e['text']} ({e.get('timeframe', '')})"
+                        for e in next_exp[:3]
+                    )
+                    if next_exp
+                    else ""
+                )
+            )
+
+            await session.execute(
+                text("""
+                    INSERT INTO interventions
+                        (id, workspace_id, bet_id, action_type, escalation_level,
+                         status, rationale, confidence, created_at,
+                         proposed_comment)
+                    VALUES
+                        (:id, :wid, :bid, 'boardroom_verdict', 3,
+                         'accepted', :rationale, :conf, :now,
+                         :comment)
+                """),
+                {
+                    "id": intervention_id,
+                    "wid": workspace_id,
+                    "bid": verdict_row.get("bet_id"),
+                    "rationale": rationale,
+                    "conf": confidence / 100.0,
+                    "now": now,
+                    "comment": proposed_comment,
+                },
+            )
+
+            await session.execute(
+                text("UPDATE boardroom_verdicts SET intervention_id = :iid WHERE id = :vid"),
+                {"iid": intervention_id, "vid": verdict_id},
+            )
+
+        return {"intervention_id": intervention_id}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("[boardroom/intervention] Failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to create intervention") from exc
+
+
+@app.get("/boardroom/bets/{bet_id}/sessions")
+async def list_boardroom_bet_sessions(bet_id: str):
+    """List boardroom sessions for a bet, newest first."""
+    if not is_db_configured():
+        return []
+
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                text(
+                    "SELECT * FROM boardroom_sessions WHERE bet_id = :bid "
+                    "ORDER BY created_at DESC LIMIT 20"
+                ),
+                {"bid": bet_id},
+            )
+            return [dict(row._mapping) for row in result]
+    except Exception as exc:
+        logger.warning("[boardroom/bet-sessions] Failed: %s", exc)
+        return []
+
+
+async def _run_verdict_agent(session_id: str) -> None:
+    """Background task: invoke the boardroom verdict ADK agent."""
+    try:
+        from app.agents.boardroom_verdict import run_verdict_agent
+        await run_verdict_agent(session_id)
+    except Exception as exc:
+        logger.error("[boardroom] Verdict agent failed for session %s: %s", session_id, exc)
+
+
+async def _run_verdict_agent_inmemory(session_id: str) -> None:
+    """In-memory verdict agent: synthesises a verdict from in-memory turns and stores it."""
+    try:
+        from app.agents.boardroom_verdict import run_verdict_agent_from_data
+
+        session_data = _inmemory_boardroom_sessions.get(session_id)
+        if session_data is None:
+            logger.warning("[boardroom] In-memory session %s not found", session_id)
+            return
+        turns = _inmemory_boardroom_turns.get(session_id, [])
+
+        verdict = await run_verdict_agent_from_data(session_id, session_data, turns)
+        if verdict is not None:
+            _inmemory_boardroom_verdicts[session_id] = verdict
+            logger.info("[boardroom] In-memory verdict ready for session %s", session_id)
+    except Exception as exc:
+        logger.error("[boardroom] In-memory verdict agent failed for session %s: %s", session_id, exc, exc_info=True)
 
 
 # Mounting ADK routes with the prefix expected by the frontend HttpAgent

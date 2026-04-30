@@ -36,7 +36,11 @@ export function GlassmorphicLayout({ children }: GlassmorphicLayoutProps) {
   }, [router]);
 
   const handleNewSession = useCallback(() => {
-    router.push("/workspace/chat");
+    // Generate a fresh UUID so CopilotKit starts a new thread.
+    // Without this, the provider reuses its stable auto-generated threadId
+    // for the provider's lifetime (Providers wraps the whole app and never remounts).
+    const newId = crypto.randomUUID();
+    router.push(`/workspace/chat?session=${newId}`);
     setSessionDrawerOpen(false);
   }, [router]);
 

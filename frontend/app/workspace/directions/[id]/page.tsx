@@ -17,7 +17,7 @@ import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, AlertTriangle, CheckCircle2, Clock, Target,
-  BookOpen, Zap, BarChart2, MessageSquare, Pencil, Archive, ShieldCheck, Plus, X,
+  BookOpen, Zap, BarChart2, MessageSquare, Pencil, Archive, ShieldCheck, Plus, X, Users,
 } from "lucide-react";
 import {
   getBet, getInterventionsByBet, approveIntervention, rejectIntervention,
@@ -25,10 +25,14 @@ import {
 } from "@/lib/api";
 import type { AcknowledgedRiskRequest } from "@/lib/api";
 import {
-  BET_STATUS_LABELS, BET_STATUS_STYLES, RISK_LABELS,
+  RISK_LABELS,
   SEVERITY_BG, ACTION_LABELS,
 } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { deriveConvictionFromBet } from "@/lib/utils";
+import { BetStatusBadge } from "@/components/bets/BetStatusBadge";
+import { KillCriteriaCard } from "@/components/bets/KillCriteriaCard";
+import { ConvictionScoreGauge } from "@/components/bets/ConvictionScoreGauge";
 import { ApprovalCard } from "@/components/interventions/ApprovalCard";
 import type { Intervention, RiskSignal, ProductPrincipleRef, RiskType } from "@/lib/types";
 import { useWorkspaceId } from "@/hooks/useWorkspaceId";
@@ -260,7 +264,7 @@ function DirectionDetailContent({ params }: { params: Promise<{ id: string }> })
     queryKey: ["interventions-by-bet", workspaceId, id],
     queryFn: () => getInterventionsByBet(workspaceId, id),
     staleTime: 15_000,
-    enabled: workspaceId !== "default_workspace",
+    enabled: !!workspaceId,
   });
 
   const approveMutation = useMutation({
@@ -387,18 +391,19 @@ function DirectionDetailContent({ params }: { params: Promise<{ id: string }> })
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap mb-1">
               <h1 className="font-heading text-xl font-bold text-slate-900">{bet.name}</h1>
-              <span className={cn(
-                "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-                BET_STATUS_STYLES[bet.status],
-              )}>
-                {BET_STATUS_LABELS[bet.status]}
-              </span>
-              {/* Scan CTA — triggers agent scan via prefilled home page prompt */}
+              <BetStatusBadge status={bet.status} />
+              {/* Scan CTA — navigates to chat and auto-fires scan for this direction */}
               <button
-                onClick={() => router.push(`/workspace?message=Scan+direction+${encodeURIComponent(bet.id)}+for+risks`)}
+                onClick={() => router.push(`/workspace/chat?bet=${encodeURIComponent(bet.id)}`)}
                 className="ml-auto flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 transition-colors"
               >
                 <Zap size={12} /> Scan for risks
+              </button>
+              <button
+                onClick={() => router.push(`/workspace/boardroom/${encodeURIComponent(bet.id)}`)}
+                className="flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700 transition-colors"
+              >
+                <Users size={12} /> Enter Boardroom
               </button>
               <button
                 onClick={openEdit}
@@ -462,6 +467,11 @@ function DirectionDetailContent({ params }: { params: Promise<{ id: string }> })
           </div>
         </div>
       </div>
+
+      {/* ── Kill Criteria (founder pre-commitment) ─────────────────────── */}
+      {bet.kill_criteria && (
+        <KillCriteriaCard killCriteria={bet.kill_criteria} />
+      )}
 
       {/* ── Edit form ──────────────────────────────────────────────────── */}
       {editing && (
@@ -676,7 +686,27 @@ function DirectionDetailContent({ params }: { params: Promise<{ id: string }> })
           </div>
         )}
       </div>
-
+      {/* ── 2c. Conviction Score gauge ───────────────────────────── */}
+      {(() => {
+        const conviction = bet.conviction_score ?? deriveConvictionFromBet(bet);
+        return (
+          <div className="glass-panel rounded-2xl p-5">
+            <h2 className="font-heading text-sm font-semibold text-slate-700 flex items-center gap-2 mb-4">
+              <span className="text-base">🎯</span>
+              Conviction Score
+              <span className="ml-1 text-[10px] font-normal text-slate-400 uppercase tracking-widest">PMF framework — applied to bets</span>
+            </h2>
+            {conviction ? (
+              <ConvictionScoreGauge score={conviction} />
+            ) : (
+              <div className="flex flex-col items-center gap-2 py-6 text-center text-xs text-slate-400">
+                <span className="text-2xl">🔍</span>
+                Run a scan to compute Conviction Score across 6 PM dimensions
+              </div>
+            )}
+          </div>
+        );
+      })()}
       {/* ── 3. Pending interventions ───────────────────────────────────── */}
       {(pending.length > 0 || loadingInterventions) && (
         <div className="space-y-3">

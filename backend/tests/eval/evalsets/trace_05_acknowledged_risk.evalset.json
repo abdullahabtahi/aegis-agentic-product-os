@@ -23,7 +23,7 @@
               },
               {
                 "name": "propose_intervention",
-                "args": { "action_type": "rescope", "escalation_level": 1 }
+                "args": { "action_type": "rescope", "escalation_level": 2 }
               }
             ]
           }

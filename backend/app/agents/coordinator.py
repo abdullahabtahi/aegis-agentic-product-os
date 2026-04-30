@@ -251,7 +251,7 @@ def create_coordinator_agent() -> Agent:
 
     return Agent(
         name="coordinator",
-        model="gemini-3.1-pro-preview",
+        model="gemini-3-flash-preview",
         instruction=_COORDINATOR_INSTRUCTION,
         description="Selects one intervention from the taxonomy for a detected risk signal.",
         tools=[propose_intervention],

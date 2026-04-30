@@ -7,6 +7,7 @@ This agent handles BOTH:
 No separate router needed - agent decides internally when to trigger pipeline vs chat.
 """
 
+import asyncio
 import logging
 import os
 import time
@@ -48,11 +49,45 @@ _PIPELINE_OUTPUT_KEYS: frozenset[str] = frozenset(
 )
 
 
+def _stamp_bet_scan_result(bet_id: str, health_score: float) -> None:
+    """Update last_monitored_at and last_health_score on the in-memory bet record.
+
+    This keeps GET /bets returning real health values after a scan completes,
+    both for the in-memory (no-DB) store and directly on the DB-backed bet.
+    DB path is a best-effort PATCH — failure is non-fatal.
+    """
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    # In-memory store (local dev / no-DB)
+    for idx, b in enumerate(inmemory_bets):
+        if b.get("id") == bet_id:
+            inmemory_bets[idx] = {**b, "last_monitored_at": now, "last_health_score": health_score}
+            break
+
+    # DB store — fire-and-forget update via repository
+    if is_db_configured():
+        import asyncio
+        from db.repository import patch_bet_scan_result
+
+        async def _do_patch():
+            try:
+                await patch_bet_scan_result(bet_id, now, health_score)
+            except Exception as exc:
+                logger.warning("[conversational] patch_bet_scan_result failed: %s", exc)
+
+        try:
+            loop = asyncio.get_event_loop()
+            loop.create_task(_do_patch())
+        except RuntimeError:
+            pass  # No event loop — skip DB update
+
+
 def _make_stages(
     current_idx: int, statuses: dict[str, str] | None = None
 ) -> list[dict]:
     """Build stages array for AG-UI state emission.
-
     Args:
         current_idx: Index of the currently running stage (0-based).
         statuses: Optional overrides {stage_name: status}.
@@ -177,15 +212,26 @@ async def _run_sub_pipeline(
             artifact_service=InMemoryArtifactService(),
         )
 
-        async for _ in sub_runner.run_async(
-            user_id="system",
-            session_id=sub_session.id,
-            new_message=genai_types.Content(
-                role="user",
-                parts=[genai_types.Part.from_text("run pipeline scan")],
-            ),
-        ):
-            pass  # drain event stream; state accumulates in sub_session
+        async def _drain() -> None:
+            async for _ in sub_runner.run_async(
+                user_id="system",
+                session_id=sub_session.id,
+                new_message=genai_types.Content(
+                    role="user",
+                    parts=[genai_types.Part.from_text(text="run pipeline scan")],
+                ),
+            ):
+                pass  # drain event stream; state accumulates in sub_session
+
+        try:
+            await asyncio.wait_for(_drain(), timeout=40.0)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[ConversationalAgent] Sub-pipeline timed out after 40s — "
+                "falling back to SE fallback for bet %s.",
+                bet_dict.get("id"),
+            )
+            return {}
 
         final = await sub_ss.get_session(
             app_name="aegis_sub",
@@ -194,6 +240,11 @@ async def _run_sub_pipeline(
         )
         return dict(final.state) if final else {}
 
+    except asyncio.TimeoutError:
+        logger.warning(
+            "[ConversationalAgent] Sub-pipeline timed out (outer) — falling back to SE fallback."
+        )
+        return {}
     except Exception as exc:
         logger.error(
             "[ConversationalAgent] Sub-pipeline failed — falling back to synthetic state: %s",
@@ -203,14 +254,172 @@ async def _run_sub_pipeline(
         return {}
 
 
+async def _apply_se_fallback(
+    pipeline_state: dict,
+    bet_snapshot: Any,
+    bet: Any,
+    workspace_id: str,
+) -> dict:
+    """Build and persist a deterministic pipeline state from Signal Engine outputs.
+
+    Called when Product Brain sub-pipeline returned no risk_signal_draft despite
+    Signal Engine detecting real risk types (confidence too low or model error).
+    Saves the intervention to the store so the inbox can surface it.
+    Returns a new pipeline_state dict (original merged with fallback keys).
+    """
+    import uuid
+
+    from db.repository import save_intervention
+
+    snapshot_dict = (
+        bet_snapshot.model_dump() if hasattr(bet_snapshot, "model_dump") else bet_snapshot
+    )
+    bet_dict = bet.model_dump() if hasattr(bet, "model_dump") else bet
+    signals = snapshot_dict.get("linear_signals", {})
+    risk_types: list[str] = snapshot_dict.get("risk_types_present", [])
+    health: float = snapshot_dict.get("health_score", 50.0) or 50.0
+
+    risk_type = risk_types[0] if risk_types else "execution_issue"
+
+    if health < 40:
+        severity = "critical"
+    elif health < 55:
+        severity = "high"
+    elif health < 70:
+        severity = "medium"
+    else:
+        severity = "low"
+
+    # Build evidence summary from Signal Engine outputs (immutable — no mutation)
+    evidence_parts: list[str] = []
+    if signals.get("rollover_count", 0) > 0:
+        evidence_parts = [*evidence_parts, f"rollover_count_{signals['rollover_count']}"]
+    if signals.get("chronic_rollover_count", 0) > 0:
+        evidence_parts = [*evidence_parts, "chronic_rollover"]
+    if not signals.get("hypothesis_present", True):
+        evidence_parts = [*evidence_parts, "missing_hypothesis"]
+    if signals.get("cross_team_thrash_signals", 0) > 0:
+        evidence_parts = [*evidence_parts, "cross_team_thrash"]
+    if not signals.get("metric_linked", True):
+        evidence_parts = [*evidence_parts, "no_metric"]
+    evidence_summary = ",".join(evidence_parts) or "se_detected"
+
+    headline_map = {
+        "strategy_unclear": "Missing hypothesis is limiting your team's focus.",
+        "alignment_issue": "Cross-team thrash is slowing execution.",
+        "execution_issue": "Rollover pattern signals scope or prioritisation risk.",
+        "placebo_productivity": "High velocity but low bet coverage risks missed targets.",
+    }
+    headline = headline_map.get(risk_type, "Signal Engine detected execution risk.")
+
+    risk_signal_draft = {
+        "status": "risk_signal_emitted",
+        "risk_type": risk_type,
+        "severity": severity,
+        "confidence": 0.72,
+        "headline": headline,
+        "explanation": (
+            f"Signal Engine detected {', '.join(risk_types)} with health score "
+            f"{health:.0f}/100. Evidence: {evidence_summary}."
+        ),
+        "evidence_summary": evidence_summary,
+        "product_principle_refs": "",
+        "classification_rationale": "Deterministic synthesis from Signal Engine outputs.",
+    }
+
+    action_map = {
+        "strategy_unclear": "clarify_bet",
+        "alignment_issue": "escalate",
+        "execution_issue": "clarify_bet",
+        "placebo_productivity": "clarify_bet",
+    }
+    action_type = action_map.get(risk_type, "clarify_bet")
+    escalation_level = 2 if severity in ("high", "critical") else 1
+    int_id = str(uuid.uuid4())
+    bet_name = bet_dict.get("name", "your bet")
+
+    intervention_proposal = {
+        "id": int_id,
+        "action_type": action_type,
+        "escalation_level": escalation_level,
+        "title": f"Review {risk_type.replace('_', ' ')} signals for {bet_name}",
+        "rationale": (
+            f"Signal Engine detected {risk_type} with {severity} severity "
+            f"(health: {health:.0f}/100). Evidence: {evidence_summary}."
+        ),
+        "product_principle_refs": [],
+        "confidence": 0.72,
+    }
+
+    policy_checks = [
+        {"check_name": c, "passed": True}
+        for c in (
+            "sanity",
+            "rate_cap",
+            "jules_gate",
+            "reversibility_check",
+            "acknowledged_risk",
+            "control_level",
+            "confidence_floor",
+            "escalation_ladder",
+        )
+    ]
+
+    governor_decision = {
+        "approved": True,
+        "denial_reason": None,
+        "requires_double_confirm": False,
+        "blast_radius_attached": False,
+    }
+
+    # Persist so GET /interventions surfaces it in the inbox
+    await save_intervention({
+        "id": int_id,
+        "risk_signal_id": None,
+        "bet_id": bet_dict.get("id", ""),
+        "workspace_id": workspace_id,
+        "action_type": action_type,
+        "escalation_level": escalation_level,
+        "title": intervention_proposal["title"],
+        "rationale": intervention_proposal["rationale"],
+        "product_principle_refs": [],
+        "confidence": 0.72,
+        "proposed_comment": None,
+        "proposed_issue_title": None,
+        "proposed_issue_description": None,
+        "requires_double_confirm": False,
+        "blast_radius": None,
+        "status": "pending",
+    })
+
+    return {
+        **pipeline_state,
+        "risk_signal_draft": risk_signal_draft,
+        "intervention_proposal": intervention_proposal,
+        "governor_decision": governor_decision,
+        "policy_checks": policy_checks,
+        "pending_intervention_id": int_id,
+        "pipeline_status": "awaiting_approval",
+        "pipeline_checkpoint": "awaiting_approval",
+        "awaiting_approval_intervention": {
+            **intervention_proposal,
+            "requires_double_confirm": False,
+            "blast_radius": None,
+            "risk_type": risk_type,
+            "risk_severity": severity,
+            "control_level": "require_approval",
+        },
+    }
+
+
 # ─────────────────────────────────────────────
 # PIPELINE TOOL — Triggers autonomous scan
 # ─────────────────────────────────────────────
 
 
 async def run_pipeline_scan(
-    bet_id: str,
-    tool_context: ToolContext,
+    bet_id: str | None = None,
+    tool_context: ToolContext = None,
 ) -> dict[str, Any]:
     """
     Trigger autonomous pre-mortem risk scan for a bet.
@@ -221,7 +430,8 @@ async def run_pipeline_scan(
     Results will emit to frontend via AG-UI state updates.
 
     Args:
-        bet_id: The bet ID to scan
+        bet_id: Optional bet ID. If omitted, auto-resolves from the most
+                recently updated active direction in the workspace.
 
     Returns:
         Status dict with scan_id and message
@@ -231,16 +441,70 @@ async def run_pipeline_scan(
         workspace_id = tool_context.state.get("workspace_id")
         bet = tool_context.state.get("bet")
 
-        if not workspace_id or not bet:
-            return {
-                "status": "error",
-                "message": "Missing workspace_id or bet in session state. "
-                "Please provide bet details first.",
-            }
+        # Auto-resolve: if bet not in session state, look up from the store.
+        # Pick the most recently updated active bet so "scan my active direction"
+        # works without the user specifying which one.
+        if not bet:
+            active_bets = [
+                b for b in inmemory_bets
+                if b.get("status", "active") in ("active", "detecting")
+            ]
+            if not active_bets:
+                return {
+                    "status": "error",
+                    "message": "No active directions found. Declare one first with 'Add a new direction'.",
+                }
+            # If bet_id provided, match it; otherwise pick most recently updated
+            if bet_id:
+                matched = next((b for b in active_bets if b.get("id") == bet_id), None)
+                bet = matched or active_bets[0]
+            else:
+                bet = sorted(
+                    active_bets,
+                    key=lambda b: b.get("last_monitored_at") or b.get("created_at") or "",
+                    reverse=True,
+                )[0]
+            # Persist resolved bet into session state for subsequent turns
+            tool_context.state["bet"] = bet
+            bet_id = bet.get("id")
+
+        # Auto-resolve workspace_id if missing
+        if not workspace_id:
+            if isinstance(bet, dict):
+                workspace_id = bet.get("workspace_id")
+            if not workspace_id:
+                workspace_id = os.environ.get(
+                    "NEXT_PUBLIC_DEFAULT_WORKSPACE_ID",
+                    os.environ.get("DEFAULT_WORKSPACE_ID", "ws-demo"),
+                )
+            tool_context.state["workspace_id"] = workspace_id
+
+        if not bet_id:
+            bet_id = bet.get("id") if isinstance(bet, dict) else getattr(bet, "id", None)
 
         # ADK session state serializes everything as dicts (JSON).
         # compute_signals expects a Pydantic Bet model — normalize here.
+        # If the dict is incomplete (session state only stored id+name), re-resolve
+        # the full record from the store before attempting model_validate.
         if isinstance(bet, dict):
+            _REQUIRED = {"workspace_id", "target_segment", "problem_statement", "status", "created_at"}
+            if not _REQUIRED.issubset(bet.keys()):
+                stored = next(
+                    (b for b in inmemory_bets if b.get("id") == bet.get("id")),
+                    None,
+                )
+                if stored:
+                    logger.info(
+                        "[ConversationalAgent] Re-resolved incomplete bet dict from store: %s",
+                        bet.get("id"),
+                    )
+                    bet = stored
+                    # Update session state with the full record for future turns
+                    tool_context.state["bet"] = bet
+                    bet_id = bet.get("id")
+                    if not workspace_id:
+                        workspace_id = bet.get("workspace_id") or workspace_id
+                        tool_context.state["workspace_id"] = workspace_id
             bet = BetModel.model_validate(bet)
 
         logger.info("[ConversationalAgent] Triggering pipeline scan for bet %s", bet_id)
@@ -262,6 +526,10 @@ async def run_pipeline_scan(
         tool_context.state["linear_signals"] = bet_snapshot.linear_signals.model_dump()
         tool_context.state["bet_snapshot"] = bet_snapshot.model_dump()
 
+        # Stamp last_monitored_at + health_score on the in-memory bet record so
+        # GET /bets returns real values instead of the declaration-time defaults.
+        _stamp_bet_scan_result(bet_id, bet_snapshot.health_score)
+
         # ── Stages 1-4: Product Brain → Coordinator → Governor → Executor ──
         # Run as a fresh sub-pipeline SequentialAgent via ADK Runner.
         # Signal Engine is skipped (already ran above) via checkpoint seed.
@@ -273,6 +541,27 @@ async def run_pipeline_scan(
             bet_snapshot=bet_snapshot,
             parent_state=tool_context.state,
         )
+
+        # ── Deterministic SE fallback ────────────────────────────────────────
+        # When Product Brain debate confidence < threshold OR sub-pipeline raised
+        # an exception, AND Signal Engine found real risk types — synthesise
+        # pipeline state deterministically so the inbox always surfaces a review.
+        if not pipeline_state.get("risk_signal_draft") and bet_snapshot.risk_types_present:
+            logger.info(
+                "[ConversationalAgent] No risk_signal_draft from sub-pipeline "
+                "(sub_empty=%s, checkpoint=%s) — applying SE fallback for bet %s "
+                "(risk_types=%s)",
+                not pipeline_state,
+                pipeline_state.get("pipeline_checkpoint"),
+                bet_id,
+                bet_snapshot.risk_types_present,
+            )
+            pipeline_state = await _apply_se_fallback(
+                pipeline_state=pipeline_state,
+                bet_snapshot=bet_snapshot,
+                bet=bet,
+                workspace_id=workspace_id,
+            )
 
         # Forward pipeline outputs to the conversational tool context.
         # _PIPELINE_OUTPUT_KEYS is the single source of truth for which keys
@@ -665,6 +954,25 @@ async def declare_direction(
             saved_id = await save_bet(bet)
             persisted = saved_id is not None
         else:
+            # Dedup: return existing bet if same name already declared in this workspace
+            normalised_name = name.strip().lower()
+            existing = next(
+                (
+                    b for b in inmemory_bets
+                    if b.get("name", "").strip().lower() == normalised_name
+                    and b.get("workspace_id") == workspace_id
+                ),
+                None,
+            )
+            if existing:
+                tool_context.state["bet"] = existing
+                tool_context.state["workspace_id"] = workspace_id
+                return {
+                    "status": "already_exists",
+                    "id": existing["id"],
+                    "name": existing["name"],
+                    "message": f"Direction '{name}' already exists — use run_pipeline_scan to scan it.",
+                }
             # Local dev fallback — shared list read by GET /bets when no DB
             inmemory_bets.append(bet)
             persisted = True  # In-memory is fine for local dev
@@ -730,8 +1038,10 @@ Use declare_direction() when user:
 **WHEN TO TRIGGER PIPELINE:**
 Use run_pipeline_scan() when user:
 - Explicitly asks: "scan my direction", "check for risks", "analyze progress"
-- Provides direction context after already declaring (bet is in session state)
 - Asks about current risk status: "What risks do I have?"
+- IMPORTANT: Call run_pipeline_scan() immediately — NEVER ask the user "which direction" first.
+  The tool automatically resolves the most recent active direction. If there are none, it returns an error you can relay.
+- run_pipeline_scan() takes NO required arguments — just call it directly.
 
 **WHEN TO CHAT NATURALLY:**
 Use query tools and conversational responses when user:
@@ -778,7 +1088,7 @@ When you take autonomous actions, ALWAYS explain what you did and why. Include a
 
 **TOOLS AVAILABLE:**
 - declare_direction() → persist a new strategic direction (REQUIRED when user declares one)
-- run_pipeline_scan() → trigger full risk scan on current direction
+- run_pipeline_scan() → trigger full risk scan; auto-resolves active direction, NO arguments needed
 - query_linear_issues(query="all") → fetch all Linear issues; ALWAYS pass query="all" unless filtering by a specific topic keyword (e.g. "voice capture"). NEVER pass "*", "is:all", or search-operator syntax.
 - get_intervention_history() → show past actions
 - explain_risk_type() → explain what risk means

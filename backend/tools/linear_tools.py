@@ -393,22 +393,41 @@ class RealLinearMCP:
             }
 
         # create_issue → Linear issueCreate mutation
+        # Linear API requires teamId — read from action payload or LINEAR_TEAM_ID env var.
         create_issue = action.get("create_issue")
         if create_issue and isinstance(create_issue, dict):
             title = create_issue.get("title", "")
             description = create_issue.get("description", "")
             project_id = create_issue.get("project_id")
+            # teamId is REQUIRED by Linear API (IssueCreateInput)
+            team_id = (
+                create_issue.get("team_id")
+                or action.get("team_id")
+                or os.environ.get("LINEAR_TEAM_ID", "")
+            )
             if not title:
                 return {"status": "skipped", "reason": "create_issue requires title"}
-            variables: dict[str, Any] = {"title": title, "description": description}
+            if not team_id:
+                return {
+                    "status": "skipped",
+                    "reason": (
+                        "create_issue requires teamId — set LINEAR_TEAM_ID in .env "
+                        "(Linear Settings > Teams > your team > copy team ID)"
+                    ),
+                }
+            variables: dict[str, Any] = {
+                "title": title,
+                "description": description,
+                "teamId": team_id,
+            }
             # projectId is optional — only set if provided
             project_clause = ""
             if project_id:
                 variables["projectId"] = project_id
                 project_clause = ", projectId: $projectId"
             mutation = f"""
-            mutation CreateIssue($title: String!, $description: String!{", $projectId: String" if project_id else ""}) {{
-              issueCreate(input: {{ title: $title, description: $description{project_clause} }}) {{
+            mutation CreateIssue($title: String!, $description: String!, $teamId: String!{", $projectId: String" if project_id else ""}) {{
+              issueCreate(input: {{ title: $title, description: $description, teamId: $teamId{project_clause} }}) {{
                 success
                 issue {{ id title }}
               }}

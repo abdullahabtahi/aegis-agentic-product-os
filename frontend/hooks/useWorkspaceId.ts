@@ -2,7 +2,7 @@
 import { useCoAgent } from "@copilotkit/react-core";
 import type { AegisPipelineState } from "@/lib/types";
 
-const FALLBACK = "default_workspace";
+const FALLBACK = process.env.NEXT_PUBLIC_DEFAULT_WORKSPACE_ID || "default_workspace";
 
 export function useWorkspaceId(): string {
   const { state } = useCoAgent<AegisPipelineState>({ name: "aegis" });

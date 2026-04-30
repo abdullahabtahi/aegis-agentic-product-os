@@ -1,11 +1,11 @@
 [
   {
-    "id": "8c70ebaf-41da-4fa9-a941-b7f1e6924928",
+    "id": "163a0e85-9155-4b11-a165-3ff0bc04ca41",
     "workspace_id": "ws-demo",
-    "name": "Autonomous Risk Detection and Intervention",
+    "name": "Autonomous Execution with Human-in-the-Loop Governance",
     "target_segment": "",
-    "problem_statement": "Founders often miss subtle execution risks like repeated de-prioritization or silent scope expansion until projects are already significantly delayed.",
-    "hypothesis": "We believe that by automatically synthesizing Linear execution signals into actionable interventions, we can prevent scope creep before it impacts sprint velocity.",
+    "problem_statement": "Founders face high cognitive load when manually executing interventions derived from risk signals.",
+    "hypothesis": "We believe that implementing a multi-stage approval workflow for autonomous code actions will reduce founder operational overhead while maintaining system safety.",
     "success_metrics": [],
     "time_horizon": "",
     "linear_project_ids": [],
@@ -24,16 +24,17 @@
     "acknowledged_risks": [],
     "linear_issue_ids": [],
     "doc_refs": [],
-    "created_at": "2026-04-29T16:53:33.973355+00:00",
-    "last_monitored_at": "2026-04-29T16:53:33.973355+00:00"
+    "created_at": "2026-04-30T04:32:02.665642+00:00",
+    "last_monitored_at": "2026-04-30T15:16:27.224943+00:00",
+    "last_health_score": 88.0
   },
   {
-    "id": "adf63f21-7276-4e7e-9aff-0dcc5e3076df",
+    "id": "c736a8d1-131e-4917-a981-a3994db38671",
     "workspace_id": "ws-demo",
-    "name": "Continuous Agentic Self-Improvement and Evaluation",
+    "name": "Continuous Agent Optimization via Evaluation Synthesis",
     "target_segment": "",
-    "problem_statement": "Static AI prompts fail to adapt to specific workspace contexts, leading to generic or inaccurate product management advice that loses user trust.",
-    "hypothesis": "We believe that using an offline replay and eval synthesis loop to tune agent heuristics will increase the relevance of AI-generated product insights over time.",
+    "problem_statement": "Static agent prompts and heuristics fail to adapt to evolving product contexts and founder feedback.",
+    "hypothesis": "We believe that using a corpus of past failures and golden traces to auto-tune heuristics will significantly improve the precision of risk detection.",
     "success_metrics": [],
     "time_horizon": "",
     "linear_project_ids": [],
@@ -52,16 +53,17 @@
     "acknowledged_risks": [],
     "linear_issue_ids": [],
     "doc_refs": [],
-    "created_at": "2026-04-29T16:53:33.973355+00:00",
-    "last_monitored_at": "2026-04-29T16:53:33.973355+00:00"
+    "created_at": "2026-04-30T04:32:02.665642+00:00",
+    "last_monitored_at": "2026-04-30T12:28:58.443681+00:00",
+    "last_health_score": 88.0
   },
   {
-    "id": "5421ad4a-ab13-4250-9eef-dedb2c00bd46",
+    "id": "b399db79-a8a2-4214-9e0b-cff868469466",
     "workspace_id": "ws-demo",
-    "name": "Unified Multi-Channel Decision Capture",
+    "name": "Strategic Opportunity-Cost Management for Founders",
     "target_segment": "",
-    "problem_statement": "Critical product context is lost across disparate communication channels, causing teams to build features based on outdated or misunderstood requirements.",
-    "hypothesis": "We believe that ingesting decisions from Slack, voice, and email into a centralized replay UI will reduce engineering rework caused by fragmented context.",
+    "problem_statement": "Founders struggle to distinguish between high-leverage strategic work and placebo productivity across fragmented communication channels.",
+    "hypothesis": "We believe that classifying captured signals into Leverage, Neutral, and Overhead categories will prevent founders from focusing on low-impact tasks.",
     "success_metrics": [],
     "time_horizon": "",
     "linear_project_ids": [],
@@ -80,16 +82,17 @@
     "acknowledged_risks": [],
     "linear_issue_ids": [],
     "doc_refs": [],
-    "created_at": "2026-04-29T16:53:33.973355+00:00",
-    "last_monitored_at": "2026-04-29T16:53:33.973355+00:00"
+    "created_at": "2026-04-30T04:32:02.665642+00:00",
+    "last_monitored_at": "2026-04-30T05:37:16.683521+00:00",
+    "last_health_score": 88.0
   },
   {
-    "id": "d35e9fc1-aad2-4b4d-a29a-085f2b1d88c7",
+    "id": "92b84d63-664e-4327-ae7f-00cb29f2779b",
     "workspace_id": "ws-demo",
-    "name": "Leverage-Based Opportunity Cost Auditing",
+    "name": "Transparent Agent Observability and Decision Replay",
     "target_segment": "",
-    "problem_statement": "Founders struggle with decision fatigue and placebo productivity because they cannot easily distinguish between high-leverage work and low-value overhead tasks.",
-    "hypothesis": "We believe that classifying founder workflows into Leverage, Neutral, and Overhead categories will increase time spent on high-impact strategic work.",
+    "problem_statement": "The lack of visibility into agent reasoning and historical actions creates a black box effect that hinders user adoption.",
+    "hypothesis": "We believe that exposing real-time execution states and historical decision replays will increase user trust in autonomous agentic systems.",
     "success_metrics": [],
     "time_horizon": "",
     "linear_project_ids": [],
@@ -108,16 +111,80 @@
     "acknowledged_risks": [],
     "linear_issue_ids": [],
     "doc_refs": [],
-    "created_at": "2026-04-29T16:53:33.973355+00:00",
-    "last_monitored_at": "2026-04-29T16:53:33.973355+00:00"
+    "created_at": "2026-04-30T04:32:02.665642+00:00",
+    "last_monitored_at": "2026-04-30T04:32:02.665642+00:00"
   },
   {
-    "id": "45e25ee6-bbc6-444e-a78f-eebf712ef541",
+    "id": "01bc31e5-0bc4-4acb-a321-f0cd56e7ee49",
     "workspace_id": "ws-demo",
-    "name": "Self-Improving Agentic Evaluation Framework",
+    "name": "Ship Voice Capture SDK Integration",
+    "target_segment": "Early-stage founders",
+    "problem_statement": "Manual data entry for strategy updates is high-friction, leading to signal gaps. Seamless voice capture is required to maintain a continuous pre-mortem loop.",
+    "hypothesis": "",
+    "success_metrics": [],
+    "time_horizon": "",
+    "declaration_source": {
+      "type": "manual",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 1.0,
+    "status": "active",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_project_ids": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T04:33:16.551890+00:00",
+    "last_monitored_at": "2026-04-30T12:22:22.631618+00:00",
+    "last_health_score": 73.0
+  },
+  {
+    "id": "5d275803-1f36-470c-a7a5-00e93f1c6656",
+    "workspace_id": "ws-demo",
+    "name": "Risk Radar MVP",
+    "target_segment": "Product-led founders and GMs",
+    "problem_statement": "Founders lack real-time visibility into strategy drift and execution blockers across their toolstack. Risk Radar provides a continuous pre-mortem dashboard to catch these before they hit the bottom line.",
+    "hypothesis": "If we give PMs and founders a Risk Radar that continuously surfaces the top 3 product risks with one suggested intervention each, then they will catch execution drift earlier and resolve at least one critical risk per week they previously would have missed.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "declaration_source": {
+      "type": "manual",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 1.0,
+    "status": "active",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [
+      {
+        "risk_type": "strategy_unclear",
+        "acknowledged_at": "2026-04-30T08:26:53.570837+00:00",
+        "founder_note": null
+      }
+    ],
+    "linear_project_ids": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T04:41:34.564397+00:00",
+    "last_monitored_at": "2026-04-30T08:49:03.742043+00:00",
+    "last_health_score": 88.0
+  },
+  {
+    "id": "19da21e9-1924-4e68-ab2a-db4e7c2deaa4",
+    "workspace_id": "ws-demo",
+    "name": "Data-Driven Heuristic Tuning and Evaluation",
     "target_segment": "",
-    "problem_statement": "Current agentic behaviors are static and lack a systematic way to learn from past execution failures or track performance trends.",
-    "hypothesis": "We believe that implementing automated heuristic tuning and semantic search on failure corpuses will reduce agentic regressions and improve intervention relevance.",
+    "problem_statement": "Agentic decision-making logic is currently ephemeral and difficult to tune without a historical record of performance and regressions.",
+    "hypothesis": "We believe that aggregating evaluation results into a persistent agent evolution log will allow us to systematically reduce false positives in risk detection.",
     "success_metrics": [],
     "time_horizon": "",
     "linear_project_ids": [],
@@ -136,16 +203,16 @@
     "acknowledged_risks": [],
     "linear_issue_ids": [],
     "doc_refs": [],
-    "created_at": "2026-04-29T16:53:50.079581+00:00",
-    "last_monitored_at": "2026-04-29T16:53:50.079581+00:00"
+    "created_at": "2026-04-30T04:52:07.641989+00:00",
+    "last_monitored_at": "2026-04-30T04:52:07.641989+00:00"
   },
   {
-    "id": "b61d3362-4dd6-4b2d-b0d6-c1973dcecede",
+    "id": "df162b0c-b003-4f97-b237-22635463384c",
     "workspace_id": "ws-demo",
-    "name": "Opportunity-Cost OS for Founders",
+    "name": "Multi-Channel Decision Capture and Synthesis",
     "target_segment": "",
-    "problem_statement": "Founders suffer from decision fatigue and prioritize low-impact tasks due to a lack of visibility into time-based opportunity costs.",
-    "hypothesis": "We believe that classifying tasks into Leverage, Neutral, and Overhead categories will enable founders to eliminate placebo productivity.",
+    "problem_statement": "Critical product decisions are fragmented across multiple communication channels, leading to placebo productivity and lost context.",
+    "hypothesis": "We believe that expanding capture to Slack, Notion, and email will provide a more comprehensive risk signal than voice capture alone.",
     "success_metrics": [],
     "time_horizon": "",
     "linear_project_ids": [],
@@ -164,16 +231,16 @@
     "acknowledged_risks": [],
     "linear_issue_ids": [],
     "doc_refs": [],
-    "created_at": "2026-04-29T16:53:50.079581+00:00",
-    "last_monitored_at": "2026-04-29T16:53:50.079581+00:00"
+    "created_at": "2026-04-30T04:52:07.641989+00:00",
+    "last_monitored_at": "2026-04-30T04:52:07.641989+00:00"
   },
   {
-    "id": "6e0ef550-a720-4b51-b520-ae005852f408",
+    "id": "bc6ceeff-26b4-4ddd-841d-92a446b1e389",
     "workspace_id": "ws-demo",
-    "name": "Autonomous Execution and Decision Replay Loop",
+    "name": "Opportunity-Cost and Leverage Auditing for Founders",
     "target_segment": "",
-    "problem_statement": "A gap exists between risk identification and execution, leading to stalled progress and low trust in autonomous actions.",
-    "hypothesis": "We believe that integrating the Jules execution layer with a decision replay UI will allow founders to delegate tasks while maintaining oversight.",
+    "problem_statement": "Early-stage founders suffer from decision fatigue and often prioritize low-leverage overhead tasks over critical product discovery.",
+    "hypothesis": "We believe that classifying tasks into Leverage, Neutral, and Overhead categories will help founders reallocate time to high-impact strategic work.",
     "success_metrics": [],
     "time_horizon": "",
     "linear_project_ids": [],
@@ -192,16 +259,666 @@
     "acknowledged_risks": [],
     "linear_issue_ids": [],
     "doc_refs": [],
-    "created_at": "2026-04-29T16:53:50.079581+00:00",
-    "last_monitored_at": "2026-04-29T16:53:50.079581+00:00"
+    "created_at": "2026-04-30T04:52:07.641989+00:00",
+    "last_monitored_at": "2026-04-30T04:52:07.641989+00:00"
   },
   {
-    "id": "3b6b8fd0-65e9-436d-a8cd-3507a0acbf9b",
+    "id": "12502721-dfee-4ce4-bd30-bc77f41db0ec",
     "workspace_id": "ws-demo",
+    "name": "Ship Voice Capture Core Loop",
+    "target_segment": "First-time SaaS founders",
+    "problem_statement": "Core loop integration is stalling while peripheral scope (Slack/Notion ingestion) expands, risking a \"feature factory\" outcome without solving the primary problem.",
+    "hypothesis": "We believe focusing on the SDK integration over secondary integrations will result in faster time-to-value for founders.",
+    "success_metrics": [],
+    "time_horizon": "Q2 2026",
+    "declaration_source": {
+      "type": "manual",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 1.0,
+    "status": "active",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_project_ids": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T04:56:30.715731+00:00",
+    "last_monitored_at": "2026-04-30T04:56:34.020408+00:00",
+    "last_health_score": 88.0
+  },
+  {
+    "id": "20af507c-fcf0-4447-92d3-1e99f2574136",
+    "workspace_id": "ws-demo",
+    "name": "Autonomous Multi-Agent Risk Detection",
+    "target_segment": "",
+    "problem_statement": "Founders and PMs struggle to manually track subtle execution signals like scope creep and repeated de-prioritization across fragmented project management tools.",
+    "hypothesis": "We believe that orchestrating specialized agents for execution monitoring and intervention synthesis will proactively mitigate product delivery risks before they impact timelines.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T06:04:06.404476+00:00",
+    "last_monitored_at": "2026-04-30T06:04:06.404476+00:00"
+  },
+  {
+    "id": "bad1029c-b313-459d-8140-0322764179a0",
+    "workspace_id": "ws-demo",
+    "name": "Data-Driven Agent Heuristic Optimization",
+    "target_segment": "",
+    "problem_statement": "Static agent prompts become outdated as product contexts evolve, leading to irrelevant interventions and decreased user trust in autonomous systems.",
+    "hypothesis": "We believe that implementing an automated evaluation loop and canary rollout system for heuristics will continuously improve agent accuracy without manual prompt engineering.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T06:04:06.404476+00:00",
+    "last_monitored_at": "2026-04-30T06:04:06.404476+00:00"
+  },
+  {
+    "id": "6715fa40-8f89-425a-bfeb-1ce0ecb8c86c",
+    "workspace_id": "ws-demo",
+    "name": "Real-Time Agent Observability and Governance",
+    "target_segment": "",
+    "problem_statement": "The lack of visibility into the multi-stage agentic pipeline prevents users from understanding, auditing, or correcting autonomous decisions.",
+    "hypothesis": "We believe that providing real-time pipeline streaming and a decision replay UI will increase founder adoption of autonomous actions by providing transparency into agent reasoning.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T06:04:06.404476+00:00",
+    "last_monitored_at": "2026-04-30T06:04:06.404476+00:00"
+  },
+  {
+    "id": "a106d6c9-c115-48f6-93c2-2f3fdcc2c900",
+    "workspace_id": "ws-demo",
+    "name": "Strategic Opportunity Cost Management",
+    "target_segment": "",
+    "problem_statement": "Founders often suffer from placebo productivity, spending excessive time on low-leverage tasks because they lack a clear view of their opportunity costs.",
+    "hypothesis": "We believe that automatically classifying tasks and calendar events into Leverage, Neutral, and Overhead categories will help founders reallocate time to high-impact work.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T06:04:06.404476+00:00",
+    "last_monitored_at": "2026-04-30T06:04:06.404476+00:00"
+  },
+  {
+    "id": "fac0b9fc-b28f-465a-9e1f-7c85515340ba",
+    "workspace_id": "ws-demo",
+    "name": "Self-Improving Agentic Intelligence",
+    "target_segment": "",
+    "problem_statement": "Static agent heuristics fail to adapt to evolving product contexts, leading to stagnant or declining intervention quality.",
+    "hypothesis": "We believe that implementing automated evaluation synthesis and heuristic versioning will allow the system to optimize its own decision-making logic over time.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T06:07:41.451038+00:00",
+    "last_monitored_at": "2026-04-30T06:07:41.451038+00:00"
+  },
+  {
+    "id": "9f0c7fb9-c193-49f8-8205-be19f3698390",
+    "workspace_id": "ws-demo",
+    "name": "Unified Multi-Channel Decision Ingestion",
+    "target_segment": "",
+    "problem_statement": "Fragmented communication across multiple tools prevents a single source of truth for product decisions and project status.",
+    "hypothesis": "We believe that capturing decisions from voice, Slack, and Notion will provide a more comprehensive context for the agent to identify execution risks.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T06:07:41.451038+00:00",
+    "last_monitored_at": "2026-04-30T06:07:41.451038+00:00"
+  },
+  {
+    "id": "95c8cd91-ab11-4699-bdee-f65548fc5e6e",
+    "workspace_id": "ws-demo",
+    "name": "Real-Time Risk Monitoring and Governance",
+    "target_segment": "",
+    "problem_statement": "Founders are hesitant to delegate execution to AI without clear visibility into the agent's reasoning and the ability to intervene.",
+    "hypothesis": "We believe that providing a real-time Risk Radar UI with manual approval gates will build founder trust in autonomous agent interventions.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T06:07:41.451038+00:00",
+    "last_monitored_at": "2026-04-30T06:07:41.451038+00:00"
+  },
+  {
+    "id": "3141a214-5e8c-433a-84ac-ccd0738dffbd",
+    "workspace_id": "ws-demo",
+    "name": "Closed-Loop Autonomous Project Execution",
+    "target_segment": "",
+    "problem_statement": "Manual updates to systems of record like Linear create a bottleneck that slows down the overall development velocity.",
+    "hypothesis": "We believe that connecting the Coordinator agent to the Jules execution layer will reduce the manual effort required to keep project management tools updated.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T06:07:41.451038+00:00",
+    "last_monitored_at": "2026-04-30T06:07:41.451038+00:00"
+  },
+  {
+    "id": "6c592dd6-e37c-4c7a-a08f-990aded2871f",
+    "workspace_id": "ws-test",
+    "name": "Voice-first workflows",
+    "target_segment": "",
+    "problem_statement": "Decisions are lost.",
+    "hypothesis": "We believe voice input reduces documentation time.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T06:47:27.360225+00:00",
+    "last_monitored_at": "2026-04-30T07:08:47.952959+00:00",
+    "last_health_score": 88.0
+  },
+  {
+    "id": "6b7e1bf2-3d06-4a3f-adaf-2b534e772003",
+    "workspace_id": "ws-test",
+    "name": "Async decision log",
+    "target_segment": "",
+    "problem_statement": "Context is scattered.",
+    "hypothesis": "We believe async logging increases alignment.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T06:47:27.360225+00:00",
+    "last_monitored_at": "2026-04-30T06:47:27.360225+00:00"
+  },
+  {
+    "id": "255f89ac-c0f8-4cec-885a-f5f83f4d1dfa",
+    "workspace_id": "ws-demo",
+    "name": "Reliable Autonomous Execution Loop",
+    "target_segment": "",
+    "problem_statement": "Founders are hesitant to delegate actions to agents without guaranteed execution reliability and verifiable outcomes in their system of record.",
+    "hypothesis": "We believe that by implementing end-to-end verification of the approve-to-executor pipeline, we will increase founder trust in autonomous interventions.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T08:54:22.702579+00:00",
+    "last_monitored_at": "2026-04-30T08:54:50.656057+00:00",
+    "last_health_score": 88.0
+  },
+  {
+    "id": "9877b1ec-6282-4e3a-9d16-6a2313e08dd2",
+    "workspace_id": "ws-demo",
+    "name": "Self-Improving Heuristic Optimization",
+    "target_segment": "",
+    "problem_statement": "Static agent prompts quickly become outdated or misaligned with specific workspace contexts, leading to irrelevant risk signals and manual maintenance overhead.",
+    "hypothesis": "We believe that by using EvalSynthesisJob and semantic search on failure corpuses to tune heuristics, we can continuously improve intervention relevance without manual prompt engineering.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T08:54:22.702579+00:00",
+    "last_monitored_at": "2026-04-30T08:54:22.702579+00:00"
+  },
+  {
+    "id": "f262a878-a547-4a87-a618-3cc4ad165b34",
+    "workspace_id": "ws-demo",
+    "name": "Real-time Agentic State Observability",
+    "target_segment": "",
+    "problem_statement": "The black box nature of multi-agent systems makes it difficult for users to understand how a risk signal was derived or why a specific intervention was proposed.",
+    "hypothesis": "We believe that streaming mid-execution pipeline states to the UI will reduce user anxiety during complex multi-agent reasoning tasks.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T08:54:22.702579+00:00",
+    "last_monitored_at": "2026-04-30T08:54:22.702579+00:00"
+  },
+  {
+    "id": "bf817489-76b2-4854-af3a-7f8a43b54721",
+    "workspace_id": "ws-demo",
+    "name": "Opportunity-Cost Focused Decision Support",
+    "target_segment": "",
+    "problem_statement": "Founders often struggle to distinguish between high-impact work and low-value overhead, leading to misallocated resources and stalled product momentum.",
+    "hypothesis": "We believe that by classifying tasks into Lever, Neutral, and Overhead categories, we can help founders focus on high-leverage activities and reduce placebo productivity.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T08:54:22.702579+00:00",
+    "last_monitored_at": "2026-04-30T08:54:22.702579+00:00"
+  },
+  {
+    "id": "8e6d4964-b74b-4986-a89b-6e1b8297d4aa",
+    "workspace_id": "ws-demo",
+    "name": "Automated Agent Evaluation and Heuristic Tuning",
+    "target_segment": "",
+    "problem_statement": "Agentic systems lack long-term performance tracking, making it difficult to safely upgrade classification prompts without risking production regressions.",
+    "hypothesis": "We believe that implementing persistent evaluation synthesis and canary rollouts for heuristics will reduce regression risks and improve intervention accuracy.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T09:22:36.721048+00:00",
+    "last_monitored_at": "2026-04-30T09:22:36.721048+00:00"
+  },
+  {
+    "id": "0de6d99b-12e2-4d9f-806c-4f7f6cac5128",
+    "workspace_id": "ws-demo",
+    "name": "Multi-Stage Autonomous Risk Detection Pipeline",
+    "target_segment": "",
+    "problem_statement": "Founders cannot manually monitor fragmented execution signals, leading to undetected scope creep and project delays.",
+    "hypothesis": "We believe that a specialized five-stage agentic pipeline will enable more nuanced risk detection and safer autonomous interventions than single-agent systems.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T09:22:36.721048+00:00",
+    "last_monitored_at": "2026-04-30T09:22:36.721048+00:00"
+  },
+  {
+    "id": "93f4030a-28d1-48f7-a909-9951452be517",
+    "workspace_id": "ws-demo",
+    "name": "Real-time Agent State Transparency and Replay",
+    "target_segment": "",
+    "problem_statement": "The lack of visibility into an agent's internal reasoning prevents users from feeling in control of autonomous interventions.",
+    "hypothesis": "We believe that streaming mid-execution state deltas and providing a decision replay UI will increase founder trust in autonomous agent actions.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T09:22:36.721048+00:00",
+    "last_monitored_at": "2026-04-30T09:22:36.721048+00:00"
+  },
+  {
+    "id": "111d397e-576f-4fd5-8042-507127585ecb",
+    "workspace_id": "ws-demo",
+    "name": "Omnichannel Decision Capture and Context Synthesis",
+    "target_segment": "",
+    "problem_statement": "Product decisions are fragmented across communication channels, causing a disconnect between high-level strategy and daily execution.",
+    "hypothesis": "We believe that expanding ingestion to Slack, Notion, and email will provide the context needed to accurately classify opportunity costs for founders.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T09:22:36.721048+00:00",
+    "last_monitored_at": "2026-04-30T09:22:36.721048+00:00"
+  },
+  {
+    "id": "ece05d68-3085-438b-a391-30d2d725a20c",
+    "workspace_id": "default_workspace",
+    "name": "Enterprise Sales Focus",
+    "target_segment": "Enterprise (500+ employees)",
+    "problem_statement": "Our current SMB-heavy pipeline has high churn and slow expansion revenue",
+    "hypothesis": "Prioritising enterprise customers over SMB will increase MRR by 40% in Q2 because enterprise deals have 3x higher ACV and lower churn",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "manual",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 1.0,
+    "status": "active",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "kill_criteria": null,
+    "doc_refs": [],
+    "created_at": "2026-04-30T10:46:39.891956+00:00",
+    "last_monitored_at": "2026-04-30T10:46:39.891956+00:00",
+    "last_health_score": null
+  },
+  {
+    "id": "fd10ee26-c53f-49e6-b4ef-3ae3fe00e57c",
+    "workspace_id": "default_workspace",
+    "name": "Reliable Autonomous Execution Infrastructure",
+    "target_segment": "",
+    "problem_statement": "Manual verification of agent-driven writes to Linear is slow and prone to regressions, which hinders the transition to higher levels of autonomy.",
+    "hypothesis": "We believe that implementing end-to-end verification for the Executor and Jules action layers will reduce failed interventions and increase founder trust in autonomous writes.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T10:49:46.511138+00:00",
+    "last_monitored_at": "2026-04-30T10:50:17.512397+00:00",
+    "last_health_score": 88.0
+  },
+  {
+    "id": "35927a36-597b-4ec3-8bad-5fa2f34c7a6a",
+    "workspace_id": "default_workspace",
+    "name": "Real-time Agent Observability and Governance",
+    "target_segment": "",
+    "problem_statement": "The internal logic of the multi-agent pipeline is currently a black box, making it difficult for users to understand or trust proposed interventions.",
+    "hypothesis": "We believe that streaming real-time pipeline state updates and providing a decision replay UI will allow founders to intervene earlier and feel more in control.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T10:49:46.511138+00:00",
+    "last_monitored_at": "2026-04-30T10:49:46.511138+00:00"
+  },
+  {
+    "id": "ec462b5a-9be6-46ed-99ad-ca24aa476530",
+    "workspace_id": "default_workspace",
+    "name": "Data-Driven Heuristic Optimization",
+    "target_segment": "",
+    "problem_statement": "Heuristics for identifying product risks are currently static and difficult to upgrade without risking regressions in production performance.",
+    "hypothesis": "We believe that aggregating evaluation results and using semantic search on past failures will allow us to automatically tune risk detection heuristics for better accuracy.",
+    "success_metrics": [],
+    "time_horizon": "",
+    "linear_project_ids": [],
+    "declaration_source": {
+      "type": "agent_inferred",
+      "raw_artifact_refs": []
+    },
+    "declaration_confidence": 0.7,
+    "status": "detecting",
+    "health_baseline": {
+      "expected_bet_coverage_pct": 0.5,
+      "expected_weekly_velocity": 3,
+      "hypothesis_required": true,
+      "metric_linked_required": false
+    },
+    "acknowledged_risks": [],
+    "linear_issue_ids": [],
+    "doc_refs": [],
+    "created_at": "2026-04-30T10:49:46.511138+00:00",
+    "last_monitored_at": "2026-04-30T10:49:46.511138+00:00"
+  },
+  {
+    "id": "74fef3a9-c63a-449f-ac74-afa360e848f3",
+    "workspace_id": "default_workspace",
     "name": "Unified Multi-Channel Context Ingestion",
     "target_segment": "",
-    "problem_statement": "Critical product signals are scattered across communication channels, resulting in incomplete risk detection by the agentic system.",
-    "hypothesis": "We believe that expanding context capture to Slack and Notion will provide the agentic system with the signals needed to detect fragmented risks.",
+    "problem_statement": "Critical product decisions are often scattered across informal channels, leading to a fragmented system of record and missed execution signals.",
+    "hypothesis": "We believe that expanding voice capture to include Slack, Notion, and email will provide a more complete context for identifying hidden product risks.",
     "success_metrics": [],
     "time_horizon": "",
     "linear_project_ids": [],
@@ -220,130 +937,19 @@
     "acknowledged_risks": [],
     "linear_issue_ids": [],
     "doc_refs": [],
-    "created_at": "2026-04-29T16:53:50.079581+00:00",
-    "last_monitored_at": "2026-04-29T16:53:50.079581+00:00"
+    "created_at": "2026-04-30T10:49:46.511138+00:00",
+    "last_monitored_at": "2026-04-30T10:49:46.511138+00:00"
   },
   {
-    "id": "00307f1c-1917-4990-8c32-a4c38c94e422",
-    "workspace_id": "ws-demo",
-    "name": "Autonomous Agent Reliability and Optimization",
-    "target_segment": "",
-    "problem_statement": "Static agent prompts and ephemeral evaluation data prevent the system from learning from past performance and safely evolving its decision-making logic.",
-    "hypothesis": "We believe that implementing automated evaluation synthesis and canary rollouts for heuristics will reduce regression risks and improve agentic decision accuracy over time.",
+    "id": "4c8ba413-4f0f-4bd4-8ffa-def9e23b1c9a",
+    "workspace_id": "ws_default",
+    "name": "Mobile checkout flow",
+    "target_segment": "SMB e-commerce founders",
+    "problem_statement": "Users drop off at payment step due to friction",
+    "hypothesis": "If we simplify the checkout flow, conversion will increase by 20%",
     "success_metrics": [],
-    "time_horizon": "",
+    "time_horizon": "Q3 2025",
     "linear_project_ids": [],
-    "declaration_source": {
-      "type": "agent_inferred",
-      "raw_artifact_refs": []
-    },
-    "declaration_confidence": 0.7,
-    "status": "detecting",
-    "health_baseline": {
-      "expected_bet_coverage_pct": 0.5,
-      "expected_weekly_velocity": 3,
-      "hypothesis_required": true,
-      "metric_linked_required": false
-    },
-    "acknowledged_risks": [],
-    "linear_issue_ids": [],
-    "doc_refs": [],
-    "created_at": "2026-04-29T16:54:18.157895+00:00",
-    "last_monitored_at": "2026-04-29T16:54:18.157895+00:00"
-  },
-  {
-    "id": "ceb3c9bc-0250-4ae3-ad76-0cda1b31e922",
-    "workspace_id": "ws-demo",
-    "name": "Unified Context Ingestion for Risk Detection",
-    "target_segment": "",
-    "problem_statement": "Project risks often emerge in unstructured communication channels before they are reflected in formal task tracking systems, leading to delayed interventions.",
-    "hypothesis": "We believe that expanding data ingestion beyond Linear to include Slack, Notion, and voice capture will allow the Risk Radar to identify project blockers that are currently invisible to the system.",
-    "success_metrics": [],
-    "time_horizon": "",
-    "linear_project_ids": [],
-    "declaration_source": {
-      "type": "agent_inferred",
-      "raw_artifact_refs": []
-    },
-    "declaration_confidence": 0.7,
-    "status": "detecting",
-    "health_baseline": {
-      "expected_bet_coverage_pct": 0.5,
-      "expected_weekly_velocity": 3,
-      "hypothesis_required": true,
-      "metric_linked_required": false
-    },
-    "acknowledged_risks": [],
-    "linear_issue_ids": [],
-    "doc_refs": [],
-    "created_at": "2026-04-29T16:54:18.157895+00:00",
-    "last_monitored_at": "2026-04-29T16:54:18.157895+00:00"
-  },
-  {
-    "id": "fab607bd-8265-4a6e-962d-9034b7549cb1",
-    "workspace_id": "ws-demo",
-    "name": "Opportunity-Cost Focused Decision Governance",
-    "target_segment": "",
-    "problem_statement": "Founders suffer from placebo productivity and decision fatigue because they lack a clear view of the opportunity costs associated with their current task execution.",
-    "hypothesis": "We believe that classifying tasks into Leverage/Neutral/Overhead (LNO) and requiring human-in-the-loop approval for Jules actions will help founders focus on high-impact work while maintaining control.",
-    "success_metrics": [],
-    "time_horizon": "",
-    "linear_project_ids": [],
-    "declaration_source": {
-      "type": "agent_inferred",
-      "raw_artifact_refs": []
-    },
-    "declaration_confidence": 0.7,
-    "status": "detecting",
-    "health_baseline": {
-      "expected_bet_coverage_pct": 0.5,
-      "expected_weekly_velocity": 3,
-      "hypothesis_required": true,
-      "metric_linked_required": false
-    },
-    "acknowledged_risks": [],
-    "linear_issue_ids": [],
-    "doc_refs": [],
-    "created_at": "2026-04-29T16:54:18.157895+00:00",
-    "last_monitored_at": "2026-04-29T16:54:18.157895+00:00"
-  },
-  {
-    "id": "a3eb8eef-e3ee-4472-858d-d68e6d23e2f3",
-    "workspace_id": "ws-demo",
-    "name": "Real-Time Agent Observability and Interaction",
-    "target_segment": "",
-    "problem_statement": "The black box nature of multi-stage agentic pipelines makes it difficult for users to understand why specific interventions were proposed or how the system arrived at a conclusion.",
-    "hypothesis": "We believe that providing real-time pipeline streaming and a decision replay UI will increase founder trust in the autonomous execution layer.",
-    "success_metrics": [],
-    "time_horizon": "",
-    "linear_project_ids": [],
-    "declaration_source": {
-      "type": "agent_inferred",
-      "raw_artifact_refs": []
-    },
-    "declaration_confidence": 0.7,
-    "status": "detecting",
-    "health_baseline": {
-      "expected_bet_coverage_pct": 0.5,
-      "expected_weekly_velocity": 3,
-      "hypothesis_required": true,
-      "metric_linked_required": false
-    },
-    "acknowledged_risks": [],
-    "linear_issue_ids": [],
-    "doc_refs": [],
-    "created_at": "2026-04-29T16:54:18.157895+00:00",
-    "last_monitored_at": "2026-04-29T16:54:18.157895+00:00"
-  },
-  {
-    "id": "43a36c70-4efe-4556-bc08-898e8c9809c7",
-    "workspace_id": "ws-demo",
-    "name": "Real-Time Agent Observability and Interaction",
-    "target_segment": "Product Founders and Engineers using autonomous agents",
-    "problem_statement": "Autonomous agents often operate as \"black boxes,\" making it difficult to debug drift or intervene in real-time, leading to wasted spend and misaligned execution.",
-    "hypothesis": "",
-    "success_metrics": [],
-    "time_horizon": "",
     "declaration_source": {
       "type": "manual",
       "raw_artifact_refs": []
@@ -357,77 +963,105 @@
       "metric_linked_required": false
     },
     "acknowledged_risks": [],
-    "linear_project_ids": [],
     "linear_issue_ids": [],
+    "kill_criteria": null,
     "doc_refs": [],
-    "created_at": "2026-04-29T16:55:24.712443+00:00",
-    "last_monitored_at": null
+    "created_at": "2026-04-30T12:47:42.754436+00:00",
+    "last_monitored_at": "2026-04-30T13:45:54.220333+00:00",
+    "last_health_score": 88.0
   },
   {
-    "id": "acac763f-f2fa-457d-aad5-67efd1c2d4e9",
-    "workspace_id": "ws-demo",
-    "name": "Continuous Agentic Self-Improvement and Evaluation",
-    "target_segment": "AI Platform and Product Engineering Teams",
-    "problem_statement": "Manual tuning of agentic heuristics and workflows leads to slow iteration cycles and unoptimized performance across diverse edge cases.",
-    "hypothesis": "",
-    "success_metrics": [],
-    "time_horizon": "Q2 2026",
+    "id": "169f0040-a159-4237-9a92-3be1399f9630",
+    "workspace_id": "smoke-ws",
+    "name": "Smoke Test Bet",
+    "target_segment": "devs",
+    "problem_statement": "x",
+    "hypothesis": "y",
+    "success_metrics": [
+      {
+        "metric": "signups",
+        "target": 100,
+        "current": 0
+      }
+    ],
+    "time_horizon": "30_days",
+    "linear_project_ids": [],
     "declaration_source": {
       "type": "manual",
       "raw_artifact_refs": []
     },
     "declaration_confidence": 1.0,
-    "status": "active",
+    "status": "archived",
     "health_baseline": {
       "expected_bet_coverage_pct": 0.5,
       "expected_weekly_velocity": 3,
       "hypothesis_required": true,
-      "metric_linked_required": false
+      "metric_linked_required": true
     },
-    "acknowledged_risks": [],
-    "linear_project_ids": [],
+    "acknowledged_risks": [
+      {
+        "risk_type": "strategy_unclear",
+        "acknowledged_at": "2026-04-30 15:29:48.615164+00:00",
+        "founder_note": "smoke"
+      }
+    ],
     "linear_issue_ids": [],
+    "kill_criteria": null,
     "doc_refs": [],
-    "created_at": "2026-04-29T17:10:31.731552+00:00",
-    "last_monitored_at": null
+    "created_at": "2026-04-30 15:29:39.589869+00:00",
+    "last_monitored_at": "2026-04-30 15:29:39.589869+00:00",
+    "last_health_score": null,
+    "completed_at": "2026-04-30 15:29:48.665978+00:00"
   },
   {
-    "id": "9f297ded-3f0a-44c2-ad8c-11a441ee9a14",
+    "id": "a9cd1e81-d4ac-40de-8c80-9206058f52a9",
     "workspace_id": "ws-demo",
-    "name": "Continuous Agentic Self-Improvement and Evaluation",
-    "target_segment": "AI Engineers building autonomous agents",
-    "problem_statement": "Static evaluation benchmarks fail to capture the drift and complexity of long-running autonomous agents, leading to silent failures in production.",
+    "name": "KC valid 1777564329",
+    "target_segment": "founders",
+    "problem_statement": "need to validate",
     "hypothesis": "",
     "success_metrics": [],
     "time_horizon": "",
+    "linear_project_ids": [],
     "declaration_source": {
       "type": "manual",
       "raw_artifact_refs": []
     },
     "declaration_confidence": 1.0,
-    "status": "active",
+    "status": "archived",
     "health_baseline": {
       "expected_bet_coverage_pct": 0.5,
       "expected_weekly_velocity": 3,
-      "hypothesis_required": true,
+      "hypothesis_required": false,
       "metric_linked_required": false
     },
     "acknowledged_risks": [],
-    "linear_project_ids": [],
     "linear_issue_ids": [],
+    "kill_criteria": {
+      "condition": "Ship to 3 paying users",
+      "deadline": "2026-12-01",
+      "committed_action": "kill",
+      "status": "pending",
+      "triggered_at": null,
+      "met_at": null,
+      "waived_at": null
+    },
     "doc_refs": [],
-    "created_at": "2026-04-29T18:43:44.474240+00:00",
-    "last_monitored_at": null
+    "created_at": "2026-04-30 15:52:09.658308+00:00",
+    "last_monitored_at": "2026-04-30 15:52:09.658308+00:00",
+    "last_health_score": null,
+    "completed_at": "2026-04-30 15:57:02.099035+00:00"
   },
   {
-    "id": "d32c7ad1-5f0e-4179-b05a-a04bbcd9f328",
-    "workspace_id": "ws-demo",
-    "name": "Continuous Agentic Self-Improvement and Evaluation",
-    "target_segment": "Founders and AI Engineering teams building agentic products",
-    "problem_statement": "Agentic systems lack robust, automated loops to evaluate their strategic decisions and improve heuristics over time, leading to silent drift and execution failure.",
+    "id": "5b9fed47-57ca-49e4-ad0d-7c0aafe6f3c6",
+    "workspace_id": "ws-kctest",
+    "name": "will-trigger 1777564329",
+    "target_segment": "x",
+    "problem_statement": "y",
     "hypothesis": "",
     "success_metrics": [],
-    "time_horizon": "Q2 2026",
+    "time_horizon": "",
+    "linear_project_ids": [],
     "declaration_source": {
       "type": "manual",
       "raw_artifact_refs": []
@@ -437,14 +1071,23 @@
     "health_baseline": {
       "expected_bet_coverage_pct": 0.5,
       "expected_weekly_velocity": 3,
-      "hypothesis_required": true,
+      "hypothesis_required": false,
       "metric_linked_required": false
     },
     "acknowledged_risks": [],
-    "linear_project_ids": [],
     "linear_issue_ids": [],
+    "kill_criteria": {
+      "condition": "Ship something within 5 days",
+      "deadline": "2026-05-05",
+      "committed_action": "pivot",
+      "status": "pending",
+      "triggered_at": null,
+      "met_at": null,
+      "waived_at": null
+    },
     "doc_refs": [],
-    "created_at": "2026-04-29T18:48:43.847118+00:00",
-    "last_monitored_at": null
+    "created_at": "2026-04-30 15:52:09.724222+00:00",
+    "last_monitored_at": "2026-04-30 15:52:09.724222+00:00",
+    "last_health_score": null
   }
 ]

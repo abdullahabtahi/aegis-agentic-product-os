@@ -48,7 +48,7 @@ export default function SettingsPage() {
     queryKey: ["workspace", workspaceId],
     queryFn: () => getWorkspace(workspaceId),
     staleTime: 60_000,
-    enabled: workspaceId !== "default_workspace",
+    enabled: !!workspaceId,
   });
 
   const updateMutation = useMutation({

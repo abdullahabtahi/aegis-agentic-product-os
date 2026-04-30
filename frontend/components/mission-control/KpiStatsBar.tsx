@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import type { Bet, Intervention } from "@/lib/types";
+import type { Bet, Intervention, ConvictionLevel } from "@/lib/types";
+import { ConvictionLabel } from "@/components/bets/ConvictionLabel";
+import { deriveConvictionFromBet } from "@/lib/utils";
 
 interface KpiStatsBarProps {
   bets: Bet[];
@@ -29,8 +31,22 @@ export function KpiStatsBar({ bets, interventions, lastScan, loading, timeAgo }:
     ? Math.round((accepted / (accepted + rejected)) * 100)
     : null;
 
+  // Avg Conviction — derive from available bet fields
+  const scoredBets = bets
+    .map((b) => b.conviction_score ?? deriveConvictionFromBet(b))
+    .filter(Boolean);
+  const avgConvictionTotal = scoredBets.length > 0
+    ? Math.round(scoredBets.reduce((sum, s) => sum + s!.total, 0) / scoredBets.length)
+    : null;
+  const avgConvictionLevel: ConvictionLevel | null = avgConvictionTotal !== null
+    ? avgConvictionTotal >= 80 ? "strong"
+      : avgConvictionTotal >= 55 ? "developing"
+      : avgConvictionTotal >= 30 ? "nascent"
+      : "critical"
+    : null;
+
   return (
-    <div className="glass-panel rounded-2xl px-6 py-4 grid grid-cols-4 gap-4 divide-x divide-white/40">
+    <div className="glass-panel rounded-2xl px-6 py-4 grid grid-cols-5 gap-4 divide-x divide-white/40">
       {/* Total Directions */}
       <Link href="/workspace/directions" className="flex flex-col gap-0.5 group cursor-pointer pr-4">
         {loading ? <SkeletonKpi /> : (
@@ -67,6 +83,22 @@ export function KpiStatsBar({ bets, interventions, lastScan, loading, timeAgo }:
         )}
       </div>
 
+      {/* Avg Conviction */}
+      <div className="flex flex-col gap-0.5 px-4">
+        {loading ? <SkeletonKpi /> : (
+          <>
+            {avgConvictionLevel ? (
+              <ConvictionLabel
+                score={{ total: avgConvictionTotal!, level: avgConvictionLevel, dimensions: [], computed_at: "" }}
+              />
+            ) : (
+              <span className="text-lg font-semibold text-slate-400">—</span>
+            )}
+            <span className="text-xs text-muted-foreground">Avg Conviction</span>
+          </>
+        )}
+      </div>
+
       {/* Last Scan */}
       <div className="flex flex-col gap-0.5 pl-4">
         {loading ? <SkeletonKpi /> : (
@@ -81,3 +113,4 @@ export function KpiStatsBar({ bets, interventions, lastScan, loading, timeAgo }:
     </div>
   );
 }
+

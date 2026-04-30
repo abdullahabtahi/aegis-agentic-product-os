@@ -41,7 +41,7 @@ export default function SuppressionPage() {
     queryKey: ["suppression-rules", workspaceId],
     queryFn: () => getSuppressionRules(workspaceId),
     staleTime: 30_000,
-    enabled: workspaceId !== "default_workspace",
+    enabled: !!workspaceId,
   });
 
   const deleteRule = useMutation({

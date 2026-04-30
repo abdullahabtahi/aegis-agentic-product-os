@@ -357,29 +357,99 @@ def _synthesis_output_has_valid_tool_call(llm_response: LlmResponse) -> bool:
     return False
 
 
+_SYNTHESIS_INTERMEDIATE_CAP = 0  # 0 = block ALL non-emit_risk_signal calls immediately (prevents Lenny MCP loop)
+
+
 async def after_synthesis_model(
     callback_context: CallbackContext,
     llm_response: LlmResponse,  # ADK passes this as keyword arg 'llm_response='
 ) -> LlmResponse | None:
-    """1-retry on validation failure. Silent skip after 1 retry.
+    """Loop-safe gatekeeper for synthesis LLM calls.
 
-    Validates that synthesis produced either:
-      1. A valid emit_risk_signal tool call (risk_type + confidence + headline)
-      2. An explicit "confidence below threshold" skip message
+    Allows:
+      1. emit_risk_signal with valid args → pass through
+      2. Any call after risk_signal_draft is set (post-tool text) → pass through
+      3. Up to _SYNTHESIS_INTERMEDIATE_CAP intermediate calls (e.g. search_lenny_transcripts)
+
+    Forces termination via synthetic response:
+      - emit_risk_signal with invalid args after 1 retry
+      - Any tool-call loop beyond _SYNTHESIS_INTERMEDIATE_CAP (e.g. Lenny MCP retry storm)
+
+    BUG HISTORY: returning None when retry_count >= 1 and response still had a function
+    call (search_lenny_transcripts) caused ADK to execute the tool and re-invoke the LLM
+    indefinitely — 500 calls / 51 min until LlmCallsLimitExceededError.
     """
+    # If emit_risk_signal already ran successfully, all remaining responses are final.
+    if callback_context.state.get("risk_signal_draft"):
+        return None
+
+    # Valid terminal call: emit_risk_signal with correct args.
     if _synthesis_output_has_valid_tool_call(llm_response):
-        return None  # Valid — pass through
+        return None
 
-    retry_count = callback_context.state.get("product_brain_retry_count", 0)
-    if retry_count < 1:
-        callback_context.state["product_brain_retry_count"] = retry_count + 1
-        return None  # ADK will re-invoke the model
-
-    # After 1 retry still invalid — silent skip, no risk signal surfaced
-    # This is the safe path: no signal > bad signal
-    callback_context.state["product_brain_skip_reason"] = (
-        "validation_failed_after_retry"
+    # Check if this response contains ANY function call (intermediate tool call).
+    has_function_call = bool(
+        llm_response.content
+        and any(
+            getattr(part, "function_call", None)
+            for part in (llm_response.content.parts or [])
+        )
     )
+
+    # Pure text response (no function call) is always a valid final response.
+    if not has_function_call:
+        return None
+
+    # ── Function call that is NOT a valid emit_risk_signal ──────────────────
+    # This includes search_lenny_transcripts and emit_risk_signal with bad args.
+    # Track total intermediate calls and enforce hard cap to prevent loops.
+    call_count = callback_context.state.get("pb_synthesis_call_count", 0) + 1
+    callback_context.state["pb_synthesis_call_count"] = call_count
+
+    if call_count > _SYNTHESIS_INTERMEDIATE_CAP:
+        # Hard loop-breaker: too many non-terminal calls. Force stop.
+        callback_context.state["product_brain_skip_reason"] = "synthesis_loop_breaker"
+        logger.warning(
+            "[ProductBrain] Synthesis loop-breaker triggered after %d intermediate calls.",
+            call_count,
+        )
+        return LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[
+                    types.Part.from_text(
+                        text="Confidence below threshold — no signal surfaced."
+                    )
+                ],
+            ),
+        )
+
+    # Check if this is specifically emit_risk_signal with invalid args (retry logic).
+    has_invalid_emit = any(
+        getattr(part, "function_call", None)
+        and part.function_call.name == "emit_risk_signal"
+        for part in (llm_response.content.parts if llm_response.content else [])
+    )
+    if has_invalid_emit:
+        retry_count = callback_context.state.get("product_brain_retry_count", 0)
+        if retry_count >= 1:
+            # Already retried once — force stop with synthetic terminal response.
+            callback_context.state["product_brain_skip_reason"] = (
+                "validation_failed_after_retry"
+            )
+            return LlmResponse(
+                content=types.Content(
+                    role="model",
+                    parts=[
+                        types.Part.from_text(
+                            text="Confidence below threshold — no signal surfaced."
+                        )
+                    ],
+                ),
+            )
+        callback_context.state["product_brain_retry_count"] = retry_count + 1
+
+    # Allow this intermediate call (within cap).
     return None
 
 
@@ -388,6 +458,7 @@ async def after_synthesis(callback_context: CallbackContext) -> types.Content | 
     from app.app_utils.trace_logging import log_product_brain_trace
 
     callback_context.state["product_brain_retry_count"] = 0
+    callback_context.state["pb_synthesis_call_count"] = 0
     callback_context.state["pipeline_checkpoint"] = "product_brain_complete"
     await log_product_brain_trace(callback_context)
     return None
@@ -478,7 +549,7 @@ Weigh the Cynic vs Optimist assessments. Classify ONE primary risk type:
   - strategy_unclear · alignment_issue · execution_issue · placebo_productivity
 
 Determine final confidence (0.0–1.0).
-→ If confidence < 0.6: do NOT call emit_risk_signal. Say: "Confidence below threshold — no signal surfaced."
+→ If confidence < 0.4: do NOT call emit_risk_signal. Say: "Confidence below threshold — no signal surfaced."
 → Staleness warning above INCREASES your confidence in strategy_unclear or execution_issue classification.
 
 ## STEP C — COPY:
@@ -487,17 +558,6 @@ If confident (>= 0.6), generate founder-facing copy:
     WRONG: "Your team is not executing."
     RIGHT: "3 weeks of rollover risk threaten your launch window."
   explanation: 2–3 sentences. Cite specific signal values. Ground in product principles.
-
-## OPTIONAL ENRICHMENT:
-You have access to search_lenny_transcripts — 284 episodes of Lenny's Podcast with product
-leaders (Shreyas Doshi, Julie Zhuo, Brian Chesky, etc.). Use it BEFORE classifying to find
-relevant product principles or startup failure patterns. Search terms:
-  - strategy_unclear → "hypothesis validation strategy execution"
-  - alignment_issue → "team alignment cross functional collaboration"
-  - execution_issue → "sprint velocity shipping cadence rollover"
-  - placebo_productivity → "vanity metrics busy work real progress"
-If the search returns useful principles, cite them in your classification_rationale.
-If the search fails or returns nothing, proceed without it — do not block on enrichment.
 
 ## CRITICAL RULES:
 1. prior_risk_types context in session is HISTORICAL — do NOT copy it as your answer.
@@ -566,15 +626,24 @@ def create_product_brain_debate() -> SequentialAgent:
             ),
             Agent(
                 name="product_brain_synthesis",
-                model="gemini-3.1-pro-preview",
+                model="gemini-3-flash-preview",
                 instruction=_SYNTHESIS_INSTRUCTION,
                 description="Senior strategist synthesising Cynic/Optimist debate into final risk signal.",
-                tools=[emit_risk_signal, search_lenny_transcripts],
+                # search_lenny_transcripts removed — it was causing 2 extra LLM round-trips
+                # (~20s total) due to Render cold-start + no function-call restriction.
+                # Synthesis still has all signal data in the prompt; Lenny is optional enrichment.
+                tools=[emit_risk_signal],
                 before_agent_callback=before_synthesis,
                 after_agent_callback=after_synthesis,
                 generate_content_config=types.GenerateContentConfig(
                     temperature=0.2,
                     max_output_tokens=2048,
+                    tool_config=types.ToolConfig(
+                        function_calling_config=types.FunctionCallingConfig(
+                            mode="AUTO",
+                            allowed_function_names=["emit_risk_signal"],
+                        )
+                    ),
                 ),
                 after_model_callback=after_synthesis_model,
             ),

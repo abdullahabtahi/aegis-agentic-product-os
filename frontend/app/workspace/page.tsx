@@ -16,10 +16,9 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Network, Brain, GitBranch, Gavel, Terminal,
   ChevronDown, ChevronRight, Zap, Loader2,
   CheckCircle2, XCircle, Minus, TrendingDown, TrendingUp,
-  WifiOff, MessageSquare,
+  WifiOff, MessageSquare, Brain, Users,
 } from "lucide-react";
 import Link from "next/link";
 import { useChatController } from "@/hooks/useChatController";
@@ -27,20 +26,11 @@ import { useAgentStateSync } from "@/hooks/useAgentStateSync";
 import { useBackendHealth } from "@/hooks/useBackendHealth";
 import { useWorkspaceId } from "@/hooks/useWorkspaceId";
 import { listBets } from "@/lib/api";
+import { PIPELINE_STAGES, PIPELINE_STATUS_CONFIG } from "@/lib/constants";
+import { timeAgo, latestScanTime } from "@/lib/utils";
 import type { PipelineStageName, PipelineStage, CynicAssessment, OptimistAssessment, PolicyCheck } from "@/lib/types";
-import type { LucideIcon } from "lucide-react";
 
 // ─── helpers ───────────────────────────────────────────────────────────────
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
 
 function deriveElapsed(stage: PipelineStage): string | null {
   if (stage.status !== "complete") return null;
@@ -50,30 +40,7 @@ function deriveElapsed(stage: PipelineStage): string | null {
   return `${elapsed.toFixed(1)}s`;
 }
 
-const STATUS_CONFIG = {
-  running:  { label: "RUNNING",  cls: "text-indigo-600 bg-indigo-600/10",   dot: "bg-indigo-500 animate-pulse" },
-  complete: { label: "COMPLETE", cls: "text-emerald-600 bg-emerald-500/10", dot: "bg-emerald-500" },
-  error:    { label: "ERROR",    cls: "text-red-600 bg-red-500/10",         dot: "bg-red-500" },
-  pending:  { label: "IDLE",     cls: "text-slate-500 bg-slate-200/50",     dot: "bg-slate-300" },
-} as const;
-
-// ─── stage config ──────────────────────────────────────────────────────────
-
-interface StageConfig {
-  num: string;
-  key: PipelineStageName;
-  label: string;
-  icon: LucideIcon;
-  description: string;
-}
-
-const STAGES: StageConfig[] = [
-  { num: "1", key: "signal_engine",  label: "Signal Engine",  icon: Network,   description: "Reads 14-day Linear window, computes 9 risk signals" },
-  { num: "2", key: "product_brain",  label: "Product Brain",  icon: Brain,     description: "Cynic ↔ Optimist debate → Synthesis classification" },
-  { num: "3", key: "coordinator",    label: "Coordinator",    icon: GitBranch, description: "Picks escalation level & action type for the risk" },
-  { num: "4", key: "governor",       label: "Governor",       icon: Gavel,     description: "8 deterministic policy checks — no LLM, hard rules" },
-  { num: "5", key: "executor",       label: "Executor",       icon: Terminal,  description: "Posts Linear comment, creates issue, or awaits approval" },
-];
+// STATUS_CONFIG imported as PIPELINE_STATUS_CONFIG from constants
 
 const POLICY_CHECKS_META: { key: string; label: string }[] = [
   { key: "confidence_floor",      label: "Confidence Floor (≥ 0.65)" },
@@ -227,7 +194,7 @@ function GovernorChecklist({ policyChecks, denialReason }: {
 
 export default function PipelineTheaterPage() {
   const { sendMessage, isLoading } = useChatController();
-  const { state: pipelineState } = useAgentStateSync();
+  const { state: pipelineState, setAgentState } = useAgentStateSync();
   const backendHealth = useBackendHealth();
   const workspaceId = useWorkspaceId();
 
@@ -238,15 +205,12 @@ export default function PipelineTheaterPage() {
     queryKey: ["bets", workspaceId],
     queryFn: () => listBets(workspaceId),
     staleTime: 15_000,
-    enabled: workspaceId !== "default_workspace",
+    enabled: !!workspaceId,
   });
 
   const activeBets = bets.filter((b) => b.status === "active" || b.status === "detecting");
 
-  const lastScan = bets.reduce<string | null>((latest, b) => {
-    if (!b.last_monitored_at) return latest;
-    return !latest || b.last_monitored_at > latest ? b.last_monitored_at : latest;
-  }, null);
+  const lastScan = latestScanTime(bets);
 
   const pipelineStatus = pipelineState?.pipeline_status ?? "idle";
   const isPipelineRunning = pipelineStatus === "scanning" || pipelineStatus === "analyzing";
@@ -262,6 +226,9 @@ export default function PipelineTheaterPage() {
 
   function handleScan(bet: { id: string; name: string }) {
     setScanningBetId(bet.id);
+    // Pre-seed the target bet in agent state so run_pipeline_scan uses it directly
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setAgentState((prev: any) => ({ ...prev, bet: { id: bet.id, name: bet.name } }));
     sendMessage(`Scan my ${bet.name} direction for risks`);
     setTimeout(() => setScanningBetId(null), 30_000);
   }
@@ -316,10 +283,10 @@ export default function PipelineTheaterPage() {
 
         {/* ── Pipeline Stage Cards ── */}
         <div className="flex flex-col gap-3">
-          {STAGES.map((stage) => {
+          {PIPELINE_STAGES.map((stage) => {
             const liveStage = pipelineState?.stages?.find((s) => s.name === stage.key);
             const status = liveStage?.status ?? "pending";
-            const { label: statusLabel, cls: statusClass, dot: dotClass } = STATUS_CONFIG[status] ?? STATUS_CONFIG.pending;
+            const { label: statusLabel, cls: statusClass, dot: dotClass } = PIPELINE_STATUS_CONFIG[status] ?? PIPELINE_STATUS_CONFIG.pending;
             const elapsed = liveStage ? deriveElapsed(liveStage) : null;
             const isExpanded = expandedStage === stage.key;
             const hasExpandable = stage.key === "product_brain" || stage.key === "governor";
@@ -433,14 +400,13 @@ export default function PipelineTheaterPage() {
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleScan({ id: bet.id, name })}
-                        disabled={isLoading || isScanningThis || backendHealth === "offline"}
-                        className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      <Link
+                        href={`/workspace/boardroom/${bet.id}`}
+                        className="flex items-center gap-1.5 rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-violet-700 transition-colors"
                       >
-                        {isScanningThis ? <Loader2 size={11} className="animate-spin" /> : <Zap size={11} />}
-                        {isScanningThis ? "Scanning…" : "Scan ▶"}
-                      </button>
+                        <Users size={11} />
+                        Boardroom
+                      </Link>
                       <Link
                         href={`/workspace/directions/${bet.id}`}
                         className="flex items-center gap-1 rounded-lg border border-white/30 bg-white/20 px-3 py-1.5 text-xs font-medium text-foreground/70 hover:bg-white/40 transition-colors"
@@ -456,7 +422,7 @@ export default function PipelineTheaterPage() {
         </div>
 
         <p className="text-center text-[11px] text-muted-foreground pb-2">
-          Click <strong>Scan ▶</strong> on a direction to watch the 5-stage pipeline run live above.{" "}
+          Click <strong>Boardroom</strong> on a direction to enter the AI voice boardroom.{" "}
           The <strong>Product Brain</strong> and <strong>Governor</strong> cards are expandable.
         </p>
       </div>

@@ -23,8 +23,29 @@ from db.engine import get_session, is_db_configured
 logger = logging.getLogger(__name__)
 
 
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def _now_iso() -> datetime:
+    """Return current UTC datetime. Named for legacy reasons; returns datetime
+    (not ISO string) because asyncpg requires datetime objects for TIMESTAMP columns.
+    FastAPI auto-serialises datetime to ISO 8601 in JSON responses.
+    """
+    return datetime.now(timezone.utc)
+
+
+def _to_dt(value) -> datetime:
+    """Coerce str | datetime | None to a timezone-aware datetime for asyncpg.
+    Falls back to current UTC time if value is None or unparsable.
+    """
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str) and value:
+        try:
+            # Handle trailing 'Z' (Python's fromisoformat doesn't accept it before 3.11)
+            normalized = value.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(normalized)
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    return datetime.now(timezone.utc)
 
 
 def _new_id() -> str:
@@ -130,7 +151,7 @@ async def save_agent_trace(trace: dict) -> str | None:
                     "eval_rubric": trace.get("eval_rubric"),
                     "human_accepted": trace.get("human_accepted"),
                     "latency_ms": trace.get("latency_ms", 0),
-                    "created_at": trace.get("created_at", _now_iso()),
+                    "created_at": _to_dt(trace.get("created_at")),
                 },
             )
         return trace_id
@@ -181,10 +202,15 @@ async def save_policy_denied_event(
 
 async def save_intervention(intervention: dict) -> str | None:
     """Persist an Intervention dict. Returns ID or None."""
+    int_id = intervention.get("id", _new_id())
     if not is_db_configured():
-        return None
+        # Local dev — write to file-backed store so GET /interventions can surface it
+        from app.intervention_store import inmemory_interventions as _store
+        record = {**intervention, "id": int_id, "created_at": intervention.get("created_at", _now_iso())}
+        _store.append(record)
+        logger.info("[intervention_store] Saved intervention %s (no-db fallback)", int_id)
+        return int_id
     try:
-        int_id = intervention.get("id", _new_id())
         async with get_session() as session:
             await session.execute(
                 text("""
@@ -232,7 +258,7 @@ async def save_intervention(intervention: dict) -> str | None:
                         "requires_double_confirm", False
                     ),
                     "status": intervention.get("status", "pending"),
-                    "created_at": intervention.get("created_at", _now_iso()),
+                    "created_at": _to_dt(intervention.get("created_at")),
                 },
             )
         return int_id
@@ -254,7 +280,19 @@ async def update_intervention_status(
     to complete the feedback flywheel (data mining for AutoResearch).
     """
     if not is_db_configured():
-        return False
+        # Local dev — update the in-memory / file-backed store
+        from app.intervention_store import inmemory_interventions as _store
+        for idx, item in enumerate(_store):
+            if item.get("id") == intervention_id:
+                _store[idx] = {
+                    **item,
+                    "status": status,
+                    "decided_at": decided_at or _now_iso(),
+                    "rejection_reason": rejection_reason,
+                    "founder_note": founder_note,
+                }
+                return True
+        return False  # not found
     try:
         accepted = status == "accepted"
         async with get_session() as session:
@@ -271,7 +309,7 @@ async def update_intervention_status(
                 {
                     "id": intervention_id,
                     "status": status,
-                    "decided_at": decided_at or _now_iso(),
+                    "decided_at": _to_dt(decided_at),
                     "rejection_reason": rejection_reason,
                     "founder_note": founder_note,
                 },
@@ -315,7 +353,9 @@ async def get_recent_interventions(
 ) -> list[dict]:
     """Get recent interventions for a bet (newest first). For Governor policy checks."""
     if not is_db_configured():
-        return []
+        from app.intervention_store import inmemory_interventions as _store
+        rows = [i for i in _store if i.get("bet_id") == bet_id]
+        return sorted(rows, key=lambda x: x.get("created_at", ""), reverse=True)[:limit]
     try:
         async with get_session() as session:
             result = await session.execute(
@@ -437,7 +477,7 @@ async def upsert_workspace(workspace: dict) -> str | None:
                     "active_bet_ids": workspace.get("active_bet_ids", []),
                     "control_level": workspace.get("control_level", "draft_only"),
                     "github_repo": workspace.get("github_repo"),
-                    "created_at": workspace.get("created_at", _now_iso()),
+                    "created_at": _to_dt(workspace.get("created_at")),
                 },
             )
         return ws_id
@@ -560,8 +600,8 @@ async def save_bet(bet: dict) -> str | None:
                     "linear_issue_ids": bet.get("linear_issue_ids", []),
                     "doc_refs": bet.get("doc_refs", []),
                     "kill_criteria": _json_str(bet.get("kill_criteria")),
-                    "created_at": bet.get("created_at", now),
-                    "last_monitored_at": bet.get("last_monitored_at", now),
+                    "created_at": _to_dt(bet.get("created_at") or now),
+                    "last_monitored_at": _to_dt(bet.get("last_monitored_at") or now),
                 },
             )
             # Update workspace.active_bet_ids
@@ -580,6 +620,31 @@ async def save_bet(bet: dict) -> str | None:
         return None
 
 
+async def patch_bet_scan_result(
+    bet_id: str,
+    last_monitored_at: str,
+    last_health_score: float,
+) -> bool:
+    """Stamp last_monitored_at and last_health_score after a pipeline scan. DB only."""
+    if not is_db_configured():
+        return False
+    try:
+        async with get_session() as session:
+            result = await session.execute(
+                text("""
+                    UPDATE bets
+                    SET last_monitored_at = :ts,
+                        last_health_score  = :score
+                    WHERE id = :id
+                """),
+                {"id": bet_id, "ts": last_monitored_at, "score": last_health_score},
+            )
+            return result.rowcount > 0
+    except Exception as exc:
+        logger.warning("Failed to patch bet scan result for %s: %s", bet_id, exc)
+        return False
+
+
 async def list_bets(workspace_id: str, status: str | None = None) -> list[dict]:
     """List bets for a workspace, newest first. Optionally filter by status."""
     if not is_db_configured():
@@ -594,7 +659,7 @@ async def list_bets(workspace_id: str, status: str | None = None) -> list[dict]:
                                declaration_source, declaration_confidence,
                                health_baseline, acknowledged_risks,
                                linear_project_ids, linear_issue_ids, doc_refs,
-                               created_at, last_monitored_at, completed_at
+                               created_at, last_monitored_at, last_health_score, completed_at
                         FROM bets
                         WHERE workspace_id = :wid AND status = :status
                         ORDER BY created_at DESC
@@ -609,7 +674,7 @@ async def list_bets(workspace_id: str, status: str | None = None) -> list[dict]:
                                declaration_source, declaration_confidence,
                                health_baseline, acknowledged_risks,
                                linear_project_ids, linear_issue_ids, doc_refs,
-                               created_at, last_monitored_at, completed_at
+                               created_at, last_monitored_at, last_health_score, completed_at
                         FROM bets
                         WHERE workspace_id = :wid
                         ORDER BY created_at DESC
@@ -645,12 +710,21 @@ async def get_bet(bet_id: str) -> dict | None:
 
 
 def _json_str(obj: dict | list | None) -> str | None:
-    """Serialize to JSON string for JSONB columns. None → None."""
+    """Serialize to JSON string for JSONB columns. None → None.
+    Handles datetime by converting to ISO 8601 string.
+    """
     if obj is None:
         return None
     import json
 
-    return json.dumps(obj)
+    def _default(o):
+        if isinstance(o, datetime):
+            return o.isoformat()
+        raise TypeError(
+            f"Object of type {type(o).__name__} is not JSON serializable"
+        )
+
+    return json.dumps(obj, default=_default)
 
 
 # ─────────────────────────────────────────────
@@ -695,7 +769,7 @@ async def update_bet(bet_id: str, fields: dict) -> bool:
         async with get_session() as session:
             result = await session.execute(
                 # Column names come from validated allowlist; values are bound params.
-                text(f"UPDATE bets SET {set_sql} WHERE id = :bet_id"),  # noqa: S608
+                text(f"UPDATE bets SET {set_sql} WHERE id = :bet_id"),
                 params,
             )
             return result.rowcount > 0
@@ -779,9 +853,9 @@ async def save_suppression_rule(rule: dict) -> str | None:
                     "risk_type": rule["risk_type"],
                     "action_type": rule["action_type"],
                     "rejection_reason": rule["rejection_reason"],
-                    "suppressed_at": rule.get("suppressed_at", _now_iso()),
+                    "suppressed_at": _to_dt(rule.get("suppressed_at")),
                     "suppressed_until": rule.get("suppressed_until"),
-                    "created_at": rule.get("created_at", _now_iso()),
+                    "created_at": _to_dt(rule.get("created_at")),
                 },
             )
         return rule_id

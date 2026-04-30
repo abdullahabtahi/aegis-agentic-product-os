@@ -4,7 +4,7 @@
  */
 
 import { BACKEND_URL } from "./constants";
-import type { Bet, Intervention, SessionSummary, ArtifactEntry, DiscoverBetsResponse, ControlLevel, RiskType, AcknowledgedRisk, SuppressionRule, KillCriteriaAction } from "./types";
+import type { Bet, Intervention, SessionSummary, ArtifactEntry, DiscoverBetsResponse, ControlLevel, RiskType, AcknowledgedRisk, SuppressionRule, KillCriteriaAction, BoardroomSession, BoardroomVerdict, BoardroomTurn } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BACKEND_URL}${path}`, {
@@ -208,5 +208,68 @@ export function getSuppressionRules(workspaceId: string): Promise<SuppressionRul
 export function deleteSuppressionRule(ruleId: string): Promise<{ deleted: string }> {
   return request<{ deleted: string }>(`/suppression-rules/${encodeURIComponent(ruleId)}`, {
     method: "DELETE",
+  });
+}
+
+// ─── Boardroom (Feature 011) ───
+
+export interface BoardroomTokenResponse {
+  access_token: string;
+  expires_in: number;
+  model: string;          // Full Vertex AI publisher model path
+  websocket_url: string;  // WSS endpoint (region-aware)
+}
+
+export interface CreateBoardroomSessionRequest {
+  workspace_id: string;
+  bet_id: string | null;
+  decision_question: string;
+  key_assumption: string;
+}
+
+export interface SaveBoardroomTurnRequest {
+  speaker: string;
+  text: string;
+  sequence_number: number;
+}
+
+export function mintBoardroomToken(workspaceId: string): Promise<BoardroomTokenResponse> {
+  return request<BoardroomTokenResponse>("/boardroom/token", {
+    method: "POST",
+    headers: { "workspace-id": workspaceId },
+  });
+}
+
+export function createBoardroomSession(body: CreateBoardroomSessionRequest): Promise<BoardroomSession> {
+  return request<BoardroomSession>("/boardroom/sessions", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function endBoardroomSession(sessionId: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/boardroom/sessions/${encodeURIComponent(sessionId)}/end`, {
+    method: "POST",
+  });
+}
+
+export function getBoardroomVerdict(sessionId: string): Promise<BoardroomVerdict | null> {
+  return request<BoardroomVerdict | null>(`/boardroom/sessions/${encodeURIComponent(sessionId)}/verdict`);
+}
+
+export function createVerdictIntervention(verdictId: string): Promise<{ intervention_id: string }> {
+  return request<{ intervention_id: string }>(`/boardroom/verdicts/${encodeURIComponent(verdictId)}/intervention`, {
+    method: "POST",
+  });
+}
+
+export function getBoardroomBetSessions(betId: string): Promise<BoardroomSession[]> {
+  return request<BoardroomSession[]>(`/boardroom/bets/${encodeURIComponent(betId)}/sessions`);
+}
+
+export function saveBoardroomTurn(sessionId: string, body: SaveBoardroomTurnRequest): Promise<BoardroomTurn> {
+  return request<BoardroomTurn>(`/boardroom/sessions/${encodeURIComponent(sessionId)}/turns`, {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 }

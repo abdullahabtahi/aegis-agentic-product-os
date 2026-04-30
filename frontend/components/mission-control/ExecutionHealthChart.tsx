@@ -1,6 +1,7 @@
 "use client";
 
 import { BarChart2 } from "lucide-react";
+import { useMemo } from "react";
 import type { Intervention } from "@/lib/types";
 import { LiveBadge } from "./LiveBadge";
 
@@ -37,7 +38,7 @@ interface ExecutionHealthChartProps {
 export function ExecutionHealthChart({ interventions }: ExecutionHealthChartProps) {
   const resolved = interventions.filter((i) => i.status !== "pending");
   const isEmpty = resolved.length === 0;
-  const bars = isEmpty ? [] : buildBarHeights(resolved);
+  const bars = useMemo(() => (isEmpty ? [] : buildBarHeights(resolved)), [resolved, isEmpty]);
 
   return (
     <div className="glass-panel rounded-2xl p-5">

@@ -387,6 +387,7 @@ class Bet(BaseModel):
     doc_refs: list[str] = Field(default_factory=list)
     created_at: str
     last_monitored_at: str | None = None  # null until first scan — never set to now() on declaration
+    last_health_score: float | None = None  # null until first scan; populated from BetSnapshot
     completed_at: str | None = None
 
     model_config = {"frozen": True}

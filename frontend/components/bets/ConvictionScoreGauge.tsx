@@ -21,7 +21,8 @@ export function ConvictionScoreGauge({ score, className = "" }: ConvictionScoreG
   const cx = 50;
   const cy = 50;
   const circumference = Math.PI * r; // half-circle
-  const progress = (score.total / 100) * circumference;
+  const clampedTotal = Math.max(0, Math.min(100, score.total));
+  const progress = (clampedTotal / 100) * circumference;
   const strokeColor = LEVEL_STROKE[score.level] ?? "#6366f1";
 
   return (
@@ -50,7 +51,7 @@ export function ConvictionScoreGauge({ score, className = "" }: ConvictionScoreG
         </svg>
         {/* Score label centred inside */}
         <div className="absolute inset-0 flex items-end justify-center pb-0.5">
-          <span className="text-xl font-bold text-slate-800">{Math.round(score.total)}</span>
+          <span className="text-xl font-bold text-slate-800">{Math.round(clampedTotal)}</span>
         </div>
       </div>
 

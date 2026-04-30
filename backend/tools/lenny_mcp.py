@@ -33,7 +33,7 @@ _LENNY_MCP_URL = os.environ.get(
     "https://lenny-mcp.onrender.com/mcp",
 )
 
-_MCP_TIMEOUT = 15  # seconds — Lenny MCP is on free-tier Render, can be slow
+_MCP_TIMEOUT = 3  # seconds — fast fail; free-tier Render rejects with 406 before this
 
 
 async def _mcp_call(method: str, params: dict) -> dict:

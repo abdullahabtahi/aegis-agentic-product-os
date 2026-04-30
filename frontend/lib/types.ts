@@ -42,6 +42,7 @@ export type ActionType =
   // L4
   | "kill_bet"
   // Special
+  | "boardroom_verdict"
   | "no_intervention";
 
 export type EscalationLevel = 1 | 2 | 3 | 4;
@@ -186,8 +187,11 @@ export interface Bet {
   doc_refs: string[];
   // Feature 007: pre-declared failure condition
   kill_criteria?: KillCriteria | null;
+  // Feature 008: conviction score (backend embeds latest snapshot value; falls back to client-derived)
+  conviction_score?: ConvictionScore | null;
   created_at: string;
   last_monitored_at: string | null;  // null until first scan — never set on declaration
+  last_health_score: number | null;  // null until first scan; populated from BetSnapshot
   completed_at?: string | null;
 }
 
@@ -419,3 +423,84 @@ export interface SuppressionRule {
   suppressed_until: string | null;
   created_at: string;
 }
+
+// ─────────────────────────────────────────────
+// FEATURE 011: BOARDROOM
+// ─────────────────────────────────────────────
+
+export type BoardroomPhase = "setup" | "intro" | "live" | "deliberating" | "verdict";
+export type BoardroomSessionStatus = "active" | "completed";
+export type BoardroomSpeaker = "user" | "bear" | "bull" | "sage";
+export type BoardroomRecommendation = "proceed" | "pause" | "pivot";
+
+export interface BoardroomAdvisor {
+  id: BoardroomSpeaker;
+  name: string;
+  role: string;
+  tag: string;
+  initials: string;
+  avatarBg: string;
+  accent: string;
+  activeBg: string;
+}
+
+export interface BoardroomSession {
+  id: string;
+  workspace_id: string;
+  bet_id: string | null;
+  decision_question: string;
+  key_assumption: string;
+  status: BoardroomSessionStatus;
+  started_at: string;
+  ended_at: string | null;
+  created_at: string;
+}
+
+export interface BoardroomTurn {
+  id: string;
+  session_id: string;
+  speaker: BoardroomSpeaker;
+  text: string;
+  sequence_number: number;
+  created_at: string;
+}
+
+export interface BoardroomVerdictRisk {
+  text: string;
+  severity: "low" | "medium" | "high";
+}
+
+export interface BoardroomVerdictExperiment {
+  text: string;
+  timeframe: string;
+}
+
+export interface BoardroomVerdict {
+  id: string;
+  session_id: string;
+  bet_id: string | null;
+  confidence_score: number;
+  recommendation: BoardroomRecommendation;
+  summary: string;
+  key_risks: BoardroomVerdictRisk[];
+  next_experiments: BoardroomVerdictExperiment[];
+  bear_assessment: string | null;
+  bull_assessment: string | null;
+  sage_assessment: string | null;
+  sage_voice_summary: string | null;
+  intervention_id: string | null;
+  created_at: string;
+}
+
+export interface BoardroomContext {
+  betName: string;
+  hypothesis: string;
+  targetSegment: string;
+  problemStatement: string;
+  riskSignals: Array<{ risk_type: string; severity: string; description?: string }>;
+  governorFlags: string[];
+  decisionQuestion: string;
+  keyAssumption: string;
+}
+
+export type BoardroomConnStatus = "connecting" | "live" | "reconnecting" | "error" | "idle";

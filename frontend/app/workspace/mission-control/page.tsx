@@ -7,6 +7,7 @@ import { ArrowRight, CheckCircle2, AlertTriangle, X } from "lucide-react";
 import { getInterventions, approveIntervention, rejectIntervention, listBets, discoverBets } from "@/lib/api";
 import { useAgentStateSync } from "@/hooks/useAgentStateSync";
 import { useWorkspaceId } from "@/hooks/useWorkspaceId";
+import { timeAgo, latestScanTime } from "@/lib/utils";
 
 import { KpiStatsBar } from "@/components/mission-control/KpiStatsBar";
 import { PipelineFlowRow } from "@/components/mission-control/PipelineFlowRow";
@@ -16,17 +17,6 @@ import { InterventionCard } from "@/components/mission-control/InterventionCard"
 import { GovernorBreakdownPanel } from "@/components/mission-control/GovernorBreakdownPanel";
 import { FirstRunGuide } from "@/components/mission-control/FirstRunGuide";
 
-/** Lightweight relative time formatter — no external dependency. */
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
-
 export default function MissionControlPage() {
   const workspaceId = useWorkspaceId();
   const { state: pipelineState } = useAgentStateSync();
@@ -34,7 +24,7 @@ export default function MissionControlPage() {
   const [toastVisible, setToastVisible] = useState(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const enabled = workspaceId !== "default_workspace";
+  const enabled = !!workspaceId;
 
   const { data: interventions = [], isLoading: loadingInterventions } = useQuery({
     queryKey: ["interventions", workspaceId],
@@ -70,10 +60,7 @@ export default function MissionControlPage() {
     };
   }, []);
 
-  const lastScan = liveBets.reduce<string | null>((latest, b) => {
-    if (!b.last_monitored_at) return latest;
-    return !latest || b.last_monitored_at > latest ? b.last_monitored_at : latest;
-  }, null);
+  const lastScan = latestScanTime(liveBets);
 
   const pendingInterventions = interventions.filter((i) => i.status === "pending");
 

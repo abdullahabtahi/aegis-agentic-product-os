@@ -8,9 +8,10 @@
  */
 
 import { useEffect, useRef } from "react";
-import { Loader2, Shield, History } from "lucide-react";
+import { Shield, History } from "lucide-react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { motion } from "framer-motion";
 import { PipelineProgressCard } from "./PipelineProgressCard";
 import { RiskSignalCard } from "./RiskSignalCard";
 import { parseRiskSignal } from "@/lib/parseRiskSignal";
@@ -98,7 +99,7 @@ function MessageBubble({ role, content }: { role: "user" | "assistant"; content:
   if (role === "user") {
     return (
       <div className="flex justify-end">
-        <div className="max-w-[75%] rounded-2xl bg-primary/90 px-5 py-3 text-sm font-medium text-primary-foreground shadow-sm">
+        <div className="max-w-[75%] rounded-2xl rounded-br-sm bg-gradient-to-br from-indigo-600 to-violet-600 px-5 py-3 text-sm font-medium text-white shadow-lg shadow-indigo-500/20">
           {content}
         </div>
       </div>
@@ -106,10 +107,10 @@ function MessageBubble({ role, content }: { role: "user" | "assistant"; content:
   }
   return (
     <div className="flex gap-3">
-      <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-indigo-500/15">
-        <Shield size={16} className="text-indigo-500" />
+      <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500/20 to-violet-500/15">
+        <Shield size={16} className="text-indigo-500" strokeWidth={1.5} />
       </div>
-      <div className="glass-panel flex-1 p-5">
+      <div className="glass-panel flex-1 rounded-2xl rounded-bl-sm p-5 shadow-sm">
         <Markdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
           {content}
         </Markdown>
@@ -164,7 +165,12 @@ export function ChatMessages({ messages, isLoading, pipelineState, restoredMessa
       )}
 
       {messages.map((msg, i) => (
-        <div key={msg.id}>
+        <motion.div
+          key={msg.id}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: Math.min(i * 0.04, 0.2), type: "spring", stiffness: 380, damping: 35 }}
+        >
           <MessageBubble role={msg.role} content={msg.content} />
 
           {/* Inline pipeline progress after the last user message */}
@@ -179,7 +185,7 @@ export function ChatMessages({ messages, isLoading, pipelineState, restoredMessa
               </div>
             </div>
           )}
-        </div>
+        </motion.div>
       ))}
 
       {pipelineState?.pipeline_status === "complete" &&
@@ -197,17 +203,28 @@ export function ChatMessages({ messages, isLoading, pipelineState, restoredMessa
         })()
       }
 
-      {/* Typing indicator */}
+      {/* Typing indicator — three bouncing dots */}
       {isLoading && (
-        <div className="flex gap-3">
-          <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-indigo-500/15">
-            <Shield size={16} className="text-indigo-500" />
+        <motion.div
+          className="flex gap-3"
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 380, damping: 35 }}
+        >
+          <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500/20 to-violet-500/15">
+            <Shield size={16} className="text-indigo-500" strokeWidth={1.5} />
           </div>
-          <div className="glass-panel-subtle flex items-center gap-2 rounded-2xl px-5 py-3">
-            <Loader2 size={14} className="animate-spin text-indigo-500" />
-            <span className="text-sm text-muted-foreground">Aegis is thinking...</span>
+          <div className="glass-panel-subtle flex items-center gap-1.5 rounded-2xl rounded-bl-sm px-5 py-4">
+            {[0, 1, 2].map((i) => (
+              <motion.span
+                key={i}
+                className="h-2 w-2 rounded-full bg-indigo-400"
+                animate={{ y: [0, -5, 0] }}
+                transition={{ repeat: Infinity, duration: 0.7, delay: i * 0.15, ease: "easeInOut" }}
+              />
+            ))}
           </div>
-        </div>
+        </motion.div>
       )}
 
       <div ref={endRef} />

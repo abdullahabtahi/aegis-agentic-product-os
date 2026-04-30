@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 /** Returns ISO week key e.g. "2026-W18" using pure JS (no date-fns). */
 function getISOWeekKey(): string {
@@ -34,16 +34,14 @@ export function useWeeklyBriefTrigger(): {
 } {
   const weekKey = getISOWeekKey();
 
-  const [shouldShow, setShouldShow] = useState<boolean>(false);
-
-  useEffect(() => {
+  const [shouldShow, setShouldShow] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
     try {
-      const last = localStorage.getItem(STORAGE_KEY);
-      setShouldShow(last !== weekKey);
+      return localStorage.getItem(STORAGE_KEY) !== weekKey;
     } catch {
-      setShouldShow(false);
+      return false;
     }
-  }, [weekKey]);
+  });
 
   const dismiss = () => {
     try {

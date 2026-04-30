@@ -10,7 +10,7 @@
  */
 
 import { useState, useRef, useEffect } from "react";
-import { X, Target, Loader2, ChevronDown, ChevronUp } from "lucide-react";
+import { X, Target, ChevronDown, ChevronUp } from "lucide-react";
 import { createBet } from "@/lib/api";
 import { type KillCriteriaAction } from "@/lib/types";
 import { KillCriteriaStep } from "./KillCriteriaStep";

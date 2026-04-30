@@ -1,88 +1,84 @@
 "use client";
 
-/**
- * Chat Page — Conversational interface with Aegis.
- *
- * Two states:
- * - HERO: centered logo + live agentic stats + pipeline strip + chips + command bar
- * - CHAT: messages fill screen, command bar stays at bottom
- *
- * Backend health shown inline so connectivity issues are visible immediately.
- */
-
-import { useState, useEffect } from "react";
-import { useSearchParams } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
-import { Shield, WifiOff, AlertTriangle, Sparkles, ArrowRight, Network, Brain, GitBranch, Gavel, Terminal } from "lucide-react";
-import Link from "next/link";
-import { CommandBar } from "@/components/chat/CommandBar";
+import { useState, useEffect, useRef } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { Shield, WifiOff, AlertTriangle, Sparkles, ScanSearch, Bell, MessageSquare } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { CommandBar, type CommandBarHandle } from "@/components/chat/CommandBar";
 import { ChatMessages } from "@/components/chat/ChatMessages";
 import { BetDeclarationModal } from "@/components/bets/BetDeclarationModal";
+import { BriefCard } from "@/components/chat/BriefCard";
 import { useChatController } from "@/hooks/useChatController";
 import { useAgentStateSync } from "@/hooks/useAgentStateSync";
 import { useBackendHealth } from "@/hooks/useBackendHealth";
 import { useWorkspaceId } from "@/hooks/useWorkspaceId";
-import { getSessionMessages, listBets, getInterventions } from "@/lib/api";
+import { useBrief } from "@/hooks/useBrief";
+import { useWeeklyBriefTrigger } from "@/hooks/useWeeklyBriefTrigger";
+import { getSessionMessages } from "@/lib/api";
 import type { SessionMessage } from "@/lib/api";
-import type { PipelineStageName } from "@/lib/types";
-import type { ComponentType } from "react";
-
-/** Lightweight relative time formatter — no external dependency. */
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
 
 const QUICK_ACTIONS = [
-  "Scan my active direction for risks",
-  "What's the current strategy risk?",
-  "Show recent interventions",
-  "Explain strategy_unclear",
+  "What's killing this company in 90 days?",
+  "Which direction should I drop?",
+  "What signal shifted since last week?",
+  "Give me a 60-second board update",
 ] as const;
 
-const PIPELINE_STAGE_NAMES: { key: PipelineStageName; label: string; icon: ComponentType<{ size?: number; className?: string }> }[] = [
-  { key: "signal_engine", label: "Signal Engine", icon: Network },
-  { key: "product_brain", label: "Product Brain", icon: Brain },
-  { key: "coordinator", label: "Coordinator", icon: GitBranch },
-  { key: "governor", label: "Governor", icon: Gavel },
-  { key: "executor", label: "Executor", icon: Terminal },
-];
+const ENTRY_CARDS = [
+  {
+    icon: ScanSearch,
+    color: "from-indigo-500 to-violet-600",
+    glow: "shadow-indigo-500/20",
+    title: "Scan for Risks",
+    description: "Run a full autonomous pre-mortem on your active strategic directions.",
+    action: "Start scan",
+    kind: "send" as const,
+    prompt: "Scan my active directions for risks",
+  },
+  {
+    icon: Bell,
+    color: "from-amber-400 to-orange-500",
+    glow: "shadow-amber-500/20",
+    title: "Review Interventions",
+    description: "See what Aegis flagged and decide which actions to approve or suppress.",
+    action: "Open inbox",
+    kind: "navigate" as const,
+    href: "/workspace/inbox",
+  },
+  {
+    icon: MessageSquare,
+    color: "from-sky-400 to-cyan-500",
+    glow: "shadow-sky-500/20",
+    title: "Ask Anything",
+    description: "Query risk signals, explain decisions, or get a plain-English summary.",
+    action: "Type a question",
+    kind: "focus" as const,
+  },
+] as const;
 
 export default function ChatPage() {
   const { messages, sendMessage, isLoading, stopGeneration, hasMessages } = useChatController();
   const { state: pipelineState } = useAgentStateSync();
   const backendHealth = useBackendHealth();
   const workspaceId = useWorkspaceId();
+  const router = useRouter();
+  const commandBarRef = useRef<CommandBarHandle>(null);
   const [showBetModal, setShowBetModal] = useState(false);
+  const brief = useBrief(workspaceId);
+  const { shouldShow: shouldShowBrief, dismiss: dismissBrief } = useWeeklyBriefTrigger();
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session");
+  const betId = searchParams.get("bet");
   const [restoredMessages, setRestoredMessages] = useState<SessionMessage[]>([]);
 
-  // Live data for hero stats
-  const { data: bets = [], isLoading: betsLoading } = useQuery({
-    queryKey: ["bets", workspaceId],
-    queryFn: () => listBets(workspaceId),
-    staleTime: 15_000,
-    enabled: workspaceId !== "default_workspace",
-  });
-
-  const { data: interventions = [], isLoading: interventionsLoading } = useQuery({
-    queryKey: ["interventions", workspaceId],
-    queryFn: () => getInterventions(workspaceId),
-    staleTime: 15_000,
-    enabled: workspaceId !== "default_workspace",
-  });
-
-  const pendingCount = interventions.filter((i) => i.status === "pending").length;
-  const lastScan = bets.reduce<string | null>((latest, b) => {
-    if (!b.last_monitored_at) return latest;
-    return !latest || b.last_monitored_at > latest ? b.last_monitored_at : latest;
-  }, null);
+  // Auto-fire scan when navigating from a direction card's "Scan for risks" button.
+  // Waits for CopilotKit to be ready (isLoading === false) before sending.
+  const autoSentRef = useRef(false);
+  useEffect(() => {
+    if (!betId || isLoading || hasMessages || autoSentRef.current) return;
+    autoSentRef.current = true;
+    sendMessage(`Scan direction ${betId} for risks`);
+  }, [betId, isLoading, hasMessages, sendMessage]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -114,7 +110,7 @@ export default function ChatPage() {
       {/* Bet declaration modal */}
       <BetDeclarationModal
         open={showBetModal}
-        workspaceId="default_workspace"
+        workspaceId={workspaceId}
         onClose={() => setShowBetModal(false)}
         onBetDeclared={handleBetDeclared}
       />
@@ -127,106 +123,122 @@ export default function ChatPage() {
         </div>
       )}
 
-      {/* ── HERO MODE — no messages yet and no restored session ── */}
+      {/* ── HERO MODE ── */}
       {!hasMessages && restoredMessages.length === 0 && (
         <div className="flex flex-1 flex-col items-center justify-center px-6">
-          {/* Logo */}
-          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg shadow-indigo-500/25">
-            <Shield size={30} className="text-white" />
-          </div>
-          <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground/90">Aegis</h1>
-          <p className="mt-1.5 max-w-md text-center text-sm text-muted-foreground">
-            Autonomous pre-mortem for your strategic directions. Declare one and I&apos;ll scan it for risks automatically.
-          </p>
 
-          {/* ── Live stat cards ── */}
-          <div className="mt-8 grid w-full max-w-3xl grid-cols-3 gap-3">
-            {/* Active Directions */}
-            <Link
-              href="/workspace/directions"
-              className="glass-panel-subtle flex flex-col gap-1 rounded-xl p-4 transition-all hover:bg-white/35 group"
-            >
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Active Directions</p>
-              <p className="font-heading text-2xl font-bold text-foreground/90 group-hover:text-indigo-600 transition-colors">
-                {betsLoading ? "—" : bets.length}
-              </p>
-              <p className="text-[10px] text-muted-foreground flex items-center gap-1">
-                View all <ArrowRight size={9} />
-              </p>
-            </Link>
-
-            {/* Pending Approvals */}
-            <Link
-              href="/workspace/inbox"
-              className="glass-panel-subtle flex flex-col gap-1 rounded-xl p-4 transition-all hover:bg-white/35 group"
-            >
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Pending Approvals</p>
-              <p className={`font-heading text-2xl font-bold transition-colors ${interventionsLoading ? "text-foreground/90" : pendingCount > 0 ? "text-amber-600" : "text-foreground/90"} group-hover:text-indigo-600`}>
-                {interventionsLoading ? "—" : pendingCount}
-              </p>
-              <p className="text-[10px] text-muted-foreground flex items-center gap-1">
-                {pendingCount > 0 ? "Needs review" : "All clear"} <ArrowRight size={9} />
-              </p>
-            </Link>
-
-            {/* Last Scan */}
-            <div className="glass-panel-subtle flex flex-col gap-1 rounded-xl p-4">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">Last Scan</p>
-              <p className="font-heading text-2xl font-bold text-foreground/90">
-                {betsLoading ? "—" : lastScan ? timeAgo(lastScan) : "Never"}
-              </p>
-              <p className="text-[10px] text-muted-foreground">
-                {lastScan ? "Aegis monitoring" : "Start by scanning a direction"}
-              </p>
+          {/* Logo + headline */}
+          <motion.div
+            className="flex flex-col items-center text-center"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ type: "spring", stiffness: 380, damping: 35 }}
+          >
+            <div className="relative mb-4">
+              <span className="absolute -inset-3 rounded-2xl bg-indigo-500/10 blur-xl" />
+              <div className="relative flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 shadow-xl shadow-indigo-500/30">
+                <Shield size={30} className="text-white" strokeWidth={1.5} />
+              </div>
             </div>
-          </div>
+            <h1 className="font-heading text-3xl font-bold tracking-tight text-foreground/90">Aegis</h1>
+            <p className="mt-2 max-w-sm text-sm text-muted-foreground leading-relaxed">
+              Autonomous pre-mortem for your strategic directions. Declare one and I&apos;ll scan it for risks automatically.
+            </p>
+          </motion.div>
 
-          {/* ── Pipeline status strip ── */}
-          <div className="mt-4 flex w-full max-w-3xl items-center gap-2 rounded-xl border border-white/8 bg-white/4 px-4 py-2.5">
-            <span className="text-[9px] font-semibold uppercase tracking-widest text-white/25 shrink-0 mr-1">Pipeline</span>
-            {PIPELINE_STAGE_NAMES.map(({ key, label, icon: Icon }) => {
-              const liveStage = pipelineState?.stages?.find((s) => s.name === key);
-              const status = liveStage?.status ?? "pending";
-              const dotColor =
-                status === "running" ? "bg-indigo-500 animate-pulse" :
-                status === "complete" ? "bg-emerald-500" :
-                status === "error" ? "bg-red-500" :
-                "bg-slate-400/50";
-              return (
-                <div key={key} className="flex items-center gap-1.5 rounded-full bg-white/5 px-2.5 py-1">
-                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${dotColor}`} />
-                  <Icon size={10} className="text-white/30 shrink-0" />
-                  <span className="text-[10px] text-white/50">{label}</span>
+          {/* ── Entry point cards ── */}
+          <AnimatePresence>
+            {shouldShowBrief && brief.data && (
+              <motion.div
+                className="mt-6 w-full max-w-sm"
+                initial={{ opacity: 0, y: -12, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -8, scale: 0.97 }}
+                transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              >
+                <BriefCard brief={brief.data} onDismiss={dismissBrief} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* ── Entry point cards ── */}
+          <motion.div
+            className="mt-8 grid w-full max-w-3xl grid-cols-3 gap-4"
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1, type: "spring", stiffness: 380, damping: 35 }}
+          >
+            {ENTRY_CARDS.map((card) => (
+              <motion.button
+                key={card.title}
+                onClick={() => {
+                  if (card.kind === "send") {
+                    sendMessage(card.prompt);
+                  } else if (card.kind === "navigate") {
+                    router.push(card.href);
+                  } else {
+                    commandBarRef.current?.focus();
+                  }
+                }}
+                disabled={card.kind === "send" && (isLoading || backendHealth === "offline")}
+                className="glass-panel group flex flex-col items-start gap-3 rounded-2xl p-5 text-left transition-shadow hover:shadow-xl hover:shadow-indigo-500/8 disabled:opacity-40"
+                whileHover={{ y: -3 }}
+                transition={{ type: "spring", stiffness: 380, damping: 35 }}
+              >
+                <div className={`flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br ${card.color} shadow-md ${card.glow}`}>
+                  <card.icon size={17} className="text-white" strokeWidth={1.75} />
                 </div>
-              );
-            })}
-          </div>
+                <div>
+                  <p className="text-sm font-semibold text-foreground/85 group-hover:text-foreground/95 transition-colors">{card.title}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{card.description}</p>
+                </div>
+                <span className="mt-auto text-[11px] font-semibold text-indigo-500/80 group-hover:text-indigo-600 transition-colors">
+                  {card.action} →
+                </span>
+              </motion.button>
+            ))}
+          </motion.div>
 
           {/* Quick action chips */}
-          <div className="mt-5 flex flex-wrap justify-center gap-2">
+          <motion.div
+            className="mt-5 flex flex-wrap justify-center gap-2"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.2 }}
+          >
             {QUICK_ACTIONS.map((prompt) => (
-              <button
+              <motion.button
                 key={prompt}
                 onClick={() => sendMessage(prompt)}
                 disabled={isLoading || backendHealth === "offline"}
-                className="glass-panel-subtle flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-medium text-foreground/70 transition-all hover:bg-white/40 hover:text-foreground/90 disabled:opacity-40"
+                className="flex items-center gap-1.5 rounded-full border border-white/35 bg-white/45 px-4 py-2 text-xs font-medium text-foreground/55 backdrop-blur-sm transition-colors hover:border-indigo-200/60 hover:bg-indigo-50/60 hover:text-indigo-600 disabled:opacity-40"
+                whileHover={{ y: -2 }}
+                whileTap={{ scale: 0.97 }}
+                transition={{ type: "spring", stiffness: 380, damping: 35 }}
               >
-                <Sparkles size={11} />
+                <Sparkles size={10} className="text-indigo-400/70" />
                 {prompt}
-              </button>
+              </motion.button>
             ))}
-          </div>
+          </motion.div>
 
-          {/* Command bar — + button opens Direction modal (Perplexity pattern) */}
-          <div className="mt-6 w-full max-w-2xl">
+          {/* Command bar */}
+          <motion.div
+            className="mt-5 w-full max-w-2xl"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.14, type: "spring", stiffness: 380, damping: 35 }}
+          >
             <CommandBar
+              ref={commandBarRef}
               onSend={sendMessage}
               isLoading={isLoading}
               onStop={stopGeneration}
               disabled={backendHealth === "offline"}
               onNewDirection={() => setShowBetModal(true)}
+              hero
             />
-          </div>
+          </motion.div>
         </div>
       )}
 
@@ -236,6 +248,19 @@ export default function ChatPage() {
           {/* Scrollable messages area */}
           <div className="flex-1 overflow-y-auto px-4 py-4">
             <div className="mx-auto max-w-3xl">
+              <AnimatePresence>
+                {shouldShowBrief && brief.data && (
+                  <motion.div
+                    className="mb-4"
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                    transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                  >
+                    <BriefCard brief={brief.data} onDismiss={dismissBrief} />
+                  </motion.div>
+                )}
+              </AnimatePresence>
               <ChatMessages
                 messages={messages}
                 isLoading={isLoading}
