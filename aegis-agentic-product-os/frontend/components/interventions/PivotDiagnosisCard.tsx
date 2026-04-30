@@ -28,6 +28,8 @@ export function PivotDiagnosisCard({
               month: "short",
               day: "numeric",
               year: "numeric",
+              hour: "numeric",
+              minute: "numeric",
             })}
           </p>
         </div>

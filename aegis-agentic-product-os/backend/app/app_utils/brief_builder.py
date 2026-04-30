@@ -1,79 +1,187 @@
+"""Weekly Founder Brief builder — Feature 009.
+
+Pure function: no DB calls, no LLM calls.
+Source: Ben Williams "weekly Impact and Learnings reviews".
+Called by GET /brief endpoint, must complete in <300ms.
+"""
+from __future__ import annotations
+
+import logging
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
-from models.schema import FounderBrief, BriefBetSummary
+
+from models.schema import (
+    BriefBetSummary,
+    BriefMostUrgentIntervention,
+    FounderBrief,
+)
+
+logger = logging.getLogger(__name__)
+
+# Weekly question templates — ordered by priority
+_TEMPLATE_KILL_CRITERIA = (
+    "You committed to \"{condition}\" by {deadline}. What's your next move?"
+)
+_TEMPLATE_CRITICAL = (
+    "\"{bet_name}\" has low conviction (score: {score}). "
+    "Have you exhausted the possibilities, or just gotten tired?"
+)
+_TEMPLATE_STALE = (
+    "It's been {days} days since your last scan. "
+    "What changed since then that you haven't checked on?"
+)
+_TEMPLATE_HEALTHY = (
+    "Your bets all look healthy. What assumption are you most confident about right now? "
+    "Which one scares you most?"
+)
+_TEMPLATE_DEFAULT = (
+    "If you could only move one bet forward meaningfully this week, which would it be and why?"
+)
+_TEMPLATE_EMPTY = "Declare your first strategic direction to get started."
 
 
-_TEMPLATE_KILL_CRITERIA = "Kill criteria triggered for '{condition}'. This bet was committed to archive by {deadline}."
-_TEMPLATE_CRITICAL = "Low conviction detected on {bet_name} ({score}/100). Is the hypothesis still valid?"
-_TEMPLATE_STALE = "No scans have run for {days} days. Is the workspace data current?"
-_TEMPLATE_HEALTHY = "All directions are showing healthy progress this week."
-_TEMPLATE_DEFAULT = "What is the biggest risk to your current product strategy?"
+def _monday_label(now: datetime) -> str:
+    """Return 'Week of April 28, 2026' for the current ISO week's Monday."""
+    days_since_monday = now.weekday()  # Monday=0, Sunday=6
+    monday = now - timedelta(days=days_since_monday)
+    return f"Week of {monday.strftime('%B %-d, %Y')}"
 
 
 def build_founder_brief(
     workspace_id: str,
-    bets: List[dict],
-    interventions: List[dict],
-    now: Optional[datetime] = None,
+    bets: list[dict],
+    snapshots_by_bet: dict[str, list[dict]],  # bet_id → [snapshot dicts], sorted newest first
+    interventions: list[dict],
 ) -> FounderBrief:
-    """Synthesize a Founder Brief artifact from workspace state."""
-    if now is None:
-        now = datetime.now(timezone.utc)
+    """Build a FounderBrief from pre-loaded workspace data.
 
-    week_label = f"Week of {now.strftime('%b %d')}"
+    Args:
+        workspace_id: The workspace to build for.
+        bets: All active bets for the workspace (list of dicts).
+        snapshots_by_bet: Dict mapping bet_id to a list of snapshot dicts,
+            sorted newest-first. May be empty.
+        interventions: All interventions for the workspace (list of dicts).
 
-    summaries = []
-    improving = []
-    at_risk = []
-    conviction_totals = []
+    Returns:
+        FounderBrief value object (immutable).
+    """
+    now = datetime.now(timezone.utc)
+    week_label = _monday_label(now)
 
-    # Map interventions by bet_id
-    bet_ints = {}
-    for i in interventions:
-        bid = i.get("bet_id")
-        if bid not in bet_ints:
-            bet_ints[bid] = []
-        bet_ints[bid].append(i)
+    if not bets:
+        return FounderBrief(
+            workspace_id=workspace_id,
+            generated_at=now.isoformat(),
+            week_label=week_label,
+            bets_improving=[],
+            bets_at_risk=[],
+            pending_intervention_count=0,
+            most_urgent_intervention=None,
+            weekly_question=_TEMPLATE_EMPTY,
+            total_bets=0,
+            avg_conviction=None,
+            scans_this_week=0,
+        )
+
+    # ── Build BriefBetSummary for each bet ──────────────────────────────────
+    summaries: list[BriefBetSummary] = []
+    conviction_totals: list[float] = []
+
+    one_week_ago = now - timedelta(days=7)
 
     for bet in bets:
-        bid = bet["id"]
-        ints = bet_ints.get(bid, [])
-        pending = [i for i in ints if i.status == "pending"]
+        bet_id = bet["id"]
+        bet_name = bet.get("name", "Unnamed bet")
+        snaps = snapshots_by_bet.get(bet_id, [])
 
-        # Health/Conviction
-        # For now, we use the conviction_score if present, or compute it
-        from .conviction_scoring import compute_conviction_score
-        score_obj = compute_conviction_score(bet)
-        conviction_totals.append(score_obj.total)
+        # Latest snapshot
+        latest = snaps[0] if snaps else None
+        latest_cs_total: float | None = None
+        latest_level = "nascent"
 
-        summary = BriefBetSummary(
-            bet_id=bid,
-            bet_name=bet["name"],
-            conviction_total=score_obj.total,
-            conviction_level=score_obj.level,
-            risk_count=len(pending),
-            kill_criteria_status=bet.get("kill_criteria", {}).get("status", "pending"),
-            kill_criteria_condition=bet.get("kill_criteria", {}).get("condition"),
+        if latest:
+            cs = latest.get("conviction_score") or {}
+            if cs:
+                latest_cs_total = cs.get("total")
+                latest_level = cs.get("level", "nascent")
+                if latest_cs_total is not None:
+                    conviction_totals.append(latest_cs_total)
+
+        # Prior-week snapshot for delta
+        prior_cs_total: float | None = None
+        for snap in snaps[1:]:
+            try:
+                cap = datetime.fromisoformat(snap.get("captured_at", ""))
+                if cap.tzinfo is None:
+                    cap = cap.replace(tzinfo=timezone.utc)
+                if cap <= one_week_ago:
+                    prior_cs = snap.get("conviction_score") or {}
+                    prior_cs_total = prior_cs.get("total") if prior_cs else None
+                    break
+            except (ValueError, TypeError):
+                continue
+
+        conviction_delta: float | None = None
+        if latest_cs_total is not None and prior_cs_total is not None:
+            conviction_delta = round(latest_cs_total - prior_cs_total, 1)
+
+        # Kill criteria status
+        kc = bet.get("kill_criteria") or {}
+        kc_status: str | None = kc.get("status") if kc else None
+        kc_condition: str | None = kc.get("condition") if kc else None
+
+        summaries.append(BriefBetSummary(
+            bet_id=bet_id,
+            bet_name=bet_name,
+            conviction_delta=conviction_delta,
+            conviction_level=latest_level,  # type: ignore[arg-type]
+            conviction_total=latest_cs_total or 0.0,
+            kill_criteria_status=kc_status,  # type: ignore[arg-type]
+            kill_criteria_condition=kc_condition,
+        ))
+
+    # ── bets_improving ──────────────────────────────────────────────────────
+    improving = sorted(
+        [s for s in summaries if s.conviction_delta is not None and s.conviction_delta > 0],
+        key=lambda s: s.conviction_delta or 0,
+        reverse=True,
+    )[:3]
+
+    # ── bets_at_risk ────────────────────────────────────────────────────────
+    at_risk_raw = [
+        s for s in summaries
+        if s.conviction_level == "critical" or s.kill_criteria_status == "triggered"
+    ]
+    # Sort: triggered kill criteria first, then by conviction ascending
+    at_risk = sorted(
+        at_risk_raw,
+        key=lambda s: (
+            0 if s.kill_criteria_status == "triggered" else 1,
+            s.conviction_total,
+        ),
+    )[:3]
+
+    # ── pending interventions ───────────────────────────────────────────────
+    pending = [i for i in interventions if i.get("status") == "pending"]
+    pending_count = len(pending)
+
+    most_urgent: BriefMostUrgentIntervention | None = None
+    if pending:
+        _sev_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        sorted_pending = sorted(
+            pending,
+            key=lambda i: _sev_order.get(i.get("severity", "low"), 3),
         )
-        summaries.append(summary)
+        top = sorted_pending[0]
+        risk_signal = top.get("risk_signal") or {}
+        most_urgent = BriefMostUrgentIntervention(
+            id=top["id"],
+            bet_name=top.get("bet_name", "Unknown bet"),
+            action_type=top.get("action_type", "clarify_bet"),  # type: ignore[arg-type]
+            severity=risk_signal.get("severity", "medium"),  # type: ignore[arg-type]
+            headline=risk_signal.get("headline", top.get("title", "")),
+        )
 
-        if score_obj.level in ("strong", "developing") and not pending:
-            improving.append(summary)
-        else:
-            at_risk.append(summary)
-
-    # ── urgency ─────────────────────────────────────────────────────────────
-    pending_all = [i for i in interventions if i.status == "pending"]
-    pending_count = len(pending_all)
-    most_urgent = None
-    if pending_all:
-        # Sort by severity
-        sev_map = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-        pending_all.sort(key=lambda x: sev_map.get(x.get("risk_signal", {}).get("severity"), 99))
-        u = pending_all[0]
-        most_urgent = f"{u.get('risk_signal', {}).get('risk_type', 'Strategy')} risk on {next((b['name'] for b in bets if b['id'] == u.get('bet_id')), 'Bet')}"
-
-    # ── question ────────────────────────────────────────────────────────────
+    # ── weekly question selection ────────────────────────────────────────────
     weekly_question = _select_weekly_question(bets, summaries, now)
 
     # ── avg conviction ──────────────────────────────────────────────────────
